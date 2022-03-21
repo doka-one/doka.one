@@ -1,0 +1,37 @@
+
+SET search_path = "fs_f1248fab", pg_catalog;
+
+DROP TABLE FILE_REFERENCE CASCADE;
+
+CREATE TABLE FILE_REFERENCE
+  (
+    ID              BIGSERIAL NOT NULL ,
+    FILE_REF		CHARACTER VARYING (50) NOT NULL ,
+    MIME_TYPE       CHARACTER VARYING (256) ,
+    CHECKSUM        CHARACTER VARYING (64),
+	ORIGINAL_FILE_SIZE  BIGINT,
+    ENCRYPTED_FILE_SIZE BIGINT,
+    TOTAL_PART          INTEGER
+  );
+ALTER TABLE FILE_REFERENCE ADD CONSTRAINT FILE_REFERENCE_PK PRIMARY KEY ( ID ) ;
+ALTER TABLE FILE_REFERENCE ADD CONSTRAINT FILE_REFERENCE_UK UNIQUE ( FILE_REF );
+
+DROP TABLE file_parts;
+
+CREATE TABLE file_parts (
+	id BIGSERIAL NOT NULL,
+	file_reference_id BIGINT NOT NULL,
+	part_number INTEGER NOT NULL,
+	is_encrypted BOOLEAN NOT NULL,
+	is_fulltext_parsed BOOLEAN NOT NULL,
+	is_preview_generated BOOLEAN NOT NULL,
+	part_data TEXT,
+	PRIMARY KEY(id)
+)
+
+-- OK
+
+ALTER TABLE file_parts ADD CONSTRAINT file_reference_id_fk
+      FOREIGN KEY(file_reference_id)
+	  REFERENCES FILE_REFERENCE(id);
+CREATE UNIQUE INDEX ref_part_udx ON file_parts (file_reference_id, part_number);

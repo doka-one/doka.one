@@ -1,0 +1,26 @@
+[workspace]
+
+members = [
+    "commons-error",
+    "commons-pg",
+    "dkcrypto",
+    "dkconfig",
+    "dkdto",
+    "doka-cli",
+    "commons-services",
+    "key-manager",
+    "session-manager",
+    "admin-server",
+    "file-server",
+    "document-server",
+    "doka-api-tests",
+]
+
+[profile.release]
+opt-level = 3
+debug = false
+debug-assertions = false
+incremental = true
+
+[profile.dev]
+incremental = true

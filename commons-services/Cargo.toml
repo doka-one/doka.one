@@ -1,0 +1,26 @@
+[package]
+name = "commons-services"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4.19", features = ["serde"] }
+rocket = "0.4.10"
+serde = "1.0"
+serde_json = "1.0"
+serde_derive = "1.0"
+log = "0.4"
+log4rs = "0.11.0"
+rocket_okapi = "0.5.1"
+okapi = { version = "0.4", features = ["derive_json_schema"] }
+anyhow = "1.0"
+rustc-serialize = "0.3.24"
+
+commons-error = {path="../commons-error"}
+commons-pg = {path="../commons-pg"}
+dkconfig = {path="../dkconfig"}
+dkcrypto = {path="../dkcrypto"}
+dkdto = {path="../dkdto"}
+doka-cli = {path="../doka-cli"}

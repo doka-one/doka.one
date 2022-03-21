@@ -1,0 +1,14 @@
+[package]
+name = "commons-error"
+version = "0.1.0"
+authors = ["dpapin1118 <denis.pro@isd.lu>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+log = "0.4"
+
+[dev-dependencies]
+log4rs = "0.11.0"

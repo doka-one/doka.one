@@ -1,0 +1,96 @@
+# If set, log4rs will scan the file at the specified rate for changes and
+# automatically reconfigure the logger. The input string is parsed by the
+# humantime crate.
+refresh_rate: 30 seconds
+
+# The "appenders" map contains the set of appenders, indexed by their names.
+appenders:
+
+  requests:
+    kind: file
+    path: "log/requests.log"
+
+    filters:
+
+      -
+        # Like appenders, filters are identified by their "kind".
+        kind: threshold
+
+        # The remainder of the configuration is passed along to the
+        # filter's builder, and will vary based on the kind of filter.
+        level: info
+
+    encoder:
+      kind: pattern
+      pattern: "{d} [{t}] \n"
+
+  stdio:
+
+    # All appenders must specify a "kind", which will be used to look up the
+    # logic to construct the appender in the `Deserializers` passed to the
+    # deserialization function.
+    kind: console
+
+    # Filters attached to an appender are specified inside the "filters"
+    # array.
+    filters:
+
+      -
+        # Like appenders, filters are identified by their "kind".
+        kind: threshold
+
+        # The remainder of the configuration is passed along to the
+        # filter's builder, and will vary based on the kind of filter.
+        level: info
+
+    # The remainder of the configuration is passed along to the appender's
+    # builder, and will vary based on the kind of appender.
+    # Appenders will commonly be associated with an encoder.
+    encoder:
+
+      # Like appenders, encoders are identified by their "kind".
+      #
+      # Default: pattern
+      kind: pattern
+
+      # The remainder of the configuration is passed along to the
+      # encoder's builder, and will vary based on the kind of encoder.
+      # pattern: "{d} [{t}] {m}{n}"
+      pattern: "{d} [{t}] "
+
+# The root logger is configured by the "root" map.
+root:
+
+  # The maximum log level for the root logger.
+  #
+  # Default: warn
+  level: info
+
+  # The list of appenders attached to the root logger.
+  #
+  # Default: empty list
+  appenders:
+    - stdio
+    - requests
+
+# The "loggers" map contains the set of configured loggers, indexed by their
+# names.
+loggers:
+
+  main:
+
+    # The maximum log level.
+    #
+    # Default: parent logger's level
+    level: trace
+
+    # The list of appenders attached to the logger.
+    #
+    # Default: empty list
+    appenders:
+      - stdio
+
+    # The additivity of the logger. If true, appenders attached to the logger's
+    # parent will also be attached to this logger.
+    #
+    additive: false

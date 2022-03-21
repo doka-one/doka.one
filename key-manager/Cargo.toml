@@ -1,0 +1,46 @@
+[package]
+name = "key-manager"
+version = "0.1.0"
+authors = ["dpapin1118 <denis.pro@isd.lu>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4.19", features = ["serde"] }
+rocket = "0.4.10"
+serde = "1.0"
+serde_json = "1.0"
+serde_derive = "1.0"
+rs-uuid = "0.3.1"
+log = "0.4"
+log4rs = "0.11.0"
+rocket_okapi = "0.5.1"
+schemars = "0.7"
+okapi = { version = "0.4", features = ["derive_json_schema"] }
+java-properties = "1.2.0"
+obfstr = "0.2"
+anyhow = "1.0"
+
+uuid = "^0.5"
+rust-crypto = "0.2.36"
+rand = "0.7.3"
+rustc-serialize = "0.3.24"
+csv = "1.1.3"
+
+commons-pg = {path="../commons-pg"}
+commons-error = {path="../commons-error"}
+dkconfig = {path="../dkconfig"}
+dkcrypto = {path="../dkcrypto"}
+commons-services = {path= "../commons-services" }
+dkdto = {path="../dkdto"}
+
+# test
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+tokio = { version = "1", features = ["full"] }
+
+[dependencies.rocket_contrib]
+version = "0.4.10"
+default-features = false
+features = ["json","handlebars_templates", "tera_templates"]
+

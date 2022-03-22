@@ -1,13 +1,7 @@
 ECHO OFF
 CLS
 
-SET ROOT_FOLDER="C:\Users\denis\wks-one\target\debug"
-
-REM echo
-REM echo ******************
-REM echo ***** ROBOT ****
-REM echo ******************
-REM start "robot-server" java -jar %ROOT_FOLDER%\robot\robot-server\target\robot-server-1.3-fillim-all.jar
+SET ROOT_FOLDER="C:\Users\denis\wks-doka-one\doka.one\target\debug"
 
 
 echo *************************

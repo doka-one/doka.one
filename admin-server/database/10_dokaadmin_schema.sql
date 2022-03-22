@@ -33,12 +33,12 @@ SET default_with_oids = false;
 --
 
 CREATE TABLE dokaadmin.customer (
-    id serial,
+    id bigserial,
     code character varying(255) NOT NULL, -- Ex : 2fa6a8d8 , used for key manager and database schema
     full_name character varying(255),
     default_language character(3) NOT NULL,
     default_time_zone character varying(50) NOT NULL,
-    is_removable boolean NOT NULL DEFAULT false,
+    is_removable boolean NOT NULL DEFAULT false
 );
 
 ALTER TABLE ONLY dokaadmin.customer
@@ -52,7 +52,7 @@ ALTER TABLE ONLY dokaadmin.customer
 --
 
 CREATE TABLE dokaadmin.appuser (
-    id serial NOT NULL,
+    id bigserial NOT NULL,
     login character varying(255) NOT NULL, -- email address of the user
     full_name character varying(255),
     password_hash character varying(255) NOT NULL,

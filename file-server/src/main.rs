@@ -222,11 +222,10 @@ fn empty_datastream(reader : &mut dyn Read) {
 ///
 ///
 ///
-fn create_file_reference(r_cnx : &mut anyhow::Result<SQLConnection>) -> anyhow::Result<(i64, String)> {
+fn create_file_reference(r_cnx : &mut anyhow::Result<SQLConnection>, customer_code: &str) -> anyhow::Result<(i64, String)> {
 
     let mut trans = open_transaction(r_cnx).map_err(err_fwd!("Open transaction error"))?;
     let file_ref = uuid_v4();
-    let customer_code = "f1248fab";
 
     let sql_query = format!(r"INSERT INTO fs_{}.file_reference
     ( file_ref, mime_type,  checksum, original_file_size,  encrypted_file_size,  total_part )
@@ -258,13 +257,14 @@ fn create_file_reference(r_cnx : &mut anyhow::Result<SQLConnection>) -> anyhow::
 ///
 ///
 ///
-fn update_file_reference(r_cnx : &mut anyhow::Result<SQLConnection>, file_id : i64, total_size: usize, total_part: u32) -> anyhow::Result<()> {
+fn update_file_reference(r_cnx : &mut anyhow::Result<SQLConnection>,
+                         file_id : i64,
+                         total_size: usize,
+                         total_part: u32,
+                         customer_code: &str) -> anyhow::Result<()> {
 
     // TODO check where the file_ref is actually created and stored ...
-
     let mut trans = open_transaction(r_cnx).map_err(err_fwd!("Open transaction error"))?;
-    //let file_ref = uuid_v4();
-    let customer_code = "f1248fab";
 
     let sql_query = format!(r"UPDATE fs_{}.file_reference
     SET original_file_size = :p_original_file_size, total_part = :p_total_part
@@ -348,7 +348,7 @@ pub fn upload(file_data: Data, session_token : SessionToken) -> Json<UploadReply
     // Create an entry in file_reference
     let mut r_cnx = SQLConnection::new();
 
-    let ( file_id, file_ref ) = match create_file_reference(&mut r_cnx)
+    let ( file_id, file_ref ) = match create_file_reference(&mut r_cnx, customer_code)
             .map_err(err_fwd!("Cannot create an entry in the file reference table")) {
         Ok(x) => x,
         Err(e) => {
@@ -452,7 +452,7 @@ pub fn upload(file_data: Data, session_token : SessionToken) -> Json<UploadReply
     });
 
     // Update the file_reference table : checksum, original_file_size, total_part
-    if update_file_reference(&mut r_cnx, file_id, original_file_size, block_num)
+    if update_file_reference(&mut r_cnx, file_id, original_file_size, block_num, customer_code)
         .map_err(err_fwd!("Cannot create an entry in the file reference table")).is_err() {
             return internal_database_error_reply;
     }
@@ -818,7 +818,7 @@ mod test {
     fn test_parse_content() -> anyhow::Result<()> {
         init_test();
         let mem_file: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/big_planet.pdf")?;
-        let ret = parse_content("0f373b54-5dbb-4c75-98e7-98fd141593dc", mem_file, "MY_SID")?;
+        let ret = parse_content("0f373b54-5dbb-4c75-98e7-98fd141593dc", mem_file, "f1248fab", "MY_SID")?;
         Ok(())
     }
 

@@ -21,6 +21,10 @@ uuid = "^0.5"
 rustc-serialize = "0.3.24"
 lazy_static = "1.4.0"
 mut_static = "5.0.0"
+# For direct connection to the cs and fs database
+postgres = { version = "0.19.1", features = ["with-chrono-0_4"] }
+postgres-types = "0.2.2"
+
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}

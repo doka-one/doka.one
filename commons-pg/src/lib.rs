@@ -62,6 +62,7 @@ pub struct SQLConnection {
 }
 
 impl SQLConnection {
+
     pub fn new() -> anyhow::Result<SQLConnection> {
         let pool = SQL_POOL.read().map_err(err_fwd!("*")).unwrap();
 

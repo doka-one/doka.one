@@ -7,7 +7,7 @@ DROP TABLE IF EXISTS dokasys.sessions CASCADE;
 
 CREATE TABLE dokasys.sessions
 (
-    id SERIAL,
+    id BIGSERIAL,
     customer_code varchar(100) NOT NULL,
     customer_id bigint NOT NULL,
     user_name varchar(100) NOT NULL,

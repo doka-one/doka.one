@@ -1,6 +1,8 @@
 #![feature(proc_macro_hygiene, decl_macro)]
-mod schema;
+mod schema_cs;
+mod schema_fs;
 mod dk_password;
+mod create_customer;
 
 use std::path::Path;
 use std::process::exit;
@@ -9,6 +11,7 @@ use rocket::*;
 use rocket_contrib::json::Json;
 use dkconfig::conf_reader::{read_config};
 use std::collections::HashMap;
+
 use commons_error::*;
 use rocket_contrib::templates::Template;
 use rocket::config::Environment;
@@ -22,49 +25,14 @@ use commons_services::token_lib::SecurityToken;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkcrypto::dk_crypto::DkEncrypt;
 
-use dkdto::{OpenSessionRequest, JsonErrorSet, CreateCustomerRequest, CreateCustomerReply, AddKeyRequest, LoginRequest, LoginReply};
+use dkdto::{OpenSessionRequest, JsonErrorSet, LoginRequest, LoginReply};
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_PASSWORD, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
 use dkdto::error_replies::ErrorReply;
-use doka_cli::request_client::{KeyManagerClient, SessionManagerClient};
-use doka_cli::request_client::TokenType::Token;
-use crate::schema::DK_SCHEMA;
+use doka_cli::request_client::{ SessionManagerClient};
+
 use crate::dk_password::valid_password;
-
-
-///
-/// Check if the customer code is not taken (true if it is not)
-///
-fn check_code_not_taken(mut trans : &mut SQLTransaction, customer_code : &str) -> anyhow::Result<bool> {
-    log_info!("Customer code, [{}]", customer_code);
-
-    let p_customer_code = CellValue::from_raw_string(customer_code.to_owned());
-
-    log_info!("Cell customer code, [{:?}]", &p_customer_code);
-
-    let mut params = HashMap::new();
-    params.insert("p_customer_code".to_owned(), p_customer_code);
-
-    log_info!("Params, [{:?}]", &params);
-
-    let sql_query = r#" SELECT 1 FROM dokaadmin.customer WHERE code = :p_customer_code"#.to_owned();
-
-    let query = SQLQueryBlock {
-        sql_query,
-        params,
-        start : 0,
-        length : Some(1),
-    };
-
-    let sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
-
-    Ok(sql_result.len() == 0)
-}
-
-fn generate_schema_script(customer_code : &str) -> String {
-    let template = DK_SCHEMA.to_string();
-    let script = template.replace("{customer_schema}", format!("cs_{}", customer_code).as_str() );
-    script
-}
+use crate::schema_fs::FS_SCHEMA;
+use crate::schema_cs::CS_SCHEMA;
 
 
 #[post("/login", format = "application/json", data = "<login_request>")]
@@ -173,183 +141,7 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     })
 }
 
-///
-/// Create a brand new customer with schema and all
-///
-#[post("/customer", format = "application/json", data = "<customer_request>")]
-fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken) -> Json<CreateCustomerReply> {
-    dbg!(&customer_request);
 
-    // Check if the token is valid
-    if !security_token.is_valid() {
-        return Json(CreateCustomerReply {
-            customer_code: "".to_string(),
-            customer_id : 0,
-            admin_user_id : 0,
-            status: JsonErrorSet::from(INVALID_TOKEN),
-        });
-    }
-
-    let token = security_token.take_value();
-
-    log_info!("🚀 Start create_customer api, token={}", &token);
-
-    let internal_database_error_reply = Json(CreateCustomerReply {
-        customer_code: "".to_string(),
-        customer_id : 0,
-        admin_user_id : 0,
-        status : JsonErrorSet::from(INTERNAL_DATABASE_ERROR) });
-
-    let internal_technical_error = Json(CreateCustomerReply {
-        customer_code: "".to_string(),
-        customer_id : 0,
-        admin_user_id : 0,
-        status : JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR) });
-
-    // Check password validity
-
-    // | length >= 8  + 1 symbol + 1 digit + 1 capital letter
-    // | All chars are symbol OR [0-9, a-z, A-Z]
-    if !valid_password(&customer_request.admin_password) {
-        return Json(CreateCustomerReply {
-            customer_code: "".to_string(),
-            customer_id : 0,
-            admin_user_id : 0,
-            status : JsonErrorSet::from(INVALID_PASSWORD) });
-    };
-
-    log_info!("Valid password");
-
-    // Open the transaction
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    // Generate the customer code
-    let customer_code: String;
-    loop {
-        let big_code  = uuid_v4();
-        let code_parts : Vec<&str> = big_code.split('-').collect();
-        let customer_code_str = *code_parts.get(0).unwrap();
-
-        dbg!(customer_code_str);
-
-        // Verify if the customer code is unique in the table (loop)
-
-        if check_code_not_taken(&mut trans, customer_code_str).unwrap() {
-            customer_code = String::from(customer_code_str);
-            break;
-        }
-    }
-
-    log_info!("Customer code not taken, [{}]", &customer_code);
-
-    // Create the schema (TODO make it via a service decoupled from the dokaadmin db)
-
-    // Run the commands to create the tables & co
-    let batch_script = generate_schema_script(&customer_code);
-
-    let batch = SQLChange {
-        sql_query : batch_script,
-        params : HashMap::new(),
-        sequence_name : "".to_owned(),
-    };
-
-    if let Err(e) = batch.batch(&mut trans) {
-        log_error!("Schema batch failed, error [{}]", e);
-        return internal_database_error_reply;
-    }
-
-    // Call the "key-manager" micro-service to create a secret master key
-    let add_key_request = AddKeyRequest {
-        customer_code : customer_code.clone(),
-    };
-
-    let km_host = get_prop_value("km.host");
-    let km_port : u16= get_prop_value("km.port").parse().unwrap();
-    let kmc = KeyManagerClient::new( &km_host, km_port );
-    let response = kmc.add_key(&add_key_request, Token(&token) );
-
-    if ! response.success {
-        log_error!("Key Manager failed with status [{:?}]", response.status);
-        return internal_technical_error;
-    }
-
-    // dbg!(&response);
-
-    // Insert the customer in the table
-
-    let mut params : HashMap<String, CellValue> = HashMap::new();
-    params.insert("p_code".to_owned(), CellValue::from_raw_string(customer_code.clone()));
-    params.insert("p_full_name".to_owned(), CellValue::from_raw_string(customer_request.customer_name.clone()));
-    params.insert("p_default_language".to_owned(), CellValue::from_raw_string("ENG".to_owned()));
-    params.insert("p_default_time_zone".to_owned(), CellValue::from_raw_string("Europe/Paris".to_owned()));
-
-    let sql_insert = SQLChange {
-        sql_query: r#"INSERT INTO dokaadmin.customer (code, full_name, default_language, default_time_zone)
-                        VALUES (:p_code, :p_full_name, :p_default_language, :p_default_time_zone) "#.to_string(),
-        params,
-        sequence_name: "dokaadmin.customer_id_seq".to_string(),
-    };
-
-    let customer_id = match sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new customer failed")) {
-        Ok(x) => {x}
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
-
-    dbg!(customer_id);
-
-    // Insert the admin user in the table
-
-    // | Compute the hashed password
-    let password_hash = DkEncrypt::hash_password(&customer_request.admin_password);
-
-    let mut params : HashMap<String, CellValue> = HashMap::new();
-    params.insert("p_login".to_owned(), CellValue::from_raw_string(customer_request.email.clone()));
-    params.insert("p_full_name".to_owned(), CellValue::from_raw_string(customer_request.email.clone()));
-    params.insert("p_password_hash".to_owned(), CellValue::from_raw_string(password_hash.clone()));
-    params.insert("p_default_language".to_owned(), CellValue::from_raw_string("ENG".to_owned()));
-    params.insert("p_default_time_zone".to_owned(), CellValue::from_raw_string("Europe/Paris".to_owned()));
-    params.insert("p_admin".to_owned(), CellValue::from_raw_bool(true));
-    params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(customer_id));
-
-    let sql_insert = SQLChange {
-        sql_query: r#"INSERT INTO dokaadmin.appuser(
-        login, full_name, password_hash, default_language, default_time_zone, admin, customer_id)
-        VALUES (:p_login, :p_full_name, :p_password_hash, :p_default_language, :p_default_time_zone, :p_admin, :p_customer_id)"#.to_string(),
-        params,
-        sequence_name: "dokaadmin.appuser_id_seq".to_string(),
-    };
-
-    let user_id = match sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new admin user failed")) {
-        Ok(x) => {x}
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
-
-    dbg!(user_id);
-
-    // Close the transaction
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
-    }
-
-    log_info!("😎 Customer created with success");
-
-    log_info!("🏁 End create_customer, token_id = {}", &token);
-
-    Json(CreateCustomerReply {
-        customer_code,
-        customer_id,
-        admin_user_id : user_id,
-        status: JsonErrorSet::from(SUCCESS),
-    })
-}
 
 fn search_customer( trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<i64> {
     let mut params = HashMap::new();
@@ -620,8 +412,11 @@ fn main() {
 
     let base_url = format!("/{}", PROJECT_CODE);
 
+    // let a = create_customer::create_customer();
+
     let _ = rocket::custom(my_config)
-        .mount(&base_url, routes![set_removable_flag_customer, delete_customer, create_customer, login])
+        .mount(&base_url, routes![set_removable_flag_customer, delete_customer,
+            create_customer::create_customer, login])
         .attach(Template::fairing())
         .launch();
 

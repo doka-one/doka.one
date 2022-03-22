@@ -312,9 +312,6 @@ impl KeyManagerClient {
                 };
             },
         };
-
-        dbg!(&reply);
-
         reply
     }
 
@@ -333,7 +330,6 @@ impl KeyManagerClient {
                 };
             },
         };
-        dbg!(&reply);
         reply
     }
 
@@ -368,7 +364,6 @@ impl SessionManagerClient {
                 };
             },
         };
-        dbg!(&reply);
         reply
     }
 
@@ -389,7 +384,6 @@ impl SessionManagerClient {
                 };
             },
         };
-        dbg!(&reply);
         reply
     }
 
@@ -427,7 +421,6 @@ impl AdminServerClient {
                 };
             },
         };
-        dbg!(&reply);
         reply
     }
 
@@ -443,7 +436,6 @@ impl AdminServerClient {
                 return  JsonErrorSet::from(HTTP_CLIENT_ERROR);
             },
         };
-        dbg!(&reply);
         reply
     }
 
@@ -467,7 +459,6 @@ impl AdminServerClient {
                 };
             },
         };
-        dbg!(&reply);
         reply
     }
 }
@@ -527,7 +518,6 @@ impl DocumentServerClient {
                 };
             },
         };
-        dbg!(&reply);
         reply
     }
 

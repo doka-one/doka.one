@@ -205,6 +205,7 @@ fn add_key(customer: Json<AddKeyRequest>, security_token: SecurityToken) -> Json
         sequence_name : "keymanager.customer_keys_id_seq".to_string(),
     };
 
+    // TODO Handles the failure error !!!
     let _ = query.insert(&mut trans);
 
     if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {

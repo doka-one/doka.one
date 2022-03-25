@@ -127,6 +127,7 @@ pub struct OpenSessionRequest {
     pub customer_id : i64,
     pub user_id : i64,
     pub session_id : String,
+    pub tracker : Option<i32>,
 }
 
 // { customer_name, [<key-info>] }

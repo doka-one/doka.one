@@ -22,6 +22,7 @@ use commons_services::database_lib::open_transaction;
 use commons_services::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
+use commons_services::tracker::{TwinId, TrackerId};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkcrypto::dk_crypto::DkEncrypt;
 
@@ -34,30 +35,37 @@ use crate::dk_password::valid_password;
 use crate::schema_fs::FS_SCHEMA;
 use crate::schema_cs::CS_SCHEMA;
 
-
 #[post("/login", format = "application/json", data = "<login_request>")]
 fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
 
     // There isn't any token to check
+    let tracker_id = TrackerId::new();
+    log_info!("🚀 Start login api, login=[{}], tracker=[{}]", &login_request.login, tracker_id);
 
     // Generate a sessionId
-    let clear_session_id   = uuid_v4();
+    let clear_session_id= uuid_v4();
+
     let cek = get_prop_value("cek");
-    let session_id = match DkEncrypt::encrypt_str(&clear_session_id, &cek).map_err(err_fwd!("Cannot encrypt the session id")) {
+    let session_id = match DkEncrypt::encrypt_str(&clear_session_id, &cek)
+            .map_err(err_fwd!("💣 Cannot encrypt the session id")) {
         Ok(x) => x,
         Err(_) => {
             return Json(LoginReply::invalid_token_error_reply());
         }
     };
 
+    let twin_id = TwinId {
+        session_id,
+        tracker_id
+    };
+
     // Find the user and its company, and grab the hashed password from it.
 
     let internal_database_error_reply: Json<LoginReply> = Json(LoginReply::internal_database_error_reply());
-
     let invalid_password_reply: Json<LoginReply> = Json(LoginReply::from_error(INVALID_PASSWORD));
 
     let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
+    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error")) {
         Ok(x) => { x },
         Err(_) => { return internal_database_error_reply; },
     };
@@ -75,7 +83,7 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
         params,
     };
 
-    let mut sql_result : SQLDataSet =  match query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query)) {
+    let mut sql_result : SQLDataSet =  match query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, [{}]", &query.sql_query)) {
         Ok(x) => x,
         Err(_) => {
             return internal_database_error_reply;
@@ -95,28 +103,31 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
             let user_name: String = sql_result.get_string("user_name").unwrap_or("".to_owned());
             let _company_name: String = sql_result.get_string("company_name").unwrap_or("".to_owned());
 
+            log_info!("Found user information for user, login=[{}], user id=[{}], customer id=[{}]", &login_request.login, user_id, customer_id);
+
             (OpenSessionRequest {
                 customer_code,
                 user_name,
                 customer_id,
                 user_id,
-                session_id,
+                session_id : twin_id.session_id.clone(),
+                tracker : tracker_id.value(),
             }, password_hash )
         }
         _ => {
-            log_warn!("login not found, login=[{}]", &login_request.login);
+            log_warn!("⛔ login not found, login=[{}]", &login_request.login);
             return internal_database_error_reply;
         }
     };
 
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+    if trans.commit().map_err(err_fwd!("💣 Commit failed")).is_err() {
         return internal_database_error_reply;
     }
 
     // Verify the password
 
     if ! DkEncrypt::verify_password(&login_request.password, &password_hash) {
-        log_warn!("Incorrect password for login, login=[{}]", &login_request.login);
+        log_warn!("💣 Incorrect password for login, login=[{}]", &login_request.login);
         return invalid_password_reply;
     }
 
@@ -128,15 +139,21 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     let response = smc.open_session(&open_session_request, &open_session_request.session_id);
 
     if response.status.error_code != 0 {
-        log_error!("Session Manager failed with status [{:?}]", response.status);
+        log_error!("💣 Session Manager failed with status [{:?}]", response.status);
         return Json(LoginReply{
             session_id : "".to_string(),
             status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
         });
     }
 
+    let session_id = open_session_request.session_id.clone();
+
+    log_info!("😎 Login with success, twin_id=[{}]", &twin_id);
+
+    log_info!("🏁 End login api, login=[{}]", &login_request.login);
+
     Json(LoginReply{
-        session_id : open_session_request.session_id.clone(),
+        session_id,
         status: JsonErrorSet::from(SUCCESS),
     })
 }

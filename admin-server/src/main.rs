@@ -13,7 +13,6 @@ use rocket::*;
 use rocket_contrib::json::Json;
 use dkconfig::conf_reader::{read_config};
 use std::collections::HashMap;
-use guard::guard;
 
 use commons_error::*;
 use rocket_contrib::templates::Template;
@@ -38,20 +37,7 @@ use crate::dk_password::valid_password;
 use crate::schema_fs::FS_SCHEMA;
 use crate::schema_cs::CS_SCHEMA;
 
-///
-/// * Generate a x_request_id
-/// * Generate a session id
-/// * Looking for the user / customer in the db
-/// * Validate the password
-/// * Register a session (end point)
-/// * Return the session_id (encrypted)
-///
-/// The security here is ensured by the user/password verification
-/// The DDoS or Brute Force attack must be handle by the network architecture
-///
-#[post("/login", format = "application/json", data = "<login_request>")]
-fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
-
+fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     // There isn't any token to check
     let x_request_id = XRequestID::new();
     log_info!("🚀 Start login api, login=[{}], x_request_id=[{}]", &login_request.login, x_request_id);
@@ -65,11 +51,10 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
 
     let cek = get_prop_value("cek");
 
-    // let-else does not work with rocket ! :(
-    let r_session_id = DkEncrypt::encrypt_str(&clear_session_id, &cek).map_err(err_fwd!("💣 Cannot encrypt the session id"));
-    guard!(let Ok(session_id) = r_session_id else {
+    // let-else
+    let Ok(session_id) = DkEncrypt::encrypt_str(&clear_session_id, &cek).map_err(err_fwd!("💣 Cannot encrypt the session id")) else {
             return Json(LoginReply::invalid_token_error_reply());
-    });
+    };
 
     // The twin id is an easiest way to pass the information
     // between local routines
@@ -84,11 +69,11 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     let invalid_password_reply: Json<LoginReply> = Json(LoginReply::from_error(INVALID_PASSWORD));
 
     let mut r_cnx = SQLConnection::new();
-    // let-else does not work with rocket ! :(
+    // let-else
     let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error"));
-    guard!(let Ok(mut trans) = r_trans else {
+    let Ok(mut trans) = r_trans else {
          return internal_database_error_reply;
-    });
+    };
 
     let mut params = HashMap::new();
     params.insert("p_login".to_owned(), CellValue::from_raw_string(login_request.login.clone()));
@@ -103,11 +88,11 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
         params,
     };
 
-    // let-else does not work with rocket :(
+    // let-else
     let r_sql_result = query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, [{}]", &query.sql_query));
-    guard!(let Ok(mut sql_result) = r_sql_result else {
+    let Ok(mut sql_result) = r_sql_result else {
             return internal_database_error_reply;
-    });
+    };
 
     let (open_session_request, password_hash) = match sql_result.next() {
         true => {
@@ -177,6 +162,22 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
         session_id,
         status: JsonErrorSet::from(SUCCESS),
     })
+}
+
+///
+/// * Generate a x_request_id
+/// * Generate a session id
+/// * Looking for the user / customer in the db
+/// * Validate the password
+/// * Register a session (end point)
+/// * Return the session_id (encrypted)
+///
+/// The security here is ensured by the user/password verification
+/// The DDoS or Brute Force attack must be handle by the network architecture
+///
+#[post("/login", format = "application/json", data = "<login_request>")]
+fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
+    login_delegate(login_request)
 }
 
 

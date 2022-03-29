@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::f32::MAX;
 use serde::{Serialize, Deserialize};
 use std::fmt::{Display, Formatter};
 use rand::Rng;

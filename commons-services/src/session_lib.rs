@@ -6,12 +6,6 @@ use dkdto::EntrySession;
 use doka_cli::request_client::{SessionManagerClient};
 
 use std::fmt::{Display, Formatter};
-use rand::Rng;
-use crate::token_lib::SessionToken;
-use crate::x_request_id::XRequestID;
-
-
-
 
 pub fn fetch_entry_session(sid : &str) -> anyhow::Result<EntrySession> {
     let sm_host = get_prop_value("sm.host");

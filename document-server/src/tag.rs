@@ -1,7 +1,5 @@
-#![feature(let_else)]
 
 use std::collections::HashMap;
-use guard::guard;
 use commons_services::token_lib::SessionToken;
 use rocket::{get,post, delete};
 use rocket_contrib::json::Json;
@@ -316,11 +314,7 @@ pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<Json
 
 }
 
-///
-/// Create a new tag
-///
-#[post("/tag", format = "application/json", data = "<add_tag_request>")]
-pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> Json<AddTagReply> {
+fn add_tag_delegate(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> Json<AddTagReply> {
     dbg!(&add_tag_request);
     // Check if the token is valid
     if !session_token.is_valid() {
@@ -362,9 +356,9 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
 
     // Open the transaction
     let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
+    let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error"));
+    let Ok(mut trans) = r_trans else {
+         return internal_database_error_reply;
     };
 
     let sql_query = format!( r"INSERT INTO cs_{}.tag_definition(name, string_tag_length, default_value, type)
@@ -388,11 +382,9 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
         sequence_name,
     };
 
-
-    let r_tag_id = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new item failed"));
-    guard!(let Ok(tag_id) = r_tag_id else {
+    let Ok(tag_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new item failed")) else {
         return internal_database_error_reply;
-    });
+    };
 
     if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
         return internal_database_error_reply;
@@ -404,6 +396,14 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
         tag_id,
         status: JsonErrorSet::from(SUCCESS),
     })
+}
+
+///
+/// Create a new tag
+///
+#[post("/tag", format = "application/json", data = "<add_tag_request>")]
+pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> Json<AddTagReply> {
+    add_tag_delegate(add_tag_request, session_token)
 }
 
 

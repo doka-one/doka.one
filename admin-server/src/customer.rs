@@ -104,11 +104,16 @@ fn warning_fs_schema(customer_code: &str) -> anyhow::Result<()> {
 ///
 #[post("/customer", format = "application/json", data = "<customer_request>")]
 pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, tracker_id: TrackerId) -> Json<CreateCustomerReply> {
-    log_error!("customer_request = [{:?}]", &customer_request);
-    log_error!("tracker id = [{}]", &tracker_id);
+
+
+
+    log_debug!("customer_request = [{:?}]", &customer_request);
+    log_debug!("tracker id = [{}]", &tracker_id);
 
     let tracker_id = tracker_id.new_if_null();
-    log_error!("tracker id = [{}]", &tracker_id);
+    log_debug!("tracker id = [{}]", &tracker_id);
+
+    log_info!("🚀 Start create_customer api, customer name=[{:?}], tracker id=[{}]", &customer_request.customer_name, &tracker_id);
 
     // Check if the token is valid
     if !security_token.is_valid() {
@@ -122,33 +127,19 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         tracker_id
     };
 
-    log_info!("🚀 Start create_customer api, twin_id=[{:?}]", &twin_id);
-
-    let internal_database_error_reply = Json(CreateCustomerReply {
-        customer_code: "".to_string(),
-        customer_id : 0,
-        admin_user_id : 0,
-        status : JsonErrorSet::from(INTERNAL_DATABASE_ERROR) });
-
-    let internal_technical_error = Json(CreateCustomerReply {
-        customer_code: "".to_string(),
-        customer_id : 0,
-        admin_user_id : 0,
-        status : JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR) });
+    log_info!("😎 Security token is valid, twin_id=[{:?}]", &twin_id);
+    let internal_database_error_reply = Json(CreateCustomerReply::internal_database_error_reply());
+    let internal_technical_error = Json(CreateCustomerReply::internal_technical_error_reply());
 
     // Check password validity
 
     // | length >= 8  + 1 symbol + 1 digit + 1 capital letter
     // | All chars are symbol OR [0-9, a-z, A-Z]
     if !valid_password(&customer_request.admin_password) {
-        return Json(CreateCustomerReply {
-            customer_code: "".to_string(),
-            customer_id : 0,
-            admin_user_id : 0,
-            status : JsonErrorSet::from(INVALID_PASSWORD) });
+        return Json(CreateCustomerReply::from_error(INVALID_PASSWORD));
     };
 
-    log_info!("User password is compliant");
+    log_info!("😎 User password is compliant, twin_id=[{:?}]", &twin_id);
 
     // Open the transaction
     let mut r_cnx = SQLConnection::new();
@@ -171,7 +162,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         }
     }
 
-    log_info!("Generated a free customer =, [{}]", &customer_code);
+    log_info!("😎 Generated a free customer=[{}], twin_id=[{:?}]", &customer_code, &twin_id);
 
     // Create the schema
 
@@ -197,6 +188,8 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         return internal_database_error_reply;
     }
 
+    log_info!("😎 Created the CS schema, customer=[{}], twin_id=[{:?}]", &customer_code, &twin_id);
+
     fn run_fs_script(customer_code: &str) -> anyhow::Result<()> {
         // * Open a transaction on the cs database
         let dbi = DbServerInfo::for_fs();
@@ -219,6 +212,8 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         let _ = warning_cs_schema(&customer_code);
         return internal_database_error_reply;
     }
+
+    log_info!("😎 Created the FS schema, customer=[{}], twin_id=[{:?}]", &customer_code, &twin_id);
 
     // Call the "key-manager" micro-service to create a secret master key
     let add_key_request = AddKeyRequest {
@@ -261,7 +256,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         }
     };
 
-    // dbg!(customer_id);
+    log_info!("😎 Inserted new customer, customer id=[{}], twin_id=[{:?}]", customer_id, &twin_id);
 
     // Insert the admin user in the table
 
@@ -294,7 +289,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         }
     };
 
-    // dbg!(user_id);
+    log_info!("😎 Inserted new user, user id=[{}], twin_id=[{:?}]", user_id, &twin_id);
 
     // Close the transaction
     if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
@@ -303,7 +298,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         return internal_database_error_reply;
     }
 
-    log_info!("😎 Customer created with success, twin_id=[{:?}]", &twin_id);
+    log_info!("😎 Committed. Customer created with success, twin_id=[{:?}]", &twin_id);
 
     log_info!("🏁 End create_customer, twin_id=[{:?}]", &twin_id);
 

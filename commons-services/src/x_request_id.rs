@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::f32::MAX;
 use serde::{Serialize, Deserialize};
 use std::fmt::{Display, Formatter};
@@ -8,22 +9,22 @@ use commons_error::*;
 use doka_cli::request_client::TokenType;
 
 #[derive(Serialize, Deserialize, Debug,Copy,Clone)]
-pub struct TrackerId(Option<u32>);
+pub struct XRequestID(Option<u32>);
 
-impl TrackerId {
+impl XRequestID {
     pub fn new() -> Self {
-        TrackerId(Some(Self::generate()))
+        XRequestID(Some(Self::generate()))
     }
     pub fn from_value(val : Option<u32>) -> Self {
-        TrackerId(val)
+        XRequestID(val)
     }
     pub fn value(&self) -> Option<u32> {
         self.0
     }
 
-    /// Regenerate a tracker id if none
+    /// Regenerate a x_request_id if none
     pub fn new_if_null(&self) -> Self {
-        TrackerId(
+        XRequestID(
             Some(self.0.unwrap_or({
                 Self::generate()
             }))
@@ -32,12 +33,11 @@ impl TrackerId {
 
     fn generate() -> u32 {
         let mut rng = rand::thread_rng();
-        let tracker = rng.gen_range(0..1_000_000);
-        tracker
+        rng.gen_range(0..1_000_000)
     }
 }
 
-impl Display for TrackerId {
+impl Display for XRequestID {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             Some(t) => {
@@ -52,35 +52,38 @@ impl Display for TrackerId {
 }
 
 
-impl<'a, 'r> FromRequest<'a, 'r> for TrackerId {
+impl<'a, 'r> FromRequest<'a, 'r> for XRequestID {
     type Error = ();
     fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+        //dbg!(my_request);
         let map = my_request.headers();
 
-        let tracker_id = map.get_one("tracker").map(|t|
-            t.parse().map_err(err_fwd!("Cannot parse the tracker id from the header,set default to 0")).unwrap_or(0u32) );
+        let x_request_id = map.get_one("X-Request-ID").map(|t|
+            t.parse().map_err(err_fwd!("Cannot parse the x_request_id from the header,set default to 0")).unwrap_or(0u32) );
 
-        request::Outcome::Success(TrackerId(tracker_id))
+        request::Outcome::Success(XRequestID(x_request_id))
     }
 }
 
 #[derive(Debug,Clone)]
 pub struct TwinId<'a> {
     pub token_type : TokenType<'a>,
-    pub tracker_id : TrackerId,
+    pub x_request_id: XRequestID,
 }
 
 impl <'a> Display for TwinId<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let tt = match self.token_type {
             TokenType::Token(tok) => {
-                format!("T:{}", tok)
+                let limit = min(tok.len(), 22);
+                format!("T:{}...", &tok[..limit])
             }
             TokenType::Sid(sid) => {
-                format!("S:{}", sid)
+                let limit = min(sid.len(), 22);
+                format!("S:{}...", &sid[..limit])
             }
             TokenType::None => {"".to_string()}
         };
-        write!(f, "({} / {})", self.tracker_id, tt)
+        write!(f, "({} / {})", self.x_request_id, tt)
     }
 }

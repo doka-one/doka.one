@@ -15,7 +15,7 @@ const MAX_HTTP_RETRY: i32 = 5;
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub struct CustomHeaders<'a> {
     token_type : TokenType<'a>,
-    tracker_id : Option<u32>,
+    x_request_id : Option<u32>,
     cek : Option<&'a str>,
 }
 
@@ -111,10 +111,10 @@ impl WebServer {
             }
         };
 
-        let request_builder_3 = match headers.tracker_id {
+        let request_builder_3 = match headers.x_request_id {
             None => {request_builder_2}
-            Some(tracker_id) => {
-                request_builder_2.header("tracker", tracker_id)
+            Some(x_request_id) => {
+                request_builder_2.header("X-Request-ID", x_request_id)
             }
         };
 
@@ -330,7 +330,7 @@ impl KeyManagerClient {
 
         let headers = CustomHeaders {
             token_type: token,
-            tracker_id: None,
+            x_request_id: None,
             cek: None
         };
 
@@ -381,13 +381,13 @@ impl SessionManagerClient {
         }
     }
 
-    pub fn open_session(&self, request : &OpenSessionRequest, token : &str, tracker_id: Option<u32>) -> OpenSessionReply {
+    pub fn open_session(&self, request : &OpenSessionRequest, token : &str, x_request_id: Option<u32>) -> OpenSessionReply {
         //let url = format!("http://{}:{}/session-manager/session", &self.server.server_name, self.server.port);
         let url = self.server.build_url("session");
 
         let headers = CustomHeaders {
             token_type: Token(token),
-            tracker_id,
+            x_request_id,
             cek: None
         };
 
@@ -448,7 +448,7 @@ impl AdminServerClient {
 
         let headers = CustomHeaders {
             token_type: Token(token),
-            tracker_id: None,
+            x_request_id: None,
             cek: None
         };
 
@@ -494,7 +494,7 @@ impl AdminServerClient {
 
         let headers = CustomHeaders {
             token_type: TokenType::None,
-            tracker_id: None,
+            x_request_id: None,
             cek: None
         };
 
@@ -533,7 +533,7 @@ impl DocumentServerClient {
 
         let headers = CustomHeaders {
             token_type: Sid(sid),
-            tracker_id: None,
+            x_request_id: None,
             cek: None
         };
 
@@ -586,7 +586,7 @@ impl DocumentServerClient {
 
         let headers = CustomHeaders {
             token_type: Sid(sid),
-            tracker_id: None,
+            x_request_id: None,
             cek: None
         };
 
@@ -645,7 +645,7 @@ impl DocumentServerClient {
 
         let headers = CustomHeaders {
             token_type: Sid(sid),
-            tracker_id: None,
+            x_request_id: None,
             cek: None
         };
 

@@ -16,7 +16,7 @@ use rocket::config::Environment;
 use commons_pg::{SQLConnection, SQLChange, CellValue, SQLQueryBlock, SQLDataSet, SQLTransaction, init_db_pool};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
-use commons_services::tracker::{TrackerId, TwinId};
+use commons_services::x_request_id::{XRequestID, TwinId};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkcrypto::dk_crypto::DkEncrypt;
 
@@ -188,13 +188,13 @@ fn update_renew_time(mut trans : &mut SQLTransaction, session_id: &str) -> anyho
 /// It's usually called by the Login end point using the session_id as a security_token
 ///
 #[post("/session", format = "application/json", data = "<session_request>")]
-fn open_session(session_request: Json<OpenSessionRequest>, security_token: SecurityToken, tracker_id: TrackerId) -> Json<OpenSessionReply> {
+fn open_session(session_request: Json<OpenSessionRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<OpenSessionReply> {
 
     log_debug!("session_request=[{:?}]", &session_request);
     log_debug!("security_token=[{:?}]", &security_token);
-    log_debug!("tracker_id=[{}]", &tracker_id);
+    log_debug!("x_request_id=[{}]", &x_request_id);
 
-    log_info!("🚀 Start open_session api, tracker_id={}", &tracker_id);
+    log_info!("🚀 Start open_session api, x_request_id={}", &x_request_id);
 
     // Check if the token is valid
     if !security_token.is_valid() {
@@ -207,7 +207,7 @@ fn open_session(session_request: Json<OpenSessionRequest>, security_token: Secur
 
     let twin_id = TwinId {
         token_type: TokenType::Token(&token),
-        tracker_id
+        x_request_id: x_request_id
     };
 
     let internal_database_error_reply = Json(OpenSessionReply{ session_id: "".to_string(), status : JsonErrorSet::from(INTERNAL_DATABASE_ERROR) });

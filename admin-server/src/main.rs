@@ -25,7 +25,7 @@ use commons_services::database_lib::open_transaction;
 use commons_services::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
-use commons_services::tracker::{TwinId, TrackerId};
+use commons_services::x_request_id::{TwinId, XRequestID};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkcrypto::dk_crypto::DkEncrypt;
 
@@ -39,7 +39,7 @@ use crate::schema_fs::FS_SCHEMA;
 use crate::schema_cs::CS_SCHEMA;
 
 ///
-/// * Generate a tracker id
+/// * Generate a x_request_id
 /// * Generate a session id
 /// * Looking for the user / customer in the db
 /// * Validate the password
@@ -53,8 +53,8 @@ use crate::schema_cs::CS_SCHEMA;
 fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
 
     // There isn't any token to check
-    let tracker_id = TrackerId::new();
-    log_info!("🚀 Start login api, login=[{}], tracker=[{}]", &login_request.login, tracker_id);
+    let x_request_id = XRequestID::new();
+    log_info!("🚀 Start login api, login=[{}], x_request_id=[{}]", &login_request.login, x_request_id);
 
     // Generate a sessionId
     let clear_session_id= uuid_v4();
@@ -75,7 +75,7 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     // between local routines
     let twin_id = TwinId {
         token_type : TokenType::Sid(&session_id),
-        tracker_id
+        x_request_id: x_request_id
     };
 
     // Find the user and its company, and grab the hashed password from it.
@@ -157,7 +157,7 @@ fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     let smc = SessionManagerClient::new(&sm_host, sm_port);
 
     // !!! The generated session_id is also used as a token_id !!!!
-    let response = smc.open_session(&open_session_request, &open_session_request.session_id, tracker_id.value());
+    let response = smc.open_session(&open_session_request, &open_session_request.session_id, x_request_id.value());
 
     if response.status.error_code != 0 {
         log_error!("💣 Session Manager failed with status [{:?}]", response.status);

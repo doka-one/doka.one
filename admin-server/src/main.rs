@@ -89,8 +89,7 @@ fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     };
 
     // let-else
-    let r_sql_result = query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, [{}]", &query.sql_query));
-    let Ok(mut sql_result) = r_sql_result else {
+    let Ok(mut sql_result) = query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, [{}]", &query.sql_query)) else {
             return internal_database_error_reply;
     };
 

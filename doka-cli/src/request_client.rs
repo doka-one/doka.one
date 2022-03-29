@@ -13,10 +13,27 @@ const TIMEOUT : Duration = Duration::from_secs(60 * 60);
 const MAX_HTTP_RETRY: i32 = 5;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
+pub struct CustomHeaders<'a> {
+    token_type : TokenType<'a>,
+    tracker_id : Option<u32>,
+    cek : Option<&'a str>,
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum TokenType<'a> {
     Token(&'a str),
     Sid(&'a str),
     None,
+}
+
+impl <'a> TokenType<'a> {
+    pub fn value(&self) -> String {
+        String::from(match self {
+            Token(tok) => {*tok}
+            Sid(sid) => {*sid}
+            TokenType::None => {""}
+        })
+    }
 }
 
 struct WebServer
@@ -79,10 +96,10 @@ impl WebServer {
     ///
 
     /// Generic routine to post a message
-    fn post_data< U: Serialize, V : de::DeserializeOwned>( &self, url : &str, request : &U, token : TokenType<'_> ) -> anyhow::Result<V>
+    fn post_data< U: Serialize, V : de::DeserializeOwned>( &self, url : &str, request : &U, headers : CustomHeaders<'_> /*token : TokenType<'_>*/ ) -> anyhow::Result<V>
     {
         let request_builder = reqwest::blocking::Client::new().post(url).timeout(TIMEOUT);
-        let request_builder_2 = match token {
+        let request_builder_2 = match headers.token_type {
             Token(token_value) => {
                 request_builder.header("token", token_value.clone())
             }
@@ -93,16 +110,25 @@ impl WebServer {
                 request_builder
             }
         };
-        let reply: V = request_builder_2.json(request).send()?.json()?;
+
+        let request_builder_3 = match headers.tracker_id {
+            None => {request_builder_2}
+            Some(tracker_id) => {
+                request_builder_2.header("tracker", tracker_id)
+            }
+        };
+
+        let reply: V = request_builder_3.json(request).send()?.json()?;
         Ok(reply)
     }
 
-    fn post_data_retry< U: Serialize, V : de::DeserializeOwned>( &self, url : &str, request : &U, token : TokenType<'_> ) -> anyhow::Result<V>
+
+    fn post_data_retry< U: Serialize, V : de::DeserializeOwned>( &self, url : &str, request : &U, headers : CustomHeaders<'_> /*token : TokenType<'_>*/ ) -> anyhow::Result<V>
     {
         let mut r_reply;
         let mut count = 0;
         loop {
-            r_reply = self.post_data(url, request, token);
+            r_reply = self.post_data(url, request, headers/*token*/);
             if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
                 break;
             }
@@ -112,7 +138,6 @@ impl WebServer {
         let reply = r_reply?;
         Ok(reply)
     }
-
 
     fn post_bytes_retry<V : de::DeserializeOwned>( &self, url : &str, request : &Vec<u8>, token : TokenType<'_> ) -> anyhow::Result<V>
     {
@@ -303,7 +328,13 @@ impl KeyManagerClient {
         //let url = format!("http://{}:{}/{}/key", &self.server.server_name, self.server.port, self.server.context);
         let url = self.server.build_url("key");
 
-        let reply : AddKeyReply = match self.server.post_data_retry(&url, request, token) {
+        let headers = CustomHeaders {
+            token_type: token,
+            tracker_id: None,
+            cek: None
+        };
+
+        let reply : AddKeyReply = match self.server.post_data_retry(&url, request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
@@ -350,11 +381,17 @@ impl SessionManagerClient {
         }
     }
 
-    pub fn open_session(&self, request : &OpenSessionRequest, token : &str) -> OpenSessionReply {
+    pub fn open_session(&self, request : &OpenSessionRequest, token : &str, tracker_id: Option<u32>) -> OpenSessionReply {
         //let url = format!("http://{}:{}/session-manager/session", &self.server.server_name, self.server.port);
         let url = self.server.build_url("session");
 
-        let reply : OpenSessionReply = match self.server.post_data_retry(&url, request, Token(token) ) {
+        let headers = CustomHeaders {
+            token_type: Token(token),
+            tracker_id,
+            cek: None
+        };
+
+        let reply : OpenSessionReply = match self.server.post_data_retry(&url, request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
@@ -409,7 +446,13 @@ impl AdminServerClient {
         // let url = format!("http://{}:{}/admin-server/customer", &self.server.server_name, self.server.port);
         let url = self.server.build_url("customer");
 
-        let reply : CreateCustomerReply = match self.server.post_data_retry(&url, request, Token(token)) {
+        let headers = CustomHeaders {
+            token_type: Token(token),
+            tracker_id: None,
+            cek: None
+        };
+
+        let reply : CreateCustomerReply = match self.server.post_data_retry(&url, request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
@@ -449,7 +492,13 @@ impl AdminServerClient {
         // let url = format!("http://{}:{}/admin-server/login", &self.server.server_name, self.server.port);
         let url = self.server.build_url("login" );
 
-        let reply : LoginReply = match self.server.post_data_retry(&url, request, TokenType::None) {
+        let headers = CustomHeaders {
+            token_type: TokenType::None,
+            tracker_id: None,
+            cek: None
+        };
+
+        let reply : LoginReply = match self.server.post_data_retry(&url, request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
@@ -482,7 +531,13 @@ impl DocumentServerClient {
         // let url = format!("http://{}:{}/document-server/item", &self.server.server_name, self.server.port);
         let url = self.server.build_url("item");
 
-        let reply : AddItemReply = match self.server.post_data_retry(&url, request, Sid(sid)) {
+        let headers = CustomHeaders {
+            token_type: Sid(sid),
+            tracker_id: None,
+            cek: None
+        };
+
+        let reply : AddItemReply = match self.server.post_data_retry(&url, request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
@@ -529,7 +584,13 @@ impl DocumentServerClient {
         // let url = format!("http://{}:{}/document-server/tag", &self.server.server_name, self.server.port);
         let url = self.server.build_url("tag");
 
-        let reply : AddTagReply = match self.server.post_data_retry(&url, request, Sid(sid)) {
+        let headers = CustomHeaders {
+            token_type: Sid(sid),
+            tracker_id: None,
+            cek: None
+        };
+
+        let reply : AddTagReply = match self.server.post_data_retry(&url, request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
@@ -582,7 +643,13 @@ impl DocumentServerClient {
 
         let url = self.server.build_url("fulltext_indexing");
 
-        let reply : FullTextReply = match self.server.post_data_retry(&url, &request, Sid(sid)) {
+        let headers = CustomHeaders {
+            token_type: Sid(sid),
+            tracker_id: None,
+            cek: None
+        };
+
+        let reply : FullTextReply = match self.server.post_data_retry(&url, &request, headers) {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);

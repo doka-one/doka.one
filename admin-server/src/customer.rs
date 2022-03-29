@@ -4,17 +4,19 @@ use rocket_contrib::json::Json;
 use rs_uuid::iso::uuid_v4;
 use commons_services::token_lib::SecurityToken;
 use dkdto::{AddKeyRequest, CreateCustomerReply, CreateCustomerRequest, JsonErrorSet};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_PASSWORD, INVALID_TOKEN, SUCCESS};
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_PASSWORD, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use doka_cli::request_client::KeyManagerClient;
-use doka_cli::request_client::TokenType::Token;
+use doka_cli::request_client::{KeyManagerClient, TokenType};
 use rocket::*;
 
 use log::*;
+use rocket::http::RawStr;
+use commons_services::tracker::{TrackerId, TwinId};
+use dkdto::error_replies::ErrorReply;
 use crate::{CS_SCHEMA, FS_SCHEMA, valid_password};
 
 struct DbServerInfo {
@@ -101,22 +103,26 @@ fn warning_fs_schema(customer_code: &str) -> anyhow::Result<()> {
 /// Create a brand new customer with schema and all
 ///
 #[post("/customer", format = "application/json", data = "<customer_request>")]
-pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken) -> Json<CreateCustomerReply> {
-    dbg!(&customer_request);
+pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, tracker_id: TrackerId) -> Json<CreateCustomerReply> {
+    log_error!("customer_request = [{:?}]", &customer_request);
+    log_error!("tracker id = [{}]", &tracker_id);
+
+    let tracker_id = tracker_id.new_if_null();
+    log_error!("tracker id = [{}]", &tracker_id);
 
     // Check if the token is valid
     if !security_token.is_valid() {
-        return Json(CreateCustomerReply {
-            customer_code: "".to_string(),
-            customer_id : 0,
-            admin_user_id : 0,
-            status: JsonErrorSet::from(INVALID_TOKEN),
-        });
+        return Json(CreateCustomerReply::invalid_token_error_reply());
     }
 
     let token = security_token.take_value();
 
-    log_info!("🚀 Start create_customer api, token={}", &token);
+    let twin_id = TwinId {
+        token_type: TokenType::Token(&token),
+        tracker_id
+    };
+
+    log_info!("🚀 Start create_customer api, twin_id=[{:?}]", &twin_id);
 
     let internal_database_error_reply = Json(CreateCustomerReply {
         customer_code: "".to_string(),
@@ -222,7 +228,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
     let km_host = get_prop_value("km.host");
     let km_port : u16 = get_prop_value("km.port").parse().unwrap();
     let kmc = KeyManagerClient::new( &km_host, km_port );
-    let response = kmc.add_key(&add_key_request, Token(&token) );
+    let response = kmc.add_key(&add_key_request, /*TokenType::Token(&token)*/ twin_id.token_type );
 
     if ! response.success {
         log_error!("Key Manager failed with status [{:?}]", response.status);
@@ -297,9 +303,9 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         return internal_database_error_reply;
     }
 
-    log_info!("😎 Customer created with success");
+    log_info!("😎 Customer created with success, twin_id=[{:?}]", &twin_id);
 
-    log_info!("🏁 End create_customer, token_id = {}", &token);
+    log_info!("🏁 End create_customer, twin_id=[{:?}]", &twin_id);
 
     Json(CreateCustomerReply {
         customer_code,
@@ -307,4 +313,143 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         admin_user_id : user_id,
         status: JsonErrorSet::from(SUCCESS),
     })
+}
+
+fn drop_schema_from_db( trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<bool> {
+    let query = SQLChange {
+        sql_query: format!( r"DROP SCHEMA cs_{} CASCADE", customer_code ),
+        params : Default::default(),
+        sequence_name: "".to_string(),
+    };
+    let _ = query.batch(trans).map_err(err_fwd!("Dropping the schema failed, customer_code=[{}]", customer_code))?;
+
+    Ok(true)
+}
+
+fn search_customer( trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<i64> {
+    let mut params = HashMap::new();
+    params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(customer_code.to_string()));
+
+    let query = SQLQueryBlock {
+        sql_query: "SELECT id FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE".to_string(),
+        start: 0,
+        length: None,
+        params
+    };
+    let mut data_set = query.execute(trans).map_err(err_fwd!("Query failed"))?;
+
+    if data_set.len() == 0 {
+        return Err(anyhow::anyhow!("Customer code not found"));
+    }
+    let _ = data_set.next();
+    let customer_id = data_set.get_int("id").unwrap_or(0i64);
+    Ok(customer_id)
+}
+
+fn delete_user_from_db( trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<bool> {
+    let mut params = HashMap::new();
+    params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(customer_code.to_string()));
+
+    let query = SQLChange {
+        sql_query: r"DELETE FROM dokaadmin.appuser WHERE customer_id IN
+        (SELECT id FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE)".to_string(),
+        params,
+        sequence_name: "".to_string(),
+    };
+    let nb_delete = query.delete(trans).map_err(err_fwd!("Query failed"))?;
+
+    if nb_delete == 0 {
+        return Err(anyhow::anyhow!("We did not delete any user for the customer"));
+    }
+
+    Ok(true)
+}
+
+
+fn delete_customer_from_db( trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<bool> {
+    let mut params = HashMap::new();
+    params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(customer_code.to_string()));
+
+    let query = SQLChange {
+        sql_query: r"DELETE FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE".to_string(),
+        params,
+        sequence_name: "".to_string(),
+    };
+    let nb = query.delete(trans).map_err(err_fwd!("Query failed"))?;
+
+    if nb == 0 {
+        return Err(anyhow::anyhow!("We did not delete any customer"));
+    }
+
+    Ok(true)
+}
+
+
+
+///
+/// Delete a customer with schema and all
+///
+#[delete("/customer/<customer_code>")]
+pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
+
+    // Check if the token is valid
+    if !security_token.is_valid() {
+        return Json(JsonErrorSet::from(INVALID_TOKEN));
+    }
+
+    let token = security_token.take_value();
+
+    log_info!("🚀 Start delete_customer api, token={}", &token);
+
+    let customer_code = match customer_code.percent_decode().map_err(err_fwd!("Invalid input parameter [{}]", customer_code) ) {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            return Json(JsonErrorSet::from(INVALID_REQUEST));
+        }
+    };
+
+    let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
+
+    // | Open the transaction
+    let mut r_cnx = SQLConnection::new();
+    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
+        Ok(x) => { x },
+        Err(_) => { return internal_database_error_reply; },
+    };
+
+    // Check if the customer is removable (flag is_removable)
+
+    let _customer_id = match search_customer(&mut trans, &customer_code) {
+        Ok(x) => x,
+        Err(_) => { return internal_database_error_reply; },
+    };
+
+    // Clear the customer table and user
+
+    // TODO Look if we display the "e" in the fwd!
+    if delete_user_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+        return internal_database_error_reply;
+    }
+
+    if delete_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+        return internal_database_error_reply;
+    }
+
+    // Remove the db schema
+
+    if drop_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+        return internal_database_error_reply;
+    }
+
+
+    // Close the transaction
+    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+        return internal_database_error_reply;
+    }
+
+    log_info!("😎 Customer delete created with success");
+
+    log_info!("🏁 End delete_customer, token_id = {}", &token);
+
+    Json(JsonErrorSet::from(SUCCESS))
 }

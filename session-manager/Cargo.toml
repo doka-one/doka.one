@@ -35,6 +35,7 @@ dkconfig = {path="../dkconfig"}
 dkcrypto = {path="../dkcrypto"}
 commons-services = {path= "../commons-services" }
 dkdto = {path="../dkdto"}
+doka-cli = {path="../doka-cli"}
 
 [dependencies.rocket_contrib]
 version = "0.4.10"

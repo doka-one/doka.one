@@ -1,4 +1,7 @@
+#![feature(let_else)]
+
 use std::collections::HashMap;
+use guard::guard;
 use commons_services::token_lib::SessionToken;
 use rocket::{get,post, delete};
 use rocket_contrib::json::Json;
@@ -313,8 +316,6 @@ pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<Json
 
 }
 
-
-
 ///
 /// Create a new tag
 ///
@@ -387,12 +388,11 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
         sequence_name,
     };
 
-    let tag_id = match sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new item failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
+
+    let r_tag_id = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new item failed"));
+    guard!(let Ok(tag_id) = r_tag_id else {
+        return internal_database_error_reply;
+    });
 
     if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
         return internal_database_error_reply;
@@ -401,21 +401,10 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
     dbg!(tag_id);
 
     Json(AddTagReply {
-        tag_id: tag_id,
+        tag_id,
         status: JsonErrorSet::from(SUCCESS),
     })
 }
-
-// fn iso_to_datetime(dt_str : &str) -> anyhow::Result<DateTime<FixedOffset>>{
-//     let dt = DateTime::parse_from_rfc3339(dt_str)?;
-//     anyhow::Result::Ok(dt)
-// }
-//
-// fn iso_to_date(d_str : &str) -> anyhow::Result<Date<FixedOffset>>{
-//     let dt_s = format!("{}T00:00:00Z", d_str);
-//     let dt = DateTime::parse_from_rfc3339(&dt_s)?.date();
-//     anyhow::Result::Ok(dt)
-// }
 
 
 #[cfg(test)]

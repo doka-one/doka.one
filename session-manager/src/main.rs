@@ -16,11 +16,13 @@ use rocket::config::Environment;
 use commons_pg::{SQLConnection, SQLChange, CellValue, SQLQueryBlock, SQLDataSet, SQLTransaction, init_db_pool};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
+use commons_services::tracker::{TrackerId, TwinId};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkcrypto::dk_crypto::DkEncrypt;
 
 use dkdto::{EntrySession, OpenSessionReply, OpenSessionRequest, SessionReply, JsonErrorSet};
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SESSION_CANNOT_BE_RENEWED, SESSION_NOT_FOUND, SESSION_TIMED_OUT, SUCCESS};
+use doka_cli::request_client::TokenType;
 
 ///
 /// Find a session from its sid
@@ -183,11 +185,16 @@ fn update_renew_time(mut trans : &mut SQLTransaction, session_id: &str) -> anyho
 
 ///
 /// Open a new session for the group and user
+/// It's usually called by the Login end point using the session_id as a security_token
 ///
-#[post("/session", format = "application/json", data = "<session>")]
-fn open_session(session: Json<OpenSessionRequest>, security_token: SecurityToken) -> Json<OpenSessionReply> {
+#[post("/session", format = "application/json", data = "<session_request>")]
+fn open_session(session_request: Json<OpenSessionRequest>, security_token: SecurityToken, tracker_id: TrackerId) -> Json<OpenSessionReply> {
 
-    dbg!(&session);
+    log_debug!("session_request=[{:?}]", &session_request);
+    log_debug!("security_token=[{:?}]", &security_token);
+    log_debug!("tracker_id=[{}]", &tracker_id);
+
+    log_info!("🚀 Start open_session api, tracker_id={}", &tracker_id);
 
     // Check if the token is valid
     if !security_token.is_valid() {
@@ -198,37 +205,37 @@ fn open_session(session: Json<OpenSessionRequest>, security_token: SecurityToken
     }
     let token = security_token.take_value();
 
-    log_info!("🚀 Start open_session api, token_id={}", &token);
+    let twin_id = TwinId {
+        token_type: TokenType::Token(&token),
+        tracker_id
+    };
 
     let internal_database_error_reply = Json(OpenSessionReply{ session_id: "".to_string(), status : JsonErrorSet::from(INTERNAL_DATABASE_ERROR) });
 
-    let mut cnx = match SQLConnection::new().map_err(err_fwd!("Connection issue"))
+    let mut cnx = match SQLConnection::new().map_err(err_fwd!("💣 Connection issue"))
     {
         Ok(x) => { x },
         Err(_) => { return internal_database_error_reply; },
     };
 
-    let mut trans = match cnx.sql_transaction().map_err(err_fwd!("Transaction issue"))
+    let mut trans = match cnx.sql_transaction().map_err(err_fwd!("💣 Transaction issue"))
     {
         Ok(x) => { x },
         Err(_) => { return internal_database_error_reply; },
     };
-
-    let new_customer_key = DkEncrypt::generate_random_key();
-    dbg!(&new_customer_key);
 
     let sql_insert = r#"INSERT INTO dokasys.SESSIONS
                             (customer_code, customer_id, user_name, user_id, session_id, start_time_gmt)
                             VALUES (:p_customer_code, :p_customer_id, :p_user_name, :p_user_id, :p_session_id, :p_start_time_gmt)"#;
 
     let current_datetime = SystemTime::now();
-    let session_id = session.session_id.to_owned();
+    let session_id = session_request.session_id.to_owned();
 
     let mut params : HashMap<String, CellValue> = HashMap::new();
-    params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(session.customer_code.to_owned()));
-    params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(session.customer_id));
-    params.insert("p_user_name".to_owned(), CellValue::from_raw_string(session.user_name.to_owned()));
-    params.insert("p_user_id".to_owned(), CellValue::from_raw_int(session.user_id));
+    params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(session_request.customer_code.to_owned()));
+    params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(session_request.customer_id));
+    params.insert("p_user_name".to_owned(), CellValue::from_raw_string(session_request.user_name.to_owned()));
+    params.insert("p_user_id".to_owned(), CellValue::from_raw_int(session_request.user_id));
     params.insert("p_session_id".to_owned(), CellValue::from_raw_string(session_id.clone()));
     params.insert("p_start_time_gmt".to_owned(), CellValue::from_raw_systemtime(current_datetime));
 
@@ -238,22 +245,22 @@ fn open_session(session: Json<OpenSessionRequest>, security_token: SecurityToken
         sequence_name : "dokasys.sessions_id_seq".to_string(),
     };
 
-    let _ = match query.insert(&mut trans).map_err( err_fwd!("Cannot insert the session")) {
+    let session_db_id = match query.insert(&mut trans).map_err( err_fwd!("💣 Cannot insert the session")) {
         Ok(v) => { v },
         Err(_) => { return internal_database_error_reply; },
     };
 
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+    if trans.commit().map_err(err_fwd!("💣 Commit failed")).is_err() {
         return internal_database_error_reply;
     }
 
-    log_info!("😎 Customer key added with success");
+    log_info!("😎 Session was opened with success, session_db_id=[{}], twin_id=[{}]", session_db_id, &twin_id);
 
     let ret = OpenSessionReply {
         session_id,
         status : JsonErrorSet::from(SUCCESS),
     };
-    log_info!("🏁 End open_session, token_id = {}", &token);
+    log_info!("🏁 End open_session, twin_id=[{}]", &twin_id);
     Json(ret)
 }
 

@@ -1,20 +1,39 @@
+use std::f32::MAX;
+use serde::{Serialize, Deserialize};
 use std::fmt::{Display, Formatter};
 use rand::Rng;
+use rocket::{Request, request};
+use rocket::request::FromRequest;
+use commons_error::*;
+use doka_cli::request_client::TokenType;
 
-#[derive(Debug,Copy,Clone)]
-pub struct TrackerId(Option<i32>);
+#[derive(Serialize, Deserialize, Debug,Copy,Clone)]
+pub struct TrackerId(Option<u32>);
 
 impl TrackerId {
     pub fn new() -> Self {
-        let mut rng = rand::thread_rng();
-        let tracker = rng.gen_range(0..1_000_000);
-        TrackerId(Some(tracker))
+        TrackerId(Some(Self::generate()))
     }
-    pub fn from_value(val : Option<i32>) -> Self {
+    pub fn from_value(val : Option<u32>) -> Self {
         TrackerId(val)
     }
-    pub fn value(&self) -> Option<i32> {
+    pub fn value(&self) -> Option<u32> {
         self.0
+    }
+
+    /// Regenerate a tracker id if none
+    pub fn new_if_null(&self) -> Self {
+        TrackerId(
+            Some(self.0.unwrap_or({
+                Self::generate()
+            }))
+        )
+    }
+
+    fn generate() -> u32 {
+        let mut rng = rand::thread_rng();
+        let tracker = rng.gen_range(0..1_000_000);
+        tracker
     }
 }
 
@@ -32,15 +51,36 @@ impl Display for TrackerId {
     }
 }
 
+
+impl<'a, 'r> FromRequest<'a, 'r> for TrackerId {
+    type Error = ();
+    fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+        let map = my_request.headers();
+
+        let tracker_id = map.get_one("tracker").map(|t|
+            t.parse().map_err(err_fwd!("Cannot parse the tracker id from the header,set default to 0")).unwrap_or(0u32) );
+
+        request::Outcome::Success(TrackerId(tracker_id))
+    }
+}
+
 #[derive(Debug,Clone)]
-pub struct TwinId {
-    pub session_id : String,
+pub struct TwinId<'a> {
+    pub token_type : TokenType<'a>,
     pub tracker_id : TrackerId,
 }
 
-impl Display for TwinId {
+impl <'a> Display for TwinId<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // TODO format with thousand-group separator, Ex : 987_789
-        write!(f, "({} / {})", self.tracker_id, self.session_id)
+        let tt = match self.token_type {
+            TokenType::Token(tok) => {
+                format!("T:{}", tok)
+            }
+            TokenType::Sid(sid) => {
+                format!("S:{}", sid)
+            }
+            TokenType::None => {"".to_string()}
+        };
+        write!(f, "({} / {})", self.tracker_id, tt)
     }
 }

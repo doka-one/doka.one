@@ -1,4 +1,5 @@
 #![feature(proc_macro_hygiene, decl_macro)]
+#![feature(let_else)]
 
 mod item;
 mod tag;

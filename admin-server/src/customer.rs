@@ -4,7 +4,7 @@ use rocket_contrib::json::Json;
 use rs_uuid::iso::uuid_v4;
 use commons_services::token_lib::SecurityToken;
 use dkdto::{AddKeyRequest, CreateCustomerReply, CreateCustomerRequest, JsonErrorSet};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_PASSWORD, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_PASSWORD, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
@@ -17,7 +17,9 @@ use log::*;
 use rocket::http::RawStr;
 use commons_services::x_request_id::{XRequestID, TwinId};
 use dkdto::error_replies::ErrorReply;
-use crate::{CS_SCHEMA, FS_SCHEMA, valid_password};
+use crate::dk_password::valid_password;
+use crate::schema_cs::CS_SCHEMA;
+use crate::schema_fs::FS_SCHEMA;
 
 struct DbServerInfo {
     host: String,
@@ -97,6 +99,70 @@ fn warning_fs_schema(customer_code: &str) -> anyhow::Result<()> {
     let dbi = DbServerInfo::for_fs();
     log_warn!("Please verify if the schema fs_{} is not in the database=[{}]", customer_code, dbi.db_name);
     Ok(())
+}
+
+
+fn set_removable_flag_customer_from_db( trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<bool> {
+    let mut params = HashMap::new();
+    params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(customer_code.to_string()));
+
+    let query = SQLChange {
+        sql_query: r"UPDATE dokaadmin.customer SET is_removable = TRUE  WHERE code = :p_customer_code".to_string(),
+        params,
+        sequence_name: "".to_string(),
+    };
+    let nb = query.update(trans).map_err(err_fwd!("Query failed"))?;
+
+    if nb == 0 {
+        return Err(anyhow::anyhow!("We did not set any removable flag for any customer"));
+    }
+
+    Ok(true)
+}
+
+
+pub (crate) fn set_removable_flag_customer_delegate(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
+    // Check if the token is valid
+    if !security_token.is_valid() {
+        return  Json(JsonErrorSet::from(INVALID_TOKEN));
+    }
+
+    let token = security_token.take_value();
+
+    log_info!("🚀 Start set_removable_flag_customer api, token={}", &token);
+
+    let customer_code = match customer_code.percent_decode().map_err(err_fwd!("Invalid input parameter [{}]", customer_code) ) {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            return Json(JsonErrorSet::from(INVALID_REQUEST));
+        }
+    };
+
+
+    let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
+
+    // | Open the transaction
+    let mut r_cnx = SQLConnection::new();
+    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
+        Ok(x) => { x },
+        Err(_) => { return internal_database_error_reply; },
+    };
+
+    if set_removable_flag_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+        return internal_database_error_reply;
+    }
+
+    // Close the transaction
+    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+        return internal_database_error_reply;
+    }
+
+    log_info!("😎 Set removable flag with success");
+
+    log_info!("🏁 End set_removable_flag_customer, token_id = {}", &token);
+
+    Json(JsonErrorSet::from(SUCCESS))
+
 }
 
 ///

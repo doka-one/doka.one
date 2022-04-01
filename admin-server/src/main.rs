@@ -10,7 +10,7 @@ mod login;
 use log::*;
 use std::path::Path;
 use std::process::exit;
-use rocket::{Config, routes, post, patch};
+use rocket::{Config, routes, post, patch, delete};
 use rocket::config::Environment;
 use rocket::http::RawStr;
 use rocket_contrib::json::Json;
@@ -19,14 +19,16 @@ use commons_error::{err_fwd, err_closure_fwd, log_error, log_info};
 use commons_pg::init_db_pool;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
+use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::read_config;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{JsonErrorSet, LoginReply, LoginRequest};
-use crate::customer::set_removable_flag_customer_delegate;
+use dkdto::{CreateCustomerReply, CreateCustomerRequest, JsonErrorSet, LoginReply, LoginRequest};
+use crate::customer::{create_customer_delegate, delete_customer_delegate, set_removable_flag_customer_delegate};
 use crate::login::login_delegate;
 
 
 
+///
 ///
 /// * Generate a x_request_id
 /// * Generate a session id
@@ -38,17 +40,39 @@ use crate::login::login_delegate;
 /// The security here is ensured by the user/password verification
 /// The DDoS or Brute Force attack must be handle by the network architecture
 ///
+///  1A  ⛔ 2A  ✔ 3A  ✔1B  ✔2B  ✔3B  ✔4B  ✔5B  ✔1C  ✔1D  ✔
+///
 #[post("/login", format = "application/json", data = "<login_request>")]
 fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
     login_delegate(login_request)
 }
 
-
+///
+/// Set a flag on a customer to allow its deletion
+/// 1A ✔  2A  ✔ 3A  ✔1B  ✔2B  ✔3B  ✔4B  ✔5B  ✔1C  ✔1D  ✔
+///
 #[patch("/customer/removable/<customer_code>")]
 fn set_removable_flag_customer(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
     set_removable_flag_customer_delegate(customer_code, security_token)
 }
 
+
+///
+/// Create a brand new customer with schema and all
+/// 1A ✔  2A  ✔ 3A  ✔1B  ✔2B  ✔3B  ✔4B  ✔5B  ✔1C  ✔1D  ✔
+///
+#[post("/customer", format = "application/json", data = "<customer_request>")]
+pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<CreateCustomerReply> {
+    create_customer_delegate(customer_request, security_token, x_request_id)
+}
+
+///
+/// Delete a customer with schema and all
+///
+#[delete("/customer/<customer_code>")]
+pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> Json<JsonErrorSet> {
+    delete_customer_delegate(customer_code, security_token, x_request_id)
+}
 
 ///
 ///
@@ -114,8 +138,8 @@ fn main() {
     let base_url = format!("/{}", PROJECT_CODE);
 
     let _ = rocket::custom(my_config)
-        .mount(&base_url, routes![set_removable_flag_customer, customer::delete_customer,
-            customer::create_customer, login])
+        .mount(&base_url, routes![set_removable_flag_customer, delete_customer,
+            create_customer, login])
         .attach(Template::fairing())
         .launch();
 

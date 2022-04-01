@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use anyhow::anyhow;
 use postgres::{Client, NoTls};
 use rocket_contrib::json::Json;
 use rs_uuid::iso::uuid_v4;
@@ -122,61 +123,63 @@ fn set_removable_flag_customer_from_db( trans : &mut SQLTransaction, customer_co
 
 
 pub (crate) fn set_removable_flag_customer_delegate(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
+
     // Check if the token is valid
     if !security_token.is_valid() {
         return  Json(JsonErrorSet::from(INVALID_TOKEN));
     }
 
     let token = security_token.take_value();
+    let x_request_id = XRequestID::new();
+    let twin_id = TwinId {
+        token_type : TokenType::Token(&token),
+        x_request_id
+    };
 
-    log_info!("🚀 Start set_removable_flag_customer api, token={}", &token);
+    log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], twin_id=[{}]", customer_code, &twin_id);
 
-    let customer_code = match customer_code.percent_decode().map_err(err_fwd!("Invalid input parameter [{}]", customer_code) ) {
+    let customer_code = match customer_code.percent_decode()
+                .map_err(err_fwd!("💣 Invalid input parameter [{}], twin_id=[{}]", customer_code, &twin_id) ) {
         Ok(s) => s.to_string(),
         Err(_) => {
             return Json(JsonErrorSet::from(INVALID_REQUEST));
         }
     };
 
-
     let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
 
     // | Open the transaction
     let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
+    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, twin_id=[{}]", &twin_id)) {
         Ok(x) => { x },
         Err(_) => { return internal_database_error_reply; },
     };
 
-    if set_removable_flag_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+    if set_removable_flag_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot set the removable flag, twin_id=[{}]", &twin_id)).is_err() {
         return internal_database_error_reply;
     }
 
     // Close the transaction
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+    if trans.commit().map_err(err_fwd!("💣 Commit failed, twin_id=[{}]", &twin_id)).is_err() {
         return internal_database_error_reply;
     }
 
     log_info!("😎 Set removable flag with success");
 
-    log_info!("🏁 End set_removable_flag_customer, token_id = {}", &token);
+    log_info!("🏁 End set_removable_flag_customer, customer_code=[{}], twin_id=[{}]", customer_code, &twin_id);
 
     Json(JsonErrorSet::from(SUCCESS))
-
 }
 
-///
-/// Create a brand new customer with schema and all
-///
-#[post("/customer", format = "application/json", data = "<customer_request>")]
-pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<CreateCustomerReply> {
-    log_debug!("customer_request = [{:?}]", &customer_request);
-    log_debug!("x_request_id = [{}]", &x_request_id);
 
-    let x_request_id = x_request_id.new_if_null();
-    log_debug!("x_request_id = [{}]", &x_request_id);
+pub fn create_customer_delegate(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<CreateCustomerReply> {
 
     log_info!("🚀 Start create_customer api, customer name=[{}], x_request_id=[{}]", &customer_request.customer_name, &x_request_id);
+
+    log_debug!("customer_request = [{:?}]", &customer_request);
+    log_debug!("x_request_id = [{}]", &x_request_id);
+    let x_request_id = x_request_id.new_if_null();
+    log_debug!("new x_request_id = [{}]", &x_request_id);
 
     // Check if the token is valid
     if !security_token.is_valid() {
@@ -187,7 +190,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
 
     let twin_id = TwinId {
         token_type: TokenType::Token(&token),
-        x_request_id: x_request_id
+        x_request_id,
     };
 
     log_info!("😎 Security token is valid, twin_id=[{}]", &twin_id);
@@ -206,9 +209,9 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
 
     // Open the transaction
     let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
+    let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error"));
+    let Ok(mut trans) = r_trans else {
+        return internal_database_error_reply;
     };
 
     // Generate the customer code
@@ -230,7 +233,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
     // Create the schema
 
     fn run_cs_script(customer_code: &str) -> anyhow::Result<()> {
-        // * Open a transaction on the cs database
+        // | Open a transaction on the cs database
         let dbi = DbServerInfo::for_cs();
         // "postgresql://denis:<password>@pg13:5432/cs_dev_1";
         let url = format!("postgresql://{}:{}@{}:{}/{}", dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name);
@@ -246,7 +249,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
     }
 
     if let Err(e) = run_cs_script(&customer_code) {
-        log_error!("CS schema batch failed, error [{}]", e);
+        log_error!("CS schema batch failed, error [{}], twin_id=[{}]", e, &twin_id);
         trans.rollback();
         return internal_database_error_reply;
     }
@@ -254,7 +257,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
     log_info!("😎 Created the CS schema, customer=[{}], twin_id=[{}]", &customer_code, &twin_id);
 
     fn run_fs_script(customer_code: &str) -> anyhow::Result<()> {
-        // * Open a transaction on the cs database
+        // | Open a transaction on the cs database
         let dbi = DbServerInfo::for_fs();
         // "postgresql://denis:<password>@pg13:5432/fs_dev_1";
         let url = format!("postgresql://{}:{}@{}:{}/{}", dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name);
@@ -270,7 +273,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
     }
 
     if let Err(e) = run_fs_script(&customer_code) {
-        log_error!("FS schema batch failed, error [{}]", e);
+        log_error!("FS schema batch failed, error [{}], twin_id=[{}]", e, &twin_id);
         trans.rollback();
         let _ = warning_cs_schema(&customer_code);
         return internal_database_error_reply;
@@ -286,10 +289,10 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
     let km_host = get_prop_value("km.host");
     let km_port : u16 = get_prop_value("km.port").parse().unwrap();
     let kmc = KeyManagerClient::new( &km_host, km_port );
-    let response = kmc.add_key(&add_key_request, /*TokenType::Token(&token)*/ twin_id.token_type );
+    let response = kmc.add_key(&add_key_request, twin_id.token_type );
 
     if ! response.success {
-        log_error!("Key Manager failed with status [{:?}]", response.status);
+        log_error!("Key Manager failed with status=[{:?}], twin_id=[{}]", response.status, &twin_id);
         let _ = warning_cs_schema(&customer_code);
         let _ = warning_fs_schema(&customer_code);
         return internal_technical_error;
@@ -310,13 +313,10 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         sequence_name: "dokaadmin.customer_id_seq".to_string(),
     };
 
-    let customer_id = match sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new customer failed")) {
-        Ok(x) => {x}
-        Err(_) => {
-            let _ = warning_cs_schema(&customer_code);
-            let _ = warning_fs_schema(&customer_code);
-            return internal_database_error_reply;
-        }
+    let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new customer failed, twin_id=[{}]", &twin_id)) else {
+        let _ = warning_cs_schema(&customer_code);
+        let _ = warning_fs_schema(&customer_code);
+        return internal_database_error_reply;
     };
 
     log_info!("😎 Inserted new customer, customer id=[{}], twin_id=[{}]", customer_id, &twin_id);
@@ -343,19 +343,16 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
         sequence_name: "dokaadmin.appuser_id_seq".to_string(),
     };
 
-    let user_id = match sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new admin user failed")) {
-        Ok(x) => {x}
-        Err(_) => {
-            let _ = warning_cs_schema(&customer_code);
-            let _ = warning_fs_schema(&customer_code);
-            return internal_database_error_reply;
-        }
+    let Ok(user_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new admin user failed, twin_id=[{}]", &twin_id)) else {
+        let _ = warning_cs_schema(&customer_code);
+        let _ = warning_fs_schema(&customer_code);
+        return internal_database_error_reply;
     };
 
     log_info!("😎 Inserted new user, user id=[{}], twin_id=[{}]", user_id, &twin_id);
 
     // Close the transaction
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+    if trans.commit().map_err(err_fwd!("Commit failed, twin_id=[{}]", &twin_id)).is_err() {
         let _ = warning_cs_schema(&customer_code);
         let _ = warning_fs_schema(&customer_code);
         return internal_database_error_reply;
@@ -400,7 +397,12 @@ fn search_customer( trans : &mut SQLTransaction, customer_code : &str ) -> anyho
         return Err(anyhow::anyhow!("Customer code not found"));
     }
     let _ = data_set.next();
-    let customer_id = data_set.get_int("id").unwrap_or(0i64);
+
+    //let customer_id = data_set.get_int("id").ok_or_else( || { return Err(anyhow!("Cannot read the id of the customer found"); }))?;
+    let Some(customer_id) = data_set.get_int("id") else {
+        return Err(anyhow!("Cannot read the id of the customer found"));
+    };
+
     Ok(customer_id)
 }
 
@@ -443,12 +445,11 @@ fn delete_customer_from_db( trans : &mut SQLTransaction, customer_code : &str ) 
 }
 
 
+// TODO delete both the FS and CS schema
+pub fn delete_customer_delegate(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> Json<JsonErrorSet> {
 
-///
-/// Delete a customer with schema and all
-///
-#[delete("/customer/<customer_code>")]
-pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
+    let x_request_id = x_request_id.new_if_null();
+    log_debug!("new x_request_id = [{}]", &x_request_id);
 
     // Check if the token is valid
     if !security_token.is_valid() {
@@ -457,9 +458,15 @@ pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken) ->
 
     let token = security_token.take_value();
 
-    log_info!("🚀 Start delete_customer api, token={}", &token);
+    let twin_id = TwinId {
+        token_type: TokenType::Token(&token),
+        x_request_id,
+    };
 
-    let customer_code = match customer_code.percent_decode().map_err(err_fwd!("Invalid input parameter [{}]", customer_code) ) {
+    log_info!("🚀 Start delete_customer api, customer_code=[{}], twin_id=[{}]", customer_code, &twin_id);
+
+    let customer_code = match customer_code.percent_decode()
+                        .map_err(err_fwd!("💣 Invalid input parameter [{}], twin_id=[{}]", customer_code, &twin_id) ) {
         Ok(s) => s.to_string(),
         Err(_) => {
             return Json(JsonErrorSet::from(INVALID_REQUEST));
@@ -470,44 +477,41 @@ pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken) ->
 
     // | Open the transaction
     let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
+    let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, twin_id=[{}]", &twin_id));
+    let Ok(mut trans) = r_trans else {
+         return internal_database_error_reply;
     };
 
     // Check if the customer is removable (flag is_removable)
 
-    let _customer_id = match search_customer(&mut trans, &customer_code) {
-        Ok(x) => x,
-        Err(_) => { return internal_database_error_reply; },
+    let Ok(_customer_id) = search_customer(&mut trans, &customer_code) else {
+        return internal_database_error_reply;
     };
 
     // Clear the customer table and user
 
-    // TODO Look if we display the "e" in the fwd!
-    if delete_user_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+    if delete_user_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete user, twin_id=[{}]", &twin_id)).is_err() {
         return internal_database_error_reply;
     }
 
-    if delete_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+    if delete_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete customer, twin_id=[{}]", &twin_id)).is_err() {
         return internal_database_error_reply;
     }
 
     // Remove the db schema
 
-    if drop_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("")).is_err() {
+    if drop_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete the schema, twin_id=[{}]", &twin_id)).is_err() {
         return internal_database_error_reply;
     }
-
 
     // Close the transaction
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+    if trans.commit().map_err(err_fwd!("💣 Commit failed, twin_id=[{}]", &twin_id)).is_err() {
         return internal_database_error_reply;
     }
 
-    log_info!("😎 Customer delete created with success");
+    log_info!("😎 Customer delete created with success, twin_id=[{}]", &twin_id);
 
-    log_info!("🏁 End delete_customer, token_id = {}", &token);
+    log_info!("🏁 End delete_customer, customer_code=[{}], twin_id=[{}]", customer_code, &twin_id);
 
     Json(JsonErrorSet::from(SUCCESS))
 }

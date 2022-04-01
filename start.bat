@@ -3,7 +3,6 @@ CLS
 
 SET ROOT_FOLDER="C:\Users\denis\wks-doka-one\doka.one\target\debug"
 
-
 echo *************************
 echo ***** KEY MANAGER *******
 echo *************************

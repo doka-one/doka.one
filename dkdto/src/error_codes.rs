@@ -20,7 +20,7 @@ pub const SESSION_CANNOT_BE_RENEWED : ErrorSet = ErrorSet { error_code : 220, er
 pub const SESSION_INVALID_USER_NAME : ErrorSet = ErrorSet { error_code : 230, err_message : "Session invalid user name", http_error_code : 200};
 pub const SESSION_INVALID_CUSTOMER_CODE : ErrorSet = ErrorSet { error_code : 240, err_message : "Session invalid customer code", http_error_code : 200};
 pub const SESSION_CANNOT_BE_CLOSED : ErrorSet = ErrorSet { error_code : 250, err_message : "Cannot close the session", http_error_code : 200};
-pub const EP_SESSION_LOGIN_DENIED : ErrorSet = ErrorSet { error_code : 300, err_message : "Login denied", http_error_code : 200};
+pub const SESSION_LOGIN_DENIED: ErrorSet = ErrorSet { error_code : 300, err_message : "Login denied", http_error_code : 200};
 
 
 /// Tags

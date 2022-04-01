@@ -20,7 +20,7 @@ use dkconfig::properties::{get_prop_value};
 use dkcrypto::dk_crypto::DkEncrypt;
 
 use dkdto::{OpenSessionRequest, JsonErrorSet, LoginRequest, LoginReply};
-use dkdto::error_codes::{INVALID_PASSWORD, SUCCESS};
+use dkdto::error_codes::{INVALID_PASSWORD, SESSION_LOGIN_DENIED, SUCCESS};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::{SessionManagerClient, TokenType};
 
@@ -66,7 +66,7 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
 
     let Ok((open_session_request, password_hash)) = search_user(&mut trans, &login_request.login, &twin_id) else {
         log_warn!("⛔ login not found, login=[{}], twin_id=[{}]", &login_request.login, &twin_id);
-        return internal_database_error_reply;
+        return Json(LoginReply::from_error(SESSION_LOGIN_DENIED));
     };
 
 

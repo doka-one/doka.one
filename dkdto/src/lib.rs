@@ -218,7 +218,6 @@ impl ErrorReply for LoginReply {
     }
 }
 
-
 ///
 /// Document Server
 ///

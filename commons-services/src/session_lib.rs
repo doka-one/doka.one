@@ -8,8 +8,8 @@ use crate::property_name::{ SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_P
 
 
 pub fn fetch_entry_session(sid : &str) -> anyhow::Result<EntrySession> {
-    let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY).map_err(err_fwd!(""))?;
-    let sm_port : u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?.parse().map_err(err_fwd!(""))?;
+    let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY).map_err(tr_fwd!())?;
+    let sm_port : u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?.parse().map_err(tr_fwd!())?;
     let smc = SessionManagerClient::new(&sm_host, sm_port);
     // For now the token is the sid itself
     let response = smc.get_session(sid, sid);

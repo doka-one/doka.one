@@ -18,7 +18,7 @@ use doka_cli::request_client::{KeyManagerClient, TokenType};
 use log::*;
 use rocket::http::RawStr;
 use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
-use commons_services::x_request_id::{XRequestID, TwinId};
+use commons_services::x_request_id::{XRequestID, Follower};
 use dkdto::error_replies::ErrorReply;
 use crate::dk_password::valid_password;
 use crate::schema_cs::CS_SCHEMA;
@@ -37,21 +37,21 @@ impl DbServerInfo {
 
     pub fn for_cs() -> Self {
         Self {
-            host: get_prop_value("cs_db.hostname").map_err(err_fwd!("")).unwrap(),
-            port: get_prop_value("cs_db.port").map_err(err_fwd!("")).unwrap().parse().map_err(err_fwd!("")).unwrap(),
-            db_name: get_prop_value("cs_db.name").map_err(err_fwd!("")).unwrap(),
-            db_user: get_prop_value("cs_db.user").map_err(err_fwd!("")).unwrap(),
-            password: get_prop_value("db.password").map_err(err_fwd!("")).unwrap(), // Careful, it's not cs_db
+            host: get_prop_value("cs_db.hostname").map_err(tr_fwd!()).unwrap(),
+            port: get_prop_value("cs_db.port").map_err(tr_fwd!()).unwrap().parse().map_err(tr_fwd!()).unwrap(),
+            db_name: get_prop_value("cs_db.name").map_err(tr_fwd!()).unwrap(),
+            db_user: get_prop_value("cs_db.user").map_err(tr_fwd!()).unwrap(),
+            password: get_prop_value("db.password").map_err(tr_fwd!()).unwrap(), // Careful, it's not cs_db
         }
     }
 
     pub fn for_fs() -> Self {
         Self {
-            host: get_prop_value("fs_db.hostname").map_err(err_fwd!("")).unwrap(),
-            port: get_prop_value("fs_db.port").map_err(err_fwd!("")).unwrap().parse().map_err(err_fwd!("")).unwrap(),
-            db_name: get_prop_value("fs_db.name").map_err(err_fwd!("")).unwrap(),
-            db_user: get_prop_value("fs_db.user").map_err(err_fwd!("")).unwrap(),
-            password: get_prop_value("db.password").map_err(err_fwd!("")).unwrap(), // Careful, it's not fs_db
+            host: get_prop_value("fs_db.hostname").map_err(tr_fwd!()).unwrap(),
+            port: get_prop_value("fs_db.port").map_err(tr_fwd!()).unwrap().parse().map_err(tr_fwd!()).unwrap(),
+            db_name: get_prop_value("fs_db.name").map_err(tr_fwd!()).unwrap(),
+            db_user: get_prop_value("fs_db.user").map_err(tr_fwd!()).unwrap(),
+            password: get_prop_value("db.password").map_err(tr_fwd!()).unwrap(), // Careful, it's not fs_db
         }
     }
 
@@ -61,7 +61,7 @@ impl DbServerInfo {
 ///
 /// Check if the customer code is not taken (true if it is not)
 ///
-fn check_code_not_taken(mut trans : &mut SQLTransaction, customer_code : &str, twin_id: &TwinId) -> anyhow::Result<bool> {
+fn check_code_not_taken(mut trans : &mut SQLTransaction, customer_code : &str, follower: &Follower) -> anyhow::Result<bool> {
     let p_customer_code = CellValue::from_raw_string(customer_code.to_owned());
     let mut params = HashMap::new();
     params.insert("p_customer_code".to_owned(), p_customer_code);
@@ -75,7 +75,7 @@ fn check_code_not_taken(mut trans : &mut SQLTransaction, customer_code : &str, t
     };
 
     let sql_result : SQLDataSet =  query.execute(&mut trans)
-        .map_err(err_fwd!("Query failed, [{}], , twin_id=[{}]", &query.sql_query, twin_id))?;
+        .map_err(err_fwd!("Query failed, [{}], , follower=[{}]", &query.sql_query, follower))?;
     Ok(sql_result.len() == 0)
 }
 
@@ -133,15 +133,15 @@ pub (crate) fn set_removable_flag_customer_delegate(customer_code: &RawStr, secu
 
     let token = security_token.take_value();
     let x_request_id = XRequestID::new();
-    let twin_id = TwinId {
-        token_type : TokenType::Token(&token),
+    let follower = Follower {
+        token_type : TokenType::Token(token),
         x_request_id
     };
 
-    log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], twin_id=[{}]", customer_code, &twin_id);
+    log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], follower=[{}]", customer_code, &follower);
 
     let customer_code = match customer_code.percent_decode()
-                .map_err(err_fwd!("💣 Invalid input parameter [{}], twin_id=[{}]", customer_code, &twin_id) ) {
+                .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &follower) ) {
         Ok(s) => s.to_string(),
         Err(_) => {
             return Json(JsonErrorSet::from(INVALID_REQUEST));
@@ -152,100 +152,61 @@ pub (crate) fn set_removable_flag_customer_delegate(customer_code: &RawStr, secu
 
     // | Open the transaction
     let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, twin_id=[{}]", &twin_id)) {
+    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &follower)) {
         Ok(x) => { x },
         Err(_) => { return internal_database_error_reply; },
     };
 
-    if set_removable_flag_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot set the removable flag, twin_id=[{}]", &twin_id)).is_err() {
+    if set_removable_flag_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot set the removable flag, follower=[{}]", &follower)).is_err() {
         return internal_database_error_reply;
     }
 
     // Close the transaction
-    if trans.commit().map_err(err_fwd!("💣 Commit failed, twin_id=[{}]", &twin_id)).is_err() {
+    if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &follower)).is_err() {
         return internal_database_error_reply;
     }
 
     log_info!("😎 Set removable flag with success");
 
-    log_info!("🏁 End set_removable_flag_customer, customer_code=[{}], twin_id=[{}]", customer_code, &twin_id);
+    log_info!("🏁 End set_removable_flag_customer, customer_code=[{}], follower=[{}]", customer_code, &follower);
 
     Json(JsonErrorSet::from(SUCCESS))
 }
 
-pub(crate) struct CustomerDelegate<'a> {
+pub(crate) struct CustomerDelegate {
     pub security_token: SecurityToken,
-    pub twin_id: TwinId<'a>,
-    // pub x_request_id: XRequestID,
-    // pub token_type: Option<TokenType::Token>,
+    pub follower: Follower,
 }
 
-impl <'a> CustomerDelegate<'a> {
+impl CustomerDelegate {
 
     pub fn new(security_token: SecurityToken, x_request_id: XRequestID) -> Self {
         CustomerDelegate {
             security_token,
-            twin_id : TwinId {
+            follower : Follower {
                 x_request_id,
                 token_type: TokenType::None,
             }
         }
     }
 
-    // fn build_token(&'a mut self) {
-    //     self.twin_id.token_type = TokenType::Token(&self.security_token.0);
-    // }
-
-    fn run_fs_script(&self, customer_code: &str) -> anyhow::Result<()> {
-        // | Open a transaction on the cs database
-        let dbi = DbServerInfo::for_fs();
-        // "postgresql://denis:<password>@pg13:5432/fs_dev_1";
-        let url = format!("postgresql://{}:{}@{}:{}/{}", dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name);
-
-        let mut fs_cnx = Client::connect(&url, NoTls).map_err(err_fwd!("Cannot connect the FS database"))?;
-
-        // Run the commands to create the tables & co
-        log_info!("Generating the db script for FS schema, twin_id=[{}]", &self.twin_id);
-        let batch_script = generate_fs_schema_script(customer_code);
-
-        fs_cnx.batch_execute(&batch_script).map_err(err_fwd!("FS batch script error"))?;
-
-        Ok(())
-    }
-
-    fn run_cs_script(&self, customer_code: &str) -> anyhow::Result<()> {
-        // | Open a transaction on the cs database
-        let dbi = DbServerInfo::for_cs();
-        // "postgresql://denis:<password>@pg13:5432/cs_dev_1";
-        let url = format!("postgresql://{}:{}@{}:{}/{}", dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name);
-
-        let mut cs_cnx = Client::connect(&url, NoTls).map_err(err_fwd!("💣 Cannot connect the CS database"))?;
-
-        // Run the commands to create the tables & co
-        log_info!("Generating the db script for CS schema, twin_id=[{}]", &self.twin_id);
-        let batch_script = generate_cs_schema_script(customer_code);
-        cs_cnx.batch_execute(&batch_script).map_err(err_fwd!("💣 CS batch script error"))?;
-
-        Ok(())
-    }
-
     /// Delegate routine for create customer
-    pub fn create_customer(&'a mut self, customer_request: Json<CreateCustomerRequest>) -> Json<CreateCustomerReply> {
-        log_info!("🚀 Start create_customer api, customer name=[{}], x_request_id=[{}]", &customer_request.customer_name, &self.twin_id.x_request_id);
+    pub fn create_customer(mut self, customer_request: Json<CreateCustomerRequest>) -> Json<CreateCustomerReply> {
+        log_info!("🚀 Start create_customer api, customer name=[{}], x_request_id=[{}]", &customer_request.customer_name, &self.follower.x_request_id);
 
         log_debug!("customer_request = [{:?}]", &customer_request);
-        log_debug!("x_request_id = [{}]", &self.twin_id.x_request_id);
-        self.twin_id.x_request_id = self.twin_id.x_request_id.new_if_null();
-        log_debug!("new x_request_id = [{}]", &self.twin_id.x_request_id);
+        log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
+        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        log_debug!("new x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
             return Json(CreateCustomerReply::invalid_token_error_reply());
         }
 
-        self.twin_id.token_type = TokenType::Token(&self.security_token.0);
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        log_info!("😎 Security token is valid, twin_id=[{}]", &self.twin_id);
+        log_info!("😎 Security token is valid, follower=[{}]", &self.follower);
         let internal_database_error_reply = Json(CreateCustomerReply::internal_database_error_reply());
         let internal_technical_error = Json(CreateCustomerReply::internal_technical_error_reply());
 
@@ -257,12 +218,12 @@ impl <'a> CustomerDelegate<'a> {
             return Json(CreateCustomerReply::from_error(INVALID_PASSWORD));
         };
 
-        log_info!("😎 User password is compliant, twin_id=[{}]", &self.twin_id);
+        log_info!("😎 User password is compliant, follower=[{}]", &self.follower);
 
         // Open the transaction
         let mut r_cnx = SQLConnection::new();
         let r_trans = open_transaction(&mut r_cnx)
-            .map_err(err_fwd!("Open transaction error, twin_id=[{}]", &self.twin_id));
+            .map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
             return internal_database_error_reply;
         };
@@ -276,8 +237,8 @@ impl <'a> CustomerDelegate<'a> {
 
             // Verify if the customer code is unique in the table (loop)
 
-            let Ok(not_taken) = check_code_not_taken(&mut trans, customer_code_str, &self.twin_id)
-                .map_err(err_fwd!("Cannot verify the customer code uniqueness, twin_id=[{}]", &self.twin_id)) else {
+            let Ok(not_taken) = check_code_not_taken(&mut trans, customer_code_str, &self.follower)
+                .map_err(err_fwd!("Cannot verify the customer code uniqueness, follower=[{}]", &self.follower)) else {
                 return internal_database_error_reply;
             };
 
@@ -287,26 +248,26 @@ impl <'a> CustomerDelegate<'a> {
             }
         }
 
-        log_info!("😎 Generated a free customer=[{}], twin_id=[{}]", &customer_code, &self.twin_id);
+        log_info!("😎 Generated a free customer=[{}], follower=[{}]", &customer_code, &self.follower);
 
         // Create the schema
 
         if let Err(e) = self.run_cs_script(&customer_code) {
-            log_error!("CS schema batch failed, error [{}], twin_id=[{}]", e, &self.twin_id);
+            log_error!("CS schema batch failed, error [{}], follower=[{}]", e, &self.follower);
             trans.rollback();
             return internal_database_error_reply;
         }
 
-        log_info!("😎 Created the CS schema, customer=[{}], twin_id=[{}]", &customer_code, &self.twin_id);
+        log_info!("😎 Created the CS schema, customer=[{}], follower=[{}]", &customer_code, &self.follower);
 
         if let Err(e) = self.run_fs_script(&customer_code) {
-            log_error!("FS schema batch failed, error [{}], twin_id=[{}]", e, &self.twin_id);
+            log_error!("FS schema batch failed, error [{}], follower=[{}]", e, &self.follower);
             trans.rollback();
             let _ = warning_cs_schema(&customer_code);
             return internal_database_error_reply;
         }
 
-        log_info!("😎 Created the FS schema, customer=[{}], twin_id=[{}]", &customer_code, &self.twin_id);
+        log_info!("😎 Created the FS schema, customer=[{}], follower=[{}]", &customer_code, &self.follower);
 
         // Call the "key-manager" micro-service to create a secret master key
         let add_key_request = AddKeyRequest {
@@ -315,19 +276,19 @@ impl <'a> CustomerDelegate<'a> {
 
         let Ok(km_host) = get_prop_value(KEY_MANAGER_HOSTNAME_PROPERTY)
             .map_err(err_fwd!("Cannot read the key manager hostname")) else {
-            log_error!("💣 Create customer failed, twin_id=[{}]", &self.twin_id);
+            log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
             return internal_technical_error;
         };
         let Ok(km_port) = get_prop_value(KEY_MANAGER_PORT_PROPERTY).unwrap_or("".to_string())
             .parse().map_err(err_fwd!("Cannot read the key manager port")) else {
-            log_error!("💣 Create customer failed, twin_id=[{}]", &self.twin_id);
+            log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
             return internal_technical_error;
         };
         let kmc = KeyManagerClient::new(&km_host, km_port);
-        let response = kmc.add_key(&add_key_request, self.twin_id.token_type);
+        let response = kmc.add_key(&add_key_request, &self.follower.token_type);
 
         if !response.success {
-            log_error!("💣 Key Manager failed with status=[{:?}], twin_id=[{}]", response.status, &self.twin_id);
+            log_error!("💣 Key Manager failed with status=[{:?}], follower=[{}]", response.status, &self.follower);
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
             return internal_technical_error;
@@ -348,13 +309,13 @@ impl <'a> CustomerDelegate<'a> {
             sequence_name: "dokaadmin.customer_id_seq".to_string(),
         };
 
-        let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new customer failed, twin_id=[{}]", &self.twin_id)) else {
+        let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new customer failed, follower=[{}]", &self.follower)) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
             return internal_database_error_reply;
         };
 
-        log_info!("😎 Inserted new customer, customer id=[{}], twin_id=[{}]", customer_id, &self.twin_id);
+        log_info!("😎 Inserted new customer, customer id=[{}], follower=[{}]", customer_id, &self.follower);
 
         // Insert the admin user in the table
 
@@ -378,24 +339,24 @@ impl <'a> CustomerDelegate<'a> {
             sequence_name: "dokaadmin.appuser_id_seq".to_string(),
         };
 
-        let Ok(user_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new admin user failed, twin_id=[{}]", &self.twin_id)) else {
+        let Ok(user_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new admin user failed, follower=[{}]", &self.follower)) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
             return internal_database_error_reply;
         };
 
-        log_info!("😎 Inserted new user, user id=[{}], twin_id=[{}]", user_id, &self.twin_id);
+        log_info!("😎 Inserted new user, user id=[{}], follower=[{}]", user_id, &self.follower);
 
         // Close the transaction
-        if trans.commit().map_err(err_fwd!("Commit failed, twin_id=[{}]", &self.twin_id)).is_err() {
+        if trans.commit().map_err(err_fwd!("Commit failed, follower=[{}]", &self.follower)).is_err() {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
             return internal_database_error_reply;
         }
 
-        log_info!("😎 Committed. Customer created with success, twin_id=[{}]", &self.twin_id);
+        log_info!("😎 Committed. Customer created with success, follower=[{}]", &self.follower);
 
-        log_info!("🏁 End create_customer, twin_id=[{}]", &self.twin_id);
+        log_info!("🏁 End create_customer, follower=[{}]", &self.follower);
 
         Json(CreateCustomerReply {
             customer_code,
@@ -408,10 +369,10 @@ impl <'a> CustomerDelegate<'a> {
     /// If the customer is "removable",
     /// this routine drops all the cs_{} and fs_{} and also delete the customer from the db
     // TODO implement a backup procedure for the customer
-    pub fn delete_customer(&'a mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
+    pub fn delete_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
 
-        self.twin_id.x_request_id = self.twin_id.x_request_id.new_if_null();
-        log_debug!("new x_request_id = [{}]", &self.twin_id.x_request_id);
+        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        log_debug!("new x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
@@ -419,12 +380,12 @@ impl <'a> CustomerDelegate<'a> {
         }
 
         // Change the token type to "Token"
-        self.twin_id.token_type = TokenType::Token(&self.security_token.0);
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        log_info!("🚀 Start delete_customer api, customer_code=[{}], twin_id=[{}]", customer_code, &self.twin_id);
+        log_info!("🚀 Start delete_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
         let customer_code = match customer_code.percent_decode()
-            .map_err(err_fwd!("💣 Invalid input parameter [{}], twin_id=[{}]", customer_code, &self.twin_id) ) {
+            .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {
             Ok(s) => s.to_string(),
             Err(_) => {
                 return Json(JsonErrorSet::from(INVALID_REQUEST));
@@ -435,7 +396,7 @@ impl <'a> CustomerDelegate<'a> {
 
         // | Open the transaction
         let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, twin_id=[{}]", &self.twin_id));
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
             return internal_database_error_reply;
         };
@@ -448,40 +409,75 @@ impl <'a> CustomerDelegate<'a> {
 
         // Clear the customer table and user
 
-        if self.delete_user_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete user, twin_id=[{}]", &self.twin_id)).is_err() {
+        if self.delete_user_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete user, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
 
-        if self.delete_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete customer, twin_id=[{}]", &self.twin_id)).is_err() {
+        if self.delete_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete customer, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
 
         // Remove the db schema
 
-        if self.drop_cs_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete the CS schema, twin_id=[{}]", &self.twin_id)).is_err() {
+        if self.drop_cs_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete the CS schema, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
 
-        if self.drop_fs_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete the FS schema, twin_id=[{}]", &self.twin_id)).is_err() {
+        if self.drop_fs_schema_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete the FS schema, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
 
         // Close the transaction
-        if trans.commit().map_err(err_fwd!("💣 Commit failed, twin_id=[{}]", &self.twin_id)).is_err() {
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
 
-        log_info!("😎 Customer delete created with success, twin_id=[{}]", &self.twin_id);
+        log_info!("😎 Customer delete created with success, follower=[{}]", &self.follower);
 
-        log_info!("🏁 End delete_customer, customer_code=[{}], twin_id=[{}]", customer_code, &self.twin_id);
+        log_info!("🏁 End delete_customer, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
         Json(JsonErrorSet::from(SUCCESS))
     }
 
+
+    fn run_fs_script(&self, customer_code: &str) -> anyhow::Result<()> {
+        // | Open a transaction on the cs database
+        let dbi = DbServerInfo::for_fs();
+        // "postgresql://denis:<password>@pg13:5432/fs_dev_1";
+        let url = format!("postgresql://{}:{}@{}:{}/{}", dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name);
+
+        let mut fs_cnx = Client::connect(&url, NoTls).map_err(err_fwd!("Cannot connect the FS database"))?;
+
+        // Run the commands to create the tables & co
+        log_info!("Generating the db script for FS schema, follower=[{}]", &self.follower);
+        let batch_script = generate_fs_schema_script(customer_code);
+
+        fs_cnx.batch_execute(&batch_script).map_err(err_fwd!("FS batch script error"))?;
+
+        Ok(())
+    }
+
+    fn run_cs_script(&self, customer_code: &str) -> anyhow::Result<()> {
+        // | Open a transaction on the cs database
+        let dbi = DbServerInfo::for_cs();
+        // "postgresql://denis:<password>@pg13:5432/cs_dev_1";
+        let url = format!("postgresql://{}:{}@{}:{}/{}", dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name);
+
+        let mut cs_cnx = Client::connect(&url, NoTls).map_err(err_fwd!("💣 Cannot connect the CS database"))?;
+
+        // Run the commands to create the tables & co
+        log_info!("Generating the db script for CS schema, follower=[{}]", &self.follower);
+        let batch_script = generate_cs_schema_script(customer_code);
+        cs_cnx.batch_execute(&batch_script).map_err(err_fwd!("💣 CS batch script error"))?;
+
+        Ok(())
+    }
+
+
     ///
     /// Find the customer in the db if it exists
     ///
-    fn search_customer( &self, trans : &mut SQLTransaction, customer_code : &str ) -> anyhow::Result<i64> {
+    fn search_customer(&self, trans : &mut SQLTransaction, customer_code : &str) -> anyhow::Result<i64> {
         let mut params = HashMap::new();
         params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(customer_code.to_string()));
 

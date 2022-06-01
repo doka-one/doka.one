@@ -21,7 +21,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for SecurityToken {
 
 impl SecurityToken {
     pub fn is_valid(&self) -> bool {
-        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(err_fwd!("")) else {
+        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(tr_fwd!()) else {
             return false;
         };
         !self.0.is_empty() && DkEncrypt::decrypt_str(&self.0, &cek).is_ok()
@@ -47,7 +47,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for SessionToken {
 
 impl SessionToken {
     pub fn is_valid(&self) -> bool {
-        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(err_fwd!("")) else {
+        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(tr_fwd!()) else {
             return false;
         };
         !self.0.is_empty() && DkEncrypt::decrypt_str(&self.0, &cek).is_ok()

@@ -60,6 +60,12 @@ macro_rules! log_warn {
     };
 }
 
+#[macro_export]
+macro_rules! tr_fwd {
+    () => {
+        err_closure_fwd(format!("[{}:{}]", file!(), line!()).as_str())
+    };
+}
 
 #[macro_export]
 macro_rules! err_fwd {
@@ -78,6 +84,10 @@ pub fn err_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn(T)
 }
 
 
+
+///
+/// cargo test -- --nocapture --test-threads=1
+///
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -149,7 +159,7 @@ mod tests {
     fn middle_level_routine() -> anyhow::Result<i32> {
         // middle level routine can just forward the error with err_fwd to log the program line number.
         // no message is required
-        let r = meant_to_crash().map_err(err_fwd!(""))?;
+        let r = meant_to_crash().map_err(tr_fwd!())?;
         Ok(r)
     }
 

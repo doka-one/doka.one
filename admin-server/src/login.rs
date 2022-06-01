@@ -15,7 +15,7 @@ use commons_services::database_lib::open_transaction;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 
 
-use commons_services::x_request_id::{TwinId, XRequestID};
+use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::{get_prop_value};
 use dkcrypto::dk_crypto::DkEncrypt;
 
@@ -48,10 +48,10 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
         return Json(LoginReply::invalid_token_error_reply());
     };
 
-    // The twin id the an easiest way to pass the information
+    // The follower the an easiest way to pass the information
     // between local routines
-    let twin_id = TwinId {
-        token_type: TokenType::Sid(&session_id),
+    let follower = Follower {
+        token_type: TokenType::Sid(session_id),
         x_request_id
     };
 
@@ -62,13 +62,13 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
 
     let mut r_cnx = SQLConnection::new();
     // let-else
-    let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, twin_id=[{}]", &twin_id));
+    let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &follower));
     let Ok(mut trans) = r_trans else {
         return internal_database_error_reply;
     };
 
-    let Ok((open_session_request, password_hash)) = search_user(&mut trans, &login_request.login, &twin_id) else {
-        log_warn!("⛔ login not found, login=[{}], twin_id=[{}]", &login_request.login, &twin_id);
+    let Ok((open_session_request, password_hash)) = search_user(&mut trans, &login_request.login, &follower) else {
+        log_warn!("⛔ login not found, login=[{}], follower=[{}]", &login_request.login, &follower);
         return Json(LoginReply::from_error(SESSION_LOGIN_DENIED));
     };
 
@@ -84,19 +84,19 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
         return invalid_password_reply;
     }
 
-    log_info!("😎 Password verified, twin_id=[{}]", &twin_id);
+    log_info!("😎 Password verified, follower=[{}]", &follower);
 
     // Open a session
 
     let Ok(smc) = (|| -> anyhow::Result<SessionManagerClient> {
         let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY)
-                    .map_err(err_fwd!("💣 Cannot read Session Manager hostname, twin_id=[{}]", &twin_id))?;
+                    .map_err(err_fwd!("💣 Cannot read Session Manager hostname, follower=[{}]", &follower))?;
         let sm_port: u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?.parse()
-                    .map_err(err_fwd!("💣 Cannot read Session Manager port, twin_id=[{}]", &twin_id))?;
+                    .map_err(err_fwd!("💣 Cannot read Session Manager port, follower=[{}]", &follower))?;
         let smc = SessionManagerClient::new(&sm_host, sm_port);
         Ok(smc)
     }) () else {
-        log_error!("💣 Session Manager Client creation failed, twin_id=[{}]", &twin_id);
+        log_error!("💣 Session Manager Client creation failed, follower=[{}]", &follower);
         return Json(LoginReply::internal_technical_error_reply());
     };
 
@@ -104,15 +104,15 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
     let response = smc.open_session(&open_session_request, &open_session_request.session_id, x_request_id.value());
 
     if response.status.error_code != 0 {
-        log_error!("💣 Session Manager failed with status [{:?}], twin_id=[{}]", response.status, &twin_id);
+        log_error!("💣 Session Manager failed with status [{:?}], follower=[{}]", response.status, &follower);
         return Json(LoginReply::internal_technical_error_reply());
     }
 
     let session_id = open_session_request.session_id.clone();
 
-    log_info!("😎 Login with success, session_id=[{}], twin_id=[{}]", &session_id, &twin_id);
+    log_info!("😎 Login with success, session_id=[{}], follower=[{}]", &session_id, &follower);
 
-    log_info!("🏁 End login api, login=[{}], twin_id=[{}]", &login_request.login, &twin_id);
+    log_info!("🏁 End login api, login=[{}], follower=[{}]", &login_request.login, &follower);
 
     Json(LoginReply{
         session_id,
@@ -121,7 +121,7 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
 }
 
 ///
-fn search_user( trans : &mut SQLTransaction, login: &str, twin_id : &TwinId ) -> anyhow::Result<(OpenSessionRequest,String)> {
+fn search_user(trans : &mut SQLTransaction, login: &str, follower : &Follower) -> anyhow::Result<(OpenSessionRequest, String)> {
 
     let mut params = HashMap::new();
     params.insert("p_login".to_owned(), CellValue::from_raw_string(login.to_string()));
@@ -151,15 +151,15 @@ fn search_user( trans : &mut SQLTransaction, login: &str, twin_id : &TwinId ) ->
             let user_name: String = sql_result.get_string("user_name").unwrap_or("".to_owned());
             let _company_name: String = sql_result.get_string("company_name").unwrap_or("".to_owned());
 
-            log_info!("Found user information for user, login=[{}], user id=[{}], customer id=[{}], twin_id=[{}]",
-                login, user_id, customer_id, &twin_id);
+            log_info!("Found user information for user, login=[{}], user id=[{}], customer id=[{}], follower=[{}]",
+                login, user_id, customer_id, &follower);
 
             (OpenSessionRequest {
                 customer_code,
                 user_name,
                 customer_id,
                 user_id,
-                session_id : twin_id.token_type.value(),
+                session_id : follower.token_type.value(),
             }, password_hash )
         }
         _ => {

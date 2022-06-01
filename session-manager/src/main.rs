@@ -18,7 +18,7 @@ use commons_pg::{SQLConnection, SQLChange, CellValue, SQLQueryBlock, SQLDataSet,
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
-use commons_services::x_request_id::{XRequestID, TwinId};
+use commons_services::x_request_id::{XRequestID, Follower};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 
 use dkdto::{EntrySession, OpenSessionReply, OpenSessionRequest, SessionReply, JsonErrorSet};
@@ -206,8 +206,8 @@ fn open_session(session_request: Json<OpenSessionRequest>, security_token: Secur
     }
     let token = security_token.take_value();
 
-    let twin_id = TwinId {
-        token_type: TokenType::Token(&token),
+    let follower = Follower {
+        token_type: TokenType::Token(token),
         x_request_id: x_request_id
     };
 
@@ -255,13 +255,13 @@ fn open_session(session_request: Json<OpenSessionRequest>, security_token: Secur
         return internal_database_error_reply;
     }
 
-    log_info!("😎 Session was opened with success, session_db_id=[{}], twin_id=[{}]", session_db_id, &twin_id);
+    log_info!("😎 Session was opened with success, session_db_id=[{}], follower=[{}]", session_db_id, &follower);
 
     let ret = OpenSessionReply {
         session_id,
         status : JsonErrorSet::from(SUCCESS),
     };
-    log_info!("🏁 End open_session, twin_id=[{}]", &twin_id);
+    log_info!("🏁 End open_session, follower=[{}]", &follower);
     Json(ret)
 }
 

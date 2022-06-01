@@ -64,7 +64,7 @@ pub fn set_removable_flag_customer(customer_code: &RawStr, security_token: Secur
 ///
 #[post("/customer", format = "application/json", data = "<customer_request>")]
 pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<CreateCustomerReply> {
-    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
+    let delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.create_customer(customer_request)
 }
 
@@ -74,7 +74,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
 #[delete("/customer/<customer_code>")]
 pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> Json<JsonErrorSet> {
     // delete_customer_delegate(customer_code, security_token, x_request_id)
-    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
+    let delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.delete_customer(customer_code)
 }
 

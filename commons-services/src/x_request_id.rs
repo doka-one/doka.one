@@ -5,7 +5,7 @@ use rand::Rng;
 use rocket::{Request, request};
 use rocket::request::FromRequest;
 use commons_error::*;
-use doka_cli::request_client::TokenType;
+use doka_cli::request_client::{TokenType};
 
 #[derive(Serialize, Deserialize, Debug,Copy,Clone)]
 pub struct XRequestID(Option<u32>);
@@ -65,14 +65,14 @@ impl<'a, 'r> FromRequest<'a, 'r> for XRequestID {
 }
 
 #[derive(Debug,Clone)]
-pub struct TwinId<'a> {
-    pub token_type : TokenType<'a>,
+pub struct Follower {
+    pub token_type : TokenType,
     pub x_request_id: XRequestID,
 }
 
-impl <'a> Display for TwinId<'a> {
+impl Display for Follower {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let tt = match self.token_type {
+        let tt = match &self.token_type {
             TokenType::Token(tok) => {
                 let limit = min(tok.len(), 22);
                 format!("T:{}...", &tok[..limit])

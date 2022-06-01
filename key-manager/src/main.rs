@@ -17,15 +17,13 @@ use dkconfig::conf_reader::{read_config};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 
 use commons_error::*;
-use commons_pg::{SQLConnection, SQLChange, CellValue, SQLQueryBlock, SQLDataSet, SQLTransaction, init_db_pool};
+use commons_pg::{SQLConnection, CellValue, SQLQueryBlock, SQLDataSet, SQLTransaction, init_db_pool};
 use commons_services::database_lib::open_transaction;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
-use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, EntryReply, JsonErrorSet};
-use dkdto::error_codes::{CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
-use dkdto::error_replies::ErrorReply;
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
 use crate::key::add_key_delegate;
 
 

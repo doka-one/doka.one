@@ -1,7 +1,6 @@
 #![feature(let_else)]
 
 use std::collections::HashMap;
-use std::num::ParseIntError;
 
 fn main() -> () /*Result<u32, String>*/ {
 

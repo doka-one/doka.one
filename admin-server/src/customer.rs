@@ -20,8 +20,6 @@ use rocket::http::RawStr;
 use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use commons_services::x_request_id::{XRequestID, TwinId};
 use dkdto::error_replies::ErrorReply;
-use doka_cli::request_client::TokenType::Token;
-use crate::delete;
 use crate::dk_password::valid_password;
 use crate::schema_cs::CS_SCHEMA;
 use crate::schema_fs::FS_SCHEMA;
@@ -410,7 +408,6 @@ impl <'a> CustomerDelegate<'a> {
     /// If the customer is "removable",
     /// this routine drops all the cs_{} and fs_{} and also delete the customer from the db
     // TODO implement a backup procedure for the customer
-    +
     pub fn delete_customer(&'a mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
 
         self.twin_id.x_request_id = self.twin_id.x_request_id.new_if_null();

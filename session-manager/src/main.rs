@@ -20,7 +20,6 @@ use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::{XRequestID, TwinId};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkcrypto::dk_crypto::DkEncrypt;
 
 use dkdto::{EntrySession, OpenSessionReply, OpenSessionRequest, SessionReply, JsonErrorSet};
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SESSION_CANNOT_BE_RENEWED, SESSION_NOT_FOUND, SESSION_TIMED_OUT, SUCCESS};

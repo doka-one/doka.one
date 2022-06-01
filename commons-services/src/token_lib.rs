@@ -1,8 +1,10 @@
 use serde::{Serialize, Deserialize};
 use rocket::{Request, request};
 use rocket::request::FromRequest;
+use commons_error::*;
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
+use crate::COMMON_EDIBLE_KEY_PROPERTY;
 
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -19,7 +21,9 @@ impl<'a, 'r> FromRequest<'a, 'r> for SecurityToken {
 
 impl SecurityToken {
     pub fn is_valid(&self) -> bool {
-        let cek = get_prop_value("cek");
+        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(err_fwd!("")) else {
+            return false;
+        };
         !self.0.is_empty() && DkEncrypt::decrypt_str(&self.0, &cek).is_ok()
     }
 
@@ -43,7 +47,9 @@ impl<'a, 'r> FromRequest<'a, 'r> for SessionToken {
 
 impl SessionToken {
     pub fn is_valid(&self) -> bool {
-        let cek = get_prop_value("cek");
+        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(err_fwd!("")) else {
+            return false;
+        };
         !self.0.is_empty() && DkEncrypt::decrypt_str(&self.0, &cek).is_ok()
     }
 

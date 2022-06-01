@@ -113,8 +113,9 @@ fn indexing(mut trans : &mut SQLTransaction, raw_text_request: &FullTextRequest,
 
     let mut language_buffer_block: HashMap<String, Vec<String>> = HashMap::new(); // { "french", Vec<PureWord> }
 
-    let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY);
-    let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY).parse::<u16>()?;
+    let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY).map_err(err_fwd!(""))?;
+    let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY).map_err(err_fwd!(""))?
+                                                                            .parse::<u16>().map_err(err_fwd!(""))?;
 
     let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
 

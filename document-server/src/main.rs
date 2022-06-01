@@ -19,6 +19,7 @@ use dkconfig::conf_reader::read_config;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use log::{error,info};
 use commons_error::*;
+use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 
 fn main() {
 
@@ -37,10 +38,17 @@ fn main() {
     dbg!(&props);
     set_prop_values(props);
 
-    let port = get_prop_value("server.port").parse::<u16>().unwrap();
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
+        eprintln!("💣 Cannot read the server port");
+        exit(-56);
+    };
+
     dbg!(port);
 
-    let log_config: String = get_prop_value("log4rs.config");
+    let Ok(log_config) = get_prop_value(LOG_CONFIG_FILE_PROPERTY) else {
+        eprintln!("💣 Cannot read the log4rs config");
+        exit(-57);
+    };
     let log_config_path = Path::new(&log_config);
 
     // Read the global properties
@@ -60,7 +68,7 @@ fn main() {
     log_info!("😎 Read Common Edible Key");
     read_cek_and_store();
 
-    let cek = get_prop_value("cek");
+    let cek = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY);
     dbg!(&cek);
 
     // Init DB pool

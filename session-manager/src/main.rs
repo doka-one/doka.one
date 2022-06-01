@@ -1,4 +1,5 @@
 #![feature(proc_macro_hygiene, decl_macro)]
+#![feature(let_else)]
 
 use std::path::Path;
 use std::process::exit;
@@ -14,6 +15,7 @@ use rocket_contrib::templates::Template;
 use std::time::SystemTime;
 use rocket::config::Environment;
 use commons_pg::{SQLConnection, SQLChange, CellValue, SQLQueryBlock, SQLDataSet, SQLTransaction, init_db_pool};
+use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::{XRequestID, TwinId};
@@ -284,10 +286,17 @@ fn main() {
     dbg!(&props);
     set_prop_values(props);
 
-    let port = get_prop_value("server.port").parse::<u16>().unwrap();
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
+        eprintln!("💣 Cannot read the server port");
+        exit(-56);
+    };
+
     dbg!(port);
 
-    let log_config: String = get_prop_value("log4rs.config");
+    let Ok(log_config) = get_prop_value(LOG_CONFIG_FILE_PROPERTY) else {
+        eprintln!("💣 Cannot read the log4rs config");
+        exit(-57);
+    };
 
     let log_config_path = Path::new(&log_config);
 
@@ -306,8 +315,9 @@ fn main() {
     log_info!("😎 Read Common Edible Key");
     read_cek_and_store();
 
-    let new_prop = get_prop_value("cek");
+    let new_prop = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY);
     dbg!(&new_prop);
+
 
     // Init DB pool
     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()

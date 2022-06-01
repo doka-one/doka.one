@@ -12,7 +12,7 @@ use commons_error::*;
 use rs_uuid::iso::uuid_v4;
 use commons_pg::{SQLConnection, CellValue, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
-use commons_services::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
+use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 
 
 use commons_services::x_request_id::{TwinId, XRequestID};
@@ -31,24 +31,27 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
     log_info!("🚀 Start login api, login=[{}], x_request_id=[{}]", &login_request.login, x_request_id);
 
     // Generate a sessionId
-    let clear_session_id= uuid_v4();
+    let clear_session_id = uuid_v4();
 
     // In Private Customer Key Mode, the user will provide its own CEK in the LoginRequest
     // This CEK cannot be stored anywhere, so must be passed along to all request call
     // in TLS encrypted headers.
 
-    let cek = get_prop_value("cek");
+    let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY)
+        .map_err(err_fwd!("💣 Cannot read the cek, x_request_id=[{}]", x_request_id)) else {
+        return Json(LoginReply::invalid_common_edible_key());
+    };
 
     // let-else
     let Ok(session_id) = DkEncrypt::encrypt_str(&clear_session_id, &cek)
-                            .map_err(err_fwd!("💣 Cannot encrypt the session id, x_request_id=[{}]", x_request_id)) else {
+        .map_err(err_fwd!("💣 Cannot encrypt the session id, x_request_id=[{}]", x_request_id)) else {
         return Json(LoginReply::invalid_token_error_reply());
     };
 
     // The twin id the an easiest way to pass the information
     // between local routines
     let twin_id = TwinId {
-        token_type : TokenType::Sid(&session_id),
+        token_type: TokenType::Sid(&session_id),
         x_request_id
     };
 
@@ -76,7 +79,7 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
 
     // Verify the password
 
-    if ! DkEncrypt::verify_password(&login_request.password, &password_hash) {
+    if !DkEncrypt::verify_password(&login_request.password, &password_hash) {
         log_warn!("💣 Incorrect password for login, login=[{}]", &login_request.login);
         return invalid_password_reply;
     }
@@ -85,10 +88,17 @@ pub (crate) fn login_delegate(login_request: Json<LoginRequest>) -> Json<LoginRe
 
     // Open a session
 
-    let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY);
-    let sm_port : u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY).parse()
-                                            .map_err(err_fwd!("💣 Cannot read Session Manager port, twin_id=[{}]", &twin_id)).unwrap_or(0u16);
-    let smc = SessionManagerClient::new(&sm_host, sm_port);
+    let Ok(smc) = (|| -> anyhow::Result<SessionManagerClient> {
+        let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY)
+                    .map_err(err_fwd!("💣 Cannot read Session Manager hostname, twin_id=[{}]", &twin_id))?;
+        let sm_port: u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?.parse()
+                    .map_err(err_fwd!("💣 Cannot read Session Manager port, twin_id=[{}]", &twin_id))?;
+        let smc = SessionManagerClient::new(&sm_host, sm_port);
+        Ok(smc)
+    }) () else {
+        log_error!("💣 Session Manager Client creation failed, twin_id=[{}]", &twin_id);
+        return Json(LoginReply::internal_technical_error_reply());
+    };
 
     // !!! The generated session_id is also used as a token_id !!!!
     let response = smc.open_session(&open_session_request, &open_session_request.session_id, x_request_id.value());

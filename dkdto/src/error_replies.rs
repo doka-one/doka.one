@@ -1,4 +1,4 @@
-use crate::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
+use crate::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK, INVALID_TOKEN};
 use crate::{ErrorSet};
 
 ///
@@ -10,6 +10,10 @@ pub trait ErrorReply {
 
     fn invalid_token_error_reply() -> Self::T {
         Self::from_error(INVALID_TOKEN)
+    }
+
+    fn invalid_common_edible_key() -> Self::T {
+        Self::from_error(INVALID_CEK)
     }
 
     fn internal_database_error_reply() -> Self::T {

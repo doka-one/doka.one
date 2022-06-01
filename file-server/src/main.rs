@@ -1,4 +1,5 @@
 #![feature(proc_macro_hygiene, decl_macro)]
+#![feature(let_else)]
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -150,11 +151,10 @@ fn parse_content(file_ref: &str, mem_file : Vec<u8>, customer_code: &str, sid: &
 
     log_info!("Parse file content for file_ref=[{}], sid=[{}]", file_ref, sid);
 
-    let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY);
-    let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY).parse::<u16>()?;
-
-    let document_server_host = get_prop_value(DOCUMENT_SERVER_HOSTNAME_PROPERTY);
-    let document_server_port = get_prop_value(DOCUMENT_SERVER_PORT_PROPERTY).parse::<u16>()?;
+    let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY)?;
+    let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
+    let document_server_host = get_prop_value(DOCUMENT_SERVER_HOSTNAME_PROPERTY)?;
+    let document_server_port = get_prop_value(DOCUMENT_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
 
     // set_of_language_word_block = [ <language_word_block>, ...]
 
@@ -704,10 +704,17 @@ fn main() {
 
     log_info!("🚀 Start {}", PROGRAM_NAME);
 
-    let port = get_prop_value(SERVER_PORT_PROPERTY).parse::<u16>().unwrap();
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
+        eprintln!("💣 Cannot read the server port");
+        exit(-56);
+    };
+
     dbg!(port);
 
-    let log_config: String = get_prop_value(LOG_CONFIG_FILE_PROPERTY);
+    let Ok(log_config) = get_prop_value(LOG_CONFIG_FILE_PROPERTY) else {
+        eprintln!("💣 Cannot read the log4rs config");
+        exit(-57);
+    };
     let log_config_path = Path::new(&log_config);
 
     // Read the global properties
@@ -786,7 +793,7 @@ mod test {
 
         log_info!("🚀 Start {}", PROGRAM_NAME);
 
-        let log_config: String = get_prop_value("log4rs.config");
+        let log_config: String = get_prop_value(LOG_CONFIG_FILE_PROPERTY);
         let log_config_path = Path::new(&log_config);
 
         // Read the global properties

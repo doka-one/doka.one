@@ -9,6 +9,23 @@ use java_properties::read;
 use commons_error::*;
 
 //
+pub fn cek_read_once(cek_file : &Path, is_edible: bool) -> anyhow::Result<String> {
+
+    let cek = read_to_string(&cek_file).map_err(
+        err_fwd!("Cannot open CEK file, filename=[{}]", cek_file.to_str().unwrap().to_owned())
+    )?;
+
+    if is_edible {
+        remove_file(&cek_file).map_err(
+            err_fwd!("Unknown CEK file error, filename=[{}]", cek_file.to_str().unwrap().to_owned())
+        )?;
+    }
+
+    Ok(cek)
+}
+
+
+//
 pub fn read_config( project_code : &str, var_name : &str ) -> HashMap<String, String> {
 
     let doka_env = match env::var(var_name) {
@@ -42,21 +59,4 @@ pub fn read_config( project_code : &str, var_name : &str ) -> HashMap<String, St
     eprintln!("Configuration file : props={:?}", &props);
 
     props
-}
-
-
-//
-pub fn cek_read_once(cek_file : &Path, is_edible: bool) -> anyhow::Result<String> {
-
-    let cek = read_to_string(&cek_file).map_err(
-        err_fwd!("Cannot open CEK file, filename=[{}]", cek_file.to_str().unwrap().to_owned())
-    )?;
-
-    if is_edible {
-        remove_file(&cek_file).map_err(
-            err_fwd!("Unknown CEK file error, filename=[{}]", cek_file.to_str().unwrap().to_owned())
-        )?;
-    }
-
-    Ok(cek)
 }

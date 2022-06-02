@@ -1,6 +1,8 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 #![feature(let_else)]
 
+//! admin-server handles the customer creation and login
+
 mod schema_cs;
 mod schema_fs;
 mod dk_password;
@@ -24,12 +26,11 @@ use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::read_config;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkdto::{CreateCustomerReply, CreateCustomerRequest, JsonErrorSet, LoginReply, LoginRequest};
-use crate::customer::{CustomerDelegate, set_removable_flag_customer_delegate};
-use crate::login::login_delegate;
+use crate::customer::{CustomerDelegate};
+use crate::login::{LoginDelegate};
 
 
-
-///
+/// 0️ Login into the system with the provided credentials
 ///
 /// * Generate a x_request_id
 /// * Generate a session id
@@ -41,36 +42,39 @@ use crate::login::login_delegate;
 /// The security here is ensured by the user/password verification
 /// The DDoS or Brute Force attack must be handle by the network architecture
 ///
-///  1A  ⛔ 2A  ✔ 3A  ✔1B  ✔2B  ✔3B  ✔4B  ✔5B  ✔1C  ✔1D  ✔
+/// **NORM
 ///
 #[post("/login", format = "application/json", data = "<login_request>")]
 pub fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
-    login_delegate(login_request)
+    // TODO define the cases when a service needs a x_request_id has an entry parameter.
+    let delegate = LoginDelegate::new(XRequestID::from_value(None));
+    delegate.login(login_request)
 }
 
+
 ///
-/// Set a flag on a customer to allow its deletion
-/// 1A ✔  2A  ✔ 3A  ✔1B  ✔2B  ✔3B  ✔4B  ✔5B  ✔1C  ✔1D  ✔
+/// 🔑 Set a flag on a customer to allow its deletion
+/// **NORM
 ///
 #[patch("/customer/removable/<customer_code>")]
 pub fn set_removable_flag_customer(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
-    set_removable_flag_customer_delegate(customer_code, security_token)
+    let delegate = CustomerDelegate::new(security_token, XRequestID::from_value(None));
+    delegate.set_removable_flag_customer(customer_code)
 }
 
 
-///
-/// Create a brand new customer with schema and all
-/// 1A ✔  2A  ✔ 3A  ✔1B  ✔2B  ✔3B  ✔4B  ✔5B  ✔1C  ✔1D  ✔
-///
+
+/// 🔑 Create a brand new customer with schema and all
+/// **NORM
 #[post("/customer", format = "application/json", data = "<customer_request>")]
 pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<CreateCustomerReply> {
     let delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.create_customer(customer_request)
 }
 
-///
-/// Delete a customer with schema and all
-///
+
+/// 🔑 Delete a customer with schema and all
+/// **NORM
 #[delete("/customer/<customer_code>")]
 pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> Json<JsonErrorSet> {
     // delete_customer_delegate(customer_code, security_token, x_request_id)
@@ -78,7 +82,6 @@ pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_
     delegate.delete_customer(customer_code)
 }
 
-///
 ///
 ///
 fn main() {

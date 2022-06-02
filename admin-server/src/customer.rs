@@ -124,55 +124,6 @@ fn set_removable_flag_customer_from_db( trans : &mut SQLTransaction, customer_co
     Ok(true)
 }
 
-pub (crate) fn set_removable_flag_customer_delegate(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
-
-    // Check if the token is valid
-    if !security_token.is_valid() {
-        return  Json(JsonErrorSet::from(INVALID_TOKEN));
-    }
-
-    let token = security_token.take_value();
-    let x_request_id = XRequestID::new();
-    let follower = Follower {
-        token_type : TokenType::Token(token),
-        x_request_id
-    };
-
-    log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], follower=[{}]", customer_code, &follower);
-
-    let customer_code = match customer_code.percent_decode()
-                .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &follower) ) {
-        Ok(s) => s.to_string(),
-        Err(_) => {
-            return Json(JsonErrorSet::from(INVALID_REQUEST));
-        }
-    };
-
-    let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
-
-    // | Open the transaction
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &follower)) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    if set_removable_flag_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot set the removable flag, follower=[{}]", &follower)).is_err() {
-        return internal_database_error_reply;
-    }
-
-    // Close the transaction
-    if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &follower)).is_err() {
-        return internal_database_error_reply;
-    }
-
-    log_info!("😎 Set removable flag with success");
-
-    log_info!("🏁 End set_removable_flag_customer, customer_code=[{}], follower=[{}]", customer_code, &follower);
-
-    Json(JsonErrorSet::from(SUCCESS))
-}
-
 pub(crate) struct CustomerDelegate {
     pub security_token: SecurityToken,
     pub follower: Follower,
@@ -181,7 +132,7 @@ pub(crate) struct CustomerDelegate {
 impl CustomerDelegate {
 
     pub fn new(security_token: SecurityToken, x_request_id: XRequestID) -> Self {
-        CustomerDelegate {
+        Self {
             security_token,
             follower : Follower {
                 x_request_id,
@@ -372,7 +323,7 @@ impl CustomerDelegate {
     pub fn delete_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
 
         self.follower.x_request_id = self.follower.x_request_id.new_if_null();
-        log_debug!("new x_request_id = [{}]", &self.follower.x_request_id);
+        log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
@@ -561,6 +512,57 @@ impl CustomerDelegate {
         }
 
         Ok(true)
+    }
+
+
+    ///
+    /// 🔑 Set the flag to removable on a customer
+    ///
+    pub fn set_removable_flag_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
+
+        log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
+
+        // Check if the token is valid
+        if !self.security_token.is_valid() {
+            return  Json(JsonErrorSet::from(INVALID_TOKEN));
+        }
+
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
+
+        let customer_code = match customer_code.percent_decode()
+            .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {
+            Ok(s) => s.to_string(),
+            Err(_) => {
+                return Json(JsonErrorSet::from(INVALID_REQUEST));
+            }
+        };
+
+        let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
+
+        // | Open the transaction
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower)) {
+            Ok(x) => { x },
+            Err(_) => { return internal_database_error_reply; },
+        };
+
+        if set_removable_flag_customer_from_db(&mut trans, &customer_code)
+                                .map_err(err_fwd!("💣 Cannot set the removable flag, follower=[{}]", &self.follower)).is_err() {
+            return internal_database_error_reply;
+        }
+
+        // Close the transaction
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return internal_database_error_reply;
+        }
+
+        log_info!("😎 Set removable flag with success,follower=[{}]", &self.follower);
+
+        log_info!("🏁 End set_removable_flag_customer, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+
+        Json(JsonErrorSet::from(SUCCESS))
     }
 
 

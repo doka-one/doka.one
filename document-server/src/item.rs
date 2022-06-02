@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use rocket::{get,post};
+use rocket::{post};
 use rocket_contrib::json::Json;
 
 use commons_pg::{CellValue, date_time_to_iso, date_to_iso, iso_to_date, iso_to_datetime, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
@@ -12,254 +13,314 @@ use commons_services::database_lib::open_transaction;
 
 use commons_services::token_lib::{SessionToken};
 use commons_services::session_lib::{fetch_entry_session};
+use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, SUCCESS};
 use dkdto::{AddItemReply, AddItemRequest, EnumTagValue, GetItemReply, ItemElement, JsonErrorSet, AddTagValue, TagValueElement};
 use dkdto::error_replies::ErrorReply;
+use doka_cli::request_client::TokenType;
 use crate::item_query::create_item;
 
-///
-/// Find a session from its sid
-///
-#[get("/item?<start_page>&<page_size>")]
-pub (crate) fn get_all_item(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> Json<GetItemReply> {
-
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        log_error!("Invalid session token {:?}", &session_token);
-        return Json(GetItemReply::invalid_token_error_reply())
-    }
-
-    let sid = session_token.take_value();
-
-    log_info!("🚀 Start get_all_item api, sid={}", &sid);
-
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return Json(GetItemReply::internal_technical_error_reply());
-        }
-    };
-
-    // Query the items
-    let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
-
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    let items = match search_item_by_sid(&mut trans, None,
-                                         start_page, page_size,
-                                         &entry_session.customer_code ) {
-        Ok(x) => {x}
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
-
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
-    }
-
-    Json(GetItemReply{
-        items,
-        status: JsonErrorSet::from(SUCCESS),
-    })
+pub(crate) struct ItemDelegate {
+    pub session_token: SessionToken,
+    pub follower: Follower,
 }
 
-///
-/// Search items by id
-/// If no item id provided, return all existing items
-///
-fn search_item_by_sid(mut trans : &mut SQLTransaction, item_id: Option<i64>,
-                      start_page : Option<u32>, page_size : Option<u32>,
-                      customer_code : &str) -> anyhow::Result<Vec<ItemElement>> {
+impl ItemDelegate {
+    pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
+        Self {
+            session_token,
+            follower: Follower {
+                x_request_id,
+                token_type: TokenType::None,
+            }
+        }
+    }
 
-    let p_item_id = CellValue::Int(item_id);
+    ///
+    /// ✨ Find all the items at page [start_page]
+    ///
+    pub fn get_all_item(mut self, start_page : Option<u32>, page_size : Option<u32>) -> Json<GetItemReply> {
 
-    let mut params = HashMap::new();
-    params.insert("p_item_id".to_owned(), p_item_id);
+        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
-    let sql_query = format!( r"SELECT id, name, created_gmt, last_modified_gmt
+        log_info!("🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]", start_page, page_size, &self.follower);
+
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            log_error!("Invalid session token {:?}", &self.session_token);
+            return Json(GetItemReply::invalid_token_error_reply())
+        }
+
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) =  fetch_entry_session(&self.follower.token_type.value())
+            .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
+            return Json(GetItemReply::internal_technical_error_reply());
+        };
+
+        // Query the items
+        let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
+
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return internal_database_error_reply;
+        };
+
+        let Ok(items) = self.search_item_by_id(&mut trans, None,
+                                          start_page, page_size,
+                                          &entry_session.customer_code ) else {
+            log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
+            return internal_database_error_reply;
+        };
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return internal_database_error_reply;
+        }
+
+        Json(GetItemReply{
+            items,
+            status: JsonErrorSet::from(SUCCESS),
+        })
+    }
+
+
+    /// Search items by id
+    /// If no item id provided, return all existing items
+    fn search_item_by_id(&self, mut trans : &mut SQLTransaction, item_id: Option<i64>,
+                         start_page : Option<u32>, page_size : Option<u32>,
+                         customer_code : &str) -> anyhow::Result<Vec<ItemElement>> {
+
+        let p_item_id = CellValue::Int(item_id);
+
+        let mut params = HashMap::new();
+        params.insert("p_item_id".to_owned(), p_item_id);
+
+        let sql_query = format!( r"SELECT id, name, created_gmt, last_modified_gmt
                     FROM cs_{}.item
                     WHERE ( id = :p_item_id OR  :p_item_id IS NULL )
                     ORDER BY name ", customer_code );
 
-    let query = SQLQueryBlock {
-        sql_query,
-        start : start_page.unwrap_or(0) *  page_size.unwrap_or(0),
-        length : page_size,
-        params,
-    };
-
-    let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
-
-    let mut items = vec![];
-    while sql_result.next() {
-        let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
-        let name : String = sql_result.get_string("name").unwrap_or("".to_owned());
-        let created_gmt  = sql_result.get_timestamp_as_datetime("created_gmt")
-            .ok_or(anyhow::anyhow!(""))
-            .map_err(err_fwd!("Cannot read the creation datetime"))?;
-
-        let last_modified_gmt = sql_result.get_timestamp_as_datetime("last_modified_gmt")
-                                    .as_ref().map( |x| date_time_to_iso(x) );
-
-        let props = find_item_properties(trans, id, customer_code);
-
-        let item = ItemElement {
-            item_id: id,
-            name,
-            created : date_time_to_iso(&created_gmt),
-            last_modified : last_modified_gmt,
-            properties: Some(props),
+        let query = SQLQueryBlock {
+            sql_query,
+            start : start_page.unwrap_or(0) *  page_size.unwrap_or(0),
+            length : page_size,
+            params,
         };
 
-        let _ = &items.push(item);
+        let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
 
+        let mut items = vec![];
+        while sql_result.next() {
+            let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
+            let name : String = sql_result.get_string("name").unwrap_or("".to_owned());
+            let created_gmt  = sql_result.get_timestamp_as_datetime("created_gmt")
+                .ok_or(anyhow::anyhow!("Wrong created gmt"))
+                .map_err(tr_fwd!())?;
+
+            // Optional
+            let last_modified_gmt = sql_result.get_timestamp_as_datetime("last_modified_gmt")
+                .as_ref().map( |x| date_time_to_iso(x) );
+
+            let props = self.find_item_properties(trans, id, customer_code).map_err(tr_fwd!())?;
+
+            let item = ItemElement {
+                item_id: id,
+                name,
+                created : date_time_to_iso(&created_gmt),
+                last_modified : last_modified_gmt,
+                properties: Some(props),
+            };
+
+            let _ = &items.push(item);
+
+        }
+
+        Ok(items)
     }
 
-    Ok(items)
-}
+    ///
+    ///
+    ///
+    fn find_item_properties(&self, trans : &mut SQLTransaction, item_id : i64, customer_code : &str) -> anyhow::Result<Vec<TagValueElement>> {
+        let mut props = vec![];
 
-///
-///
-///
-fn find_item_properties(trans : &mut SQLTransaction, item_id : i64, customer_code : &str) -> Vec<TagValueElement> {
-    let mut props = vec![];
+        let p_item_id = CellValue::from_raw_int(item_id);
 
-    let p_item_id = CellValue::from_raw_int(item_id);
+        let mut params = HashMap::new();
+        params.insert("p_item_id".to_owned(), p_item_id);
 
-    let mut params = HashMap::new();
-    params.insert("p_item_id".to_owned(), p_item_id);
-
-    let sql_query = format!( r"SELECT td.name, td.type, tv.id, tv.tag_id, tv.item_id, tv.value_string, tv.value_integer, tv.value_double,
+        let sql_query = format!( r"SELECT td.name, td.type, tv.id, tv.tag_id, tv.item_id, tv.value_string, tv.value_integer, tv.value_double,
                 tv.value_date, tv.value_datetime, tv.value_boolean
                 FROM cs_{}.tag_value tv
                 INNER JOIN cs_{}.tag_definition td ON td.id = tv.tag_id
                 WHERE tv.item_id = :p_item_id ", customer_code, customer_code );
 
-    let query = SQLQueryBlock {
-        sql_query,
-        start : 0,
-        length : None,
-        params,
-    };
+        let query = SQLQueryBlock {
+            sql_query,
+            start : 0,
+            length : None,
+            params,
+        };
 
-    let mut sql_result : SQLDataSet =  match query.execute( trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query)) {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{}", e);
-            return props;
+        let mut sql_result=  query.execute( trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
+
+        while sql_result.next() {
+
+            let _name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
+            let tag_type : String = sql_result.get_string("type").ok_or(anyhow!("Wrong type"))?;
+
+            let r_value = match tag_type.to_lowercase().as_str() {
+                "string" => {
+                    let value_string = sql_result.get_string("value_string");
+                    Ok(EnumTagValue::String(value_string))
+                }
+                "bool" => {
+                    let value_boolean  = sql_result.get_bool("value_boolean");
+                    Ok(EnumTagValue::Boolean(value_boolean))
+                }
+                "integer" => {
+                    let value_integer = sql_result.get_int("value_integer");
+                    Ok(EnumTagValue::Integer(value_integer))
+                }
+                "double" => {
+                    let value_double = sql_result.get_double("value_double");
+                    Ok(EnumTagValue::Double(value_double))
+                }
+                "date" => {
+                    let value_date = sql_result.get_naivedate_as_date("value_date");
+                    dbg!(&value_date);
+                    let opt_iso_d_str = value_date.as_ref().map(|x| date_to_iso(x));
+                    Ok(EnumTagValue::SimpleDate(opt_iso_d_str))
+                }
+                "datetime" => {
+                    let value_datetime = sql_result.get_timestamp_as_datetime("value_datetime");
+                    let opt_iso_dt_str = value_datetime.as_ref().map(|x| date_time_to_iso(x));
+                    Ok(EnumTagValue::DateTime(opt_iso_dt_str))
+                }
+                v => {
+                    Err(anyhow!(format!("Wrong tag type, [{}]", v)))
+                }
+            };
+
+            let value = r_value.map_err(tr_fwd!())?;
+
+            let tv = TagValueElement {
+                tag_value_id: 0,
+                item_id: 0,
+                tag_id: 0,
+                value,
+            };
+            let _ = &props.push(tv);
         }
-    };
 
-    while sql_result.next() {
-
-        let _name : String = sql_result.get_string("name").unwrap_or("".to_owned());
-        let tag_type : String = sql_result.get_string("type").unwrap_or("".to_owned());
-
-
-        let value = match tag_type.to_lowercase().as_str() {
-            "string" => {
-                let value_string = sql_result.get_string("value_string");
-                EnumTagValue::String(value_string)
-            }
-            "bool" => {
-                let value_boolean  = sql_result.get_bool("value_boolean");
-                EnumTagValue::Boolean(value_boolean)
-            }
-            "integer" => {
-                let value_integer = sql_result.get_int("value_integer");
-                EnumTagValue::Integer(value_integer)
-            }
-            "double" => {
-                let value_double = sql_result.get_double("value_double");
-                EnumTagValue::Double(value_double)
-            }
-            "date" => {
-                let value_date = sql_result.get_naivedate_as_date("value_date");
-                dbg!(&value_date);
-                let opt_iso_d_str = value_date.as_ref().map(|x| date_to_iso(x));
-                EnumTagValue::SimpleDate(opt_iso_d_str)
-            }
-            "datetime" => {
-                let value_datetime = sql_result.get_timestamp_as_datetime("value_datetime");
-                let opt_iso_dt_str = value_datetime.as_ref().map(|x| date_time_to_iso(x));
-                EnumTagValue::DateTime(opt_iso_dt_str)
-            }
-            v => {
-                log_error!("Wrong tag type, [{}]", v);
-                return props;
-            }
-        };
-
-
-        let tv = TagValueElement {
-            tag_value_id: 0,
-            item_id: 0,
-            tag_id: 0,
-            value,
-        };
-        let _ = &props.push(tv);
+        Ok(props)
     }
 
-    props
-}
 
-///
-/// Find a item from its item id
-///
-#[get("/item/<item_id>")]
-pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> Json<GetItemReply> {
+    ///
+    /// ✨ Find a item from its item id
+    ///
+    pub fn get_item(mut self, item_id: i64) -> Json<GetItemReply> {
 
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        log_error!("Invalid session token {:?}", &session_token);
-        return Json(GetItemReply::invalid_token_error_reply());
-    }
+        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
-    let sid = session_token.take_value();
+        log_info!("🚀 Start get_item api, item_id=[{}], follower=[{}]", item_id, &self.follower);
 
-    log_info!("🚀 Start get_item api, sid=[{}], item_id=[{}]", &sid, item_id);
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token {:?}", &self.session_token);
+            return Json(GetItemReply::invalid_token_error_reply());
+        }
 
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed")) else {
             return Json(GetItemReply::internal_technical_error_reply());
-        }
-    };
+        };
 
-    // Query the item
-    let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
+        // Query the item
+        let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
 
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error"));
+        let Ok(mut trans) = r_trans else {
+            return internal_database_error_reply;
+        };
 
-    let items = match search_item_by_sid(&mut trans, Some(item_id),
-                                         None, None,
-                                         &entry_session.customer_code ) {
-        Ok(x) => {x}
-        Err(_) => {
+        let Ok(items) =  self.search_item_by_id(&mut trans, Some(item_id),
+                                                 None, None,
+                                                 &entry_session.customer_code ) else {
+            return internal_database_error_reply;
+        };
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed")).is_err() {
             return internal_database_error_reply;
         }
-    };
 
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
+        Json(GetItemReply{
+            items,
+            status: JsonErrorSet::from(SUCCESS),
+        })
     }
 
-    Json(GetItemReply{
-        items,
-        status: JsonErrorSet::from(SUCCESS),
-    })
+
 }
+
+
+// ///
+// /// Find a item from its item id
+// ///
+// #[get("/item/<item_id>")]
+// pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> Json<GetItemReply> {
+//
+//     // Check if the token is valid
+//     if !session_token.is_valid() {
+//         log_error!("Invalid session token {:?}", &session_token);
+//         return Json(GetItemReply::invalid_token_error_reply());
+//     }
+//
+//     let sid = session_token.take_value();
+//
+//     log_info!("🚀 Start get_item api, sid=[{}], item_id=[{}]", &sid, item_id);
+//
+//     // Read the session information
+//     let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
+//         Ok(x) => x,
+//         Err(_) => {
+//             return Json(GetItemReply::internal_technical_error_reply());
+//         }
+//     };
+//
+//     // Query the item
+//     let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
+//
+//     let mut r_cnx = SQLConnection::new();
+//     let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
+//         Ok(x) => { x },
+//         Err(_) => { return internal_database_error_reply; },
+//     };
+//
+//     let items = match self.search_item_by_id(&mut trans, Some(item_id),
+//                                         None, None,
+//                                         &entry_session.customer_code ) {
+//         Ok(x) => {x}
+//         Err(_) => {
+//             return internal_database_error_reply;
+//         }
+//     };
+//
+//     if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+//         return internal_database_error_reply;
+//     }
+//
+//     Json(GetItemReply{
+//         items,
+//         status: JsonErrorSet::from(SUCCESS),
+//     })
+// }
 
 ///
 ///

@@ -23,11 +23,11 @@ impl XRequestID {
 
     /// Regenerate a x_request_id if none
     pub fn new_if_null(&self) -> Self {
-        XRequestID(
-            Some(self.0.unwrap_or({
-                Self::generate()
-            }))
-        )
+        let t_value = match self.0 {
+            Some(t) => {t}
+            None => {Self::generate()}
+        };
+        XRequestID(Some(t_value))
     }
 
     fn generate() -> u32 {

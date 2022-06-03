@@ -14,9 +14,6 @@ use dkdto::error_replies::ErrorReply;
 use crate::search_key_by_customer_code;
 
 pub fn add_key_delegate(customer: Json<AddKeyRequest>, security_token: SecurityToken) -> Json<AddKeyReply> {
-
-    dbg!(&customer);
-
     // Check if the trace_id is valid
     if !security_token.is_valid() {
         return Json(AddKeyReply {
@@ -54,8 +51,6 @@ pub fn add_key_delegate(customer: Json<AddKeyRequest>, security_token: SecurityT
     };
 
     let new_customer_key = DkEncrypt::generate_random_key();
-    dbg!(&new_customer_key);
-
     let internal_error_reply = Json(AddKeyReply{ success : false, status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR) });
 
     let enc_password = match DkEncrypt::encrypt_str(&new_customer_key, &cek) {

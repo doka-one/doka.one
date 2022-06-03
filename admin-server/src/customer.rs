@@ -135,7 +135,7 @@ impl CustomerDelegate {
         Self {
             security_token,
             follower : Follower {
-                x_request_id,
+                x_request_id : x_request_id.new_if_null(),
                 token_type: TokenType::None,
             }
         }
@@ -143,12 +143,9 @@ impl CustomerDelegate {
 
     /// Delegate routine for create customer
     pub fn create_customer(mut self, customer_request: Json<CreateCustomerRequest>) -> Json<CreateCustomerReply> {
-        log_info!("🚀 Start create_customer api, customer name=[{}], x_request_id=[{}]", &customer_request.customer_name, &self.follower.x_request_id);
+        log_info!("🚀 Start create_customer api, customer name=[{}], follower=[{}]", &customer_request.customer_name, &self.follower);
+        // Done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
-        log_debug!("customer_request = [{:?}]", &customer_request);
-        log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
-        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
-        log_debug!("new x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
@@ -260,7 +257,7 @@ impl CustomerDelegate {
             sequence_name: "dokaadmin.customer_id_seq".to_string(),
         };
 
-        let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new customer failed, follower=[{}]", &self.follower)) else {
+        let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("💣 Insertion of a new customer failed, follower=[{}]", &self.follower)) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
             return internal_database_error_reply;
@@ -321,9 +318,10 @@ impl CustomerDelegate {
     /// this routine drops all the cs_{} and fs_{} and also delete the customer from the db
     // TODO implement a backup procedure for the customer
     pub fn delete_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
+        log_info!("🚀 Start delete_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
-        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
-        log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
+        // Already done : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        // log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
@@ -332,8 +330,6 @@ impl CustomerDelegate {
 
         // Change the token type to "Token"
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
-
-        log_info!("🚀 Start delete_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
         let customer_code = match customer_code.percent_decode()
             .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {
@@ -521,8 +517,8 @@ impl CustomerDelegate {
     pub fn set_removable_flag_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
 
         log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
-        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
-        log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
+        // Already done : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        // log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {

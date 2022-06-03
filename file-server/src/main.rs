@@ -698,8 +698,6 @@ fn main() {
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
     let props = read_config(PROJECT_CODE, VAR_NAME);
-
-    dbg!(&props);
     set_prop_values(props);
 
     log_info!("🚀 Start {}", PROGRAM_NAME);
@@ -708,8 +706,6 @@ fn main() {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
-
-    dbg!(port);
 
     let Ok(log_config) = get_prop_value(LOG_CONFIG_FILE_PROPERTY) else {
         eprintln!("💣 Cannot read the log4rs config");

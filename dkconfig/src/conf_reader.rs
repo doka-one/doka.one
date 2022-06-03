@@ -38,8 +38,6 @@ pub fn read_config( project_code : &str, var_name : &str ) -> HashMap<String, St
 
     let config_path = Path::new(&doka_env).join(project_code).join("config/application.properties");
 
-    dbg!(&config_path);
-
     let f = match File::open(&config_path) {
         Ok(o) => o,
         Err(e) => {

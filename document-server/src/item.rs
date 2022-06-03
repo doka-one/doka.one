@@ -2,23 +2,20 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use rocket::{post};
 use rocket_contrib::json::Json;
 
 use commons_pg::{CellValue, date_time_to_iso, date_to_iso, iso_to_date, iso_to_datetime, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_error::*;
-use log::error;
-use log::info;
+use log::{error, info, debug};
 use commons_services::database_lib::open_transaction;
 
 use commons_services::token_lib::{SessionToken};
 use commons_services::session_lib::{fetch_entry_session};
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, SUCCESS};
+use dkdto::error_codes::{SUCCESS};
 use dkdto::{AddItemReply, AddItemRequest, EnumTagValue, GetItemReply, ItemElement, JsonErrorSet, AddTagValue, TagValueElement};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
-use crate::item_query::create_item;
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
@@ -27,10 +24,11 @@ pub(crate) struct ItemDelegate {
 
 impl ItemDelegate {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
+
         Self {
             session_token,
             follower: Follower {
-                x_request_id,
+                x_request_id : x_request_id.new_if_null(),
                 token_type: TokenType::None,
             }
         }
@@ -41,7 +39,7 @@ impl ItemDelegate {
     ///
     pub fn get_all_item(mut self, start_page : Option<u32>, page_size : Option<u32>) -> Json<GetItemReply> {
 
-        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        // Already done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
         log_info!("🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]", start_page, page_size, &self.follower);
 
@@ -59,6 +57,8 @@ impl ItemDelegate {
             return Json(GetItemReply::internal_technical_error_reply());
         };
 
+        log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
+
         // Query the items
         let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
 
@@ -75,9 +75,13 @@ impl ItemDelegate {
             return internal_database_error_reply;
         };
 
+        log_info!("😎 We found the items, item count=[{}], follower=[{}]", items.len(), &self.follower);
+
         if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
+
+        log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
 
         Json(GetItemReply{
             items,
@@ -190,7 +194,6 @@ impl ItemDelegate {
                 }
                 "date" => {
                     let value_date = sql_result.get_naivedate_as_date("value_date");
-                    dbg!(&value_date);
                     let opt_iso_d_str = value_date.as_ref().map(|x| date_to_iso(x));
                     Ok(EnumTagValue::SimpleDate(opt_iso_d_str))
                 }
@@ -224,7 +227,7 @@ impl ItemDelegate {
     ///
     pub fn get_item(mut self, item_id: i64) -> Json<GetItemReply> {
 
-        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        // Done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
         log_info!("🚀 Start get_item api, item_id=[{}], follower=[{}]", item_id, &self.follower);
 
@@ -237,28 +240,36 @@ impl ItemDelegate {
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
         // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed")) else {
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
+                                    .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
             return Json(GetItemReply::internal_technical_error_reply());
         };
+
+        log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
         // Query the item
         let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
 
         let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error"));
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
             return internal_database_error_reply;
         };
 
         let Ok(items) =  self.search_item_by_id(&mut trans, Some(item_id),
                                                  None, None,
-                                                 &entry_session.customer_code ) else {
+                                                 &entry_session.customer_code )
+                                        .map_err(err_fwd!("💣 Cannot search item by id, follower=[{}]", &self.follower)) else {
             return internal_database_error_reply;
         };
+
+        log_info!("😎 We found the item, item count=[{}], follower=[{}]", items.len(), &self.follower);
 
         if trans.commit().map_err(err_fwd!("💣 Commit failed")).is_err() {
             return internal_database_error_reply;
         }
+
+        log_info!("🏁 End get_item, follower=[{}]", &self.follower);
 
         Json(GetItemReply{
             items,
@@ -267,199 +278,165 @@ impl ItemDelegate {
     }
 
 
-}
+    ///
+    /// ✨ Create an item
+    ///
+    pub fn add_item(mut self, add_item_request: Json<AddItemRequest>) -> Json<AddItemReply> {
 
+        log_info!("🚀 Start add_item api, add_item_request=[{:?}], follower=[{}]", &add_item_request, &self.follower);
 
-// ///
-// /// Find a item from its item id
-// ///
-// #[get("/item/<item_id>")]
-// pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> Json<GetItemReply> {
-//
-//     // Check if the token is valid
-//     if !session_token.is_valid() {
-//         log_error!("Invalid session token {:?}", &session_token);
-//         return Json(GetItemReply::invalid_token_error_reply());
-//     }
-//
-//     let sid = session_token.take_value();
-//
-//     log_info!("🚀 Start get_item api, sid=[{}], item_id=[{}]", &sid, item_id);
-//
-//     // Read the session information
-//     let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-//         Ok(x) => x,
-//         Err(_) => {
-//             return Json(GetItemReply::internal_technical_error_reply());
-//         }
-//     };
-//
-//     // Query the item
-//     let internal_database_error_reply: Json<GetItemReply> = Json(GetItemReply::internal_database_error_reply());
-//
-//     let mut r_cnx = SQLConnection::new();
-//     let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-//         Ok(x) => { x },
-//         Err(_) => { return internal_database_error_reply; },
-//     };
-//
-//     let items = match self.search_item_by_id(&mut trans, Some(item_id),
-//                                         None, None,
-//                                         &entry_session.customer_code ) {
-//         Ok(x) => {x}
-//         Err(_) => {
-//             return internal_database_error_reply;
-//         }
-//     };
-//
-//     if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-//         return internal_database_error_reply;
-//     }
-//
-//     Json(GetItemReply{
-//         items,
-//         status: JsonErrorSet::from(SUCCESS),
-//     })
-// }
-
-///
-///
-///
-fn create_item_property(trans : &mut SQLTransaction, prop :&AddTagValue, item_id : i64, customer_code : &str) -> anyhow::Result<()> {
-
-    // FIXME BUG: we named the variable :p_val_date because otherwise it conflict with :p_value_datetime
-    //              the replacement expression should be ":variable:" to avoid this case
-    let sql_query = format!(r"INSERT INTO cs_{}.tag_value (tag_id, item_id, value_boolean, value_string, value_integer, value_double, value_date, value_datetime)
-                 VALUES (:p_tag_id, :p_item_id, :p_value_boolean, :p_value_string, :p_value_integer, :p_value_double, :p_val_date, :p_value_datetime) ", customer_code);
-
-    let mut params = HashMap::new();
-    params.insert("p_tag_id".to_string(), CellValue::from_raw_int(prop.tag_id));
-    params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
-
-    params.insert("p_value_string".to_string(), CellValue::String(None));
-    params.insert("p_value_boolean".to_string(), CellValue::Bool(None));
-    params.insert("p_value_integer".to_string(), CellValue::Int(None));
-    params.insert("p_value_double".to_string(), CellValue::Double(None));
-    params.insert("p_val_date".to_string(), CellValue::Date(None));
-    params.insert("p_value_datetime".to_string(), CellValue::SystemTime(None));
-
-    match &prop.value {
-        EnumTagValue::String(tv) => {
-            params.insert("p_value_string".to_string(), CellValue::String(tv.clone()));
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            return Json(AddItemReply::invalid_token_error_reply());
         }
-        EnumTagValue::Boolean(tv) => {
-            params.insert("p_value_boolean".to_string(), CellValue::Bool(*tv));
-        }
-        EnumTagValue::Integer(tv) => {
-            params.insert("p_value_integer".to_string(), CellValue::Int(*tv));
-        }
-        EnumTagValue::Double(tv) => {
-            params.insert("p_value_double".to_string(), CellValue::Double(*tv));
-        }
-        EnumTagValue::SimpleDate(tv) => {
-            let opt_st = (|| {
-                let d_string = tv.as_ref()?;
-                dbg!(&d_string);
-                let dt = iso_to_date(d_string).map_err(err_fwd!("Cannot convert the string to datetime:[{}]", d_string)).ok()?;
-                let nd = dt.naive_utc();
-                dbg!(&nd);
-                Some(nd)
-            })();
-            params.insert("p_val_date".to_string(), CellValue::Date(opt_st));
-        }
-        EnumTagValue::DateTime(tv) => {
-            let opt_st = (|| {
-                let dt_string = tv.as_ref()?;
-                let dt = iso_to_datetime(dt_string).map_err(err_fwd!("Cannot convert the string to datetime:[{}]", dt_string)).ok()?;
-                Some(SystemTime::from(dt))
-            })();
-            params.insert("p_value_datetime".to_string(), CellValue::SystemTime(opt_st));
-        }
-    }
 
-    let sql_insert = SQLChange {
-        sql_query,
-        params,
-        sequence_name: format!("cs_{}.tag_value_id_seq", customer_code)
-    };
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
-    let _ = sql_insert.insert(trans).map_err(err_fwd!("Cannot insert the tag value"))?;
-    Ok(())
-}
+        let internal_database_error_reply: Json<AddItemReply> = Json(AddItemReply::internal_database_error_reply());
 
-///
-/// Create an item
-///
-#[post("/item", format = "application/json", data = "<add_item_request>")]
-pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: SessionToken) -> Json<AddItemReply> {
-    dbg!(&add_item_request);
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        return Json(AddItemReply::invalid_token_error_reply());
-    }
-    let sid = session_token.take_value();
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
+            return Json(AddItemReply::internal_technical_error_reply())
+        };
+        let customer_code = entry_session.customer_code.as_str();
 
-    log_info!("🚀 Start add_item api, sid={}", &sid);
+        log_info!("😎 We read the session information, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
-    let internal_database_error_reply: Json<AddItemReply> = Json(AddItemReply::internal_database_error_reply());
-    let _internal_technical_error: Json<AddItemReply> = Json(AddItemReply::internal_technical_error_reply());
-
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return Json(AddItemReply {
-                item_id: 0i64,
-                name: "".to_string(),
-                created: "".to_string(),
-                last_modified: None,
-                status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-            });
-        }
-    };
-
-    let customer_code = entry_session.customer_code.as_str();
-
-    // Open the transaction
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    let item_id= match create_item(&mut trans,  &add_item_request.name, customer_code) {
-        Ok(id) => {id}
-        Err(_) => {
+        // Open the transaction
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
             return internal_database_error_reply;
-        }
-    };
+        };
 
-    // | Insert all the properties
-    if let Some(properties) = &add_item_request.properties {
-        for prop in properties {
-            if create_item_property(&mut trans, prop, item_id, customer_code).map_err(err_fwd!("Insertion of a new tag value failed, tag value=[{:?}]", prop)).is_err() {
-                return internal_database_error_reply;
+        let Ok(item_id) = self.create_item(&mut trans,  &add_item_request.name, customer_code)
+                                .map_err(err_fwd!("💣 Cannot create the item, follower=[{}]", &self.follower)) else {
+            return internal_database_error_reply;
+        };
+
+        log_info!("😎 We created the item, item_id=[{}], follower=[{}]", item_id, &self.follower);
+
+        // | Insert all the properties
+        if let Some(properties) = &add_item_request.properties {
+            for prop in properties {
+                if self.create_item_property(&mut trans, prop, item_id, customer_code)
+                    .map_err(err_fwd!("💣 Insertion of a new tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
+                    return internal_database_error_reply;
+                }
+                log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
             }
         }
+
+        log_info!("😎 We added all the properties to the item, item_id=[{}], follower=[{}]", item_id, &self.follower);
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return internal_database_error_reply;
+        }
+
+        let now = SystemTime::now();
+        let created : DateTime<Utc> = now.clone().into();
+        let last_modified : DateTime<Utc> = now.clone().into();
+
+        log_info!("🏁 End add_item, follower=[{}]", &self.follower);
+
+        Json(AddItemReply {
+            item_id,
+            name: add_item_request.name.clone(),
+            created : date_time_to_iso(&created),
+            last_modified: Some(date_time_to_iso(&last_modified)),
+            status: JsonErrorSet::from(SUCCESS),
+        })
     }
 
-    //
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
+
+    fn create_item(&self, trans : &mut SQLTransaction, item_name: &str, customer_code : &str) -> anyhow::Result<i64> {
+        let sql_query = format!( r"INSERT INTO cs_{}.item(name, created_gmt, last_modified_gmt)
+                                        VALUES (:p_name, :p_created, :p_last_modified)", customer_code );
+
+        let sequence_name = format!( "cs_{}.item_id_seq", customer_code );
+
+        let now = SystemTime::now();
+        let mut params = HashMap::new();
+        params.insert("p_name".to_string(), CellValue::from_raw_string(item_name.to_string()));
+        params.insert("p_created".to_string(), CellValue::from_raw_systemtime(now.clone()));
+        params.insert("p_last_modified".to_string(), CellValue::from_raw_systemtime(now.clone()));
+
+        let sql_insert = SQLChange {
+            sql_query,
+            params,
+            sequence_name,
+        };
+
+        let item_id = sql_insert.insert(trans).map_err(err_fwd!("Insertion of a new item failed, follower=[{}]", &self.follower))?;
+
+        log_info!("Created item : item_id=[{}]", item_id);
+        Ok(item_id)
     }
 
-    dbg!(item_id);
+    ///
+    fn create_item_property(&self, trans : &mut SQLTransaction, prop :&AddTagValue, item_id : i64, customer_code : &str) -> anyhow::Result<()> {
 
-    let now = SystemTime::now();
-    let created : DateTime<Utc> = now.clone().into();
-    let last_modified : DateTime<Utc> = now.clone().into();
+        // FIXME BUG: we named the variable :p_val_date because otherwise it conflict with :p_value_datetime
+        //              the replacement expression should be ":variable:" to avoid this case
+        let sql_query = format!(r"INSERT INTO cs_{}.tag_value (tag_id, item_id, value_boolean, value_string, value_integer, value_double, value_date, value_datetime)
+                 VALUES (:p_tag_id, :p_item_id, :p_value_boolean, :p_value_string, :p_value_integer, :p_value_double, :p_val_date, :p_value_datetime) ", customer_code);
 
-    Json(AddItemReply {
-        item_id,
-        name: add_item_request.name.clone(),
-        created : date_time_to_iso(&created),
-        last_modified: Some(date_time_to_iso(&last_modified)),
-        status: JsonErrorSet::from(SUCCESS),
-    })
+        let mut params = HashMap::new();
+        params.insert("p_tag_id".to_string(), CellValue::from_raw_int(prop.tag_id));
+        params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
+
+        params.insert("p_value_string".to_string(), CellValue::String(None));
+        params.insert("p_value_boolean".to_string(), CellValue::Bool(None));
+        params.insert("p_value_integer".to_string(), CellValue::Int(None));
+        params.insert("p_value_double".to_string(), CellValue::Double(None));
+        params.insert("p_val_date".to_string(), CellValue::Date(None));
+        params.insert("p_value_datetime".to_string(), CellValue::SystemTime(None));
+
+        match &prop.value {
+            EnumTagValue::String(tv) => {
+                params.insert("p_value_string".to_string(), CellValue::String(tv.clone()));
+            }
+            EnumTagValue::Boolean(tv) => {
+                params.insert("p_value_boolean".to_string(), CellValue::Bool(*tv));
+            }
+            EnumTagValue::Integer(tv) => {
+                params.insert("p_value_integer".to_string(), CellValue::Int(*tv));
+            }
+            EnumTagValue::Double(tv) => {
+                params.insert("p_value_double".to_string(), CellValue::Double(*tv));
+            }
+            EnumTagValue::SimpleDate(tv) => {
+                let opt_st = (|| {
+                    let d_string = tv.as_ref()?;
+                    let dt = iso_to_date(d_string)
+                        .map_err(err_fwd!("Cannot convert the string to datetime:[{}], follower=[{}]", d_string, &self.follower)).ok()?;
+                    let nd = dt.naive_utc();
+                    Some(nd)
+                })();
+                params.insert("p_val_date".to_string(), CellValue::Date(opt_st));
+            }
+            EnumTagValue::DateTime(tv) => {
+                let opt_st = (|| {
+                    let dt_string = tv.as_ref()?;
+                    let dt = iso_to_datetime(dt_string)
+                        .map_err(err_fwd!("Cannot convert the string to datetime:[{}], follower=[{}]", dt_string, &self.follower)).ok()?;
+                    Some(SystemTime::from(dt))
+                })();
+                params.insert("p_value_datetime".to_string(), CellValue::SystemTime(opt_st));
+            }
+        }
+
+        let sql_insert = SQLChange {
+            sql_query,
+            params,
+            sequence_name: format!("cs_{}.tag_value_id_seq", customer_code)
+        };
+
+        log_debug!("Created the property, prop tag id=[{}], follower=[{}]", prop.tag_id, &self.follower);
+
+        let _ = sql_insert.insert(trans).map_err(err_fwd!("Cannot insert the tag value, follower=[{}]", &self.follower))?;
+        Ok(())
+    }
 }
+
 

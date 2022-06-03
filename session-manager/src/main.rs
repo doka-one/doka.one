@@ -282,16 +282,12 @@ fn main() {
 
     let props = read_config(PROJECT_CODE, VAR_NAME);
 
-    dbg!(&props);
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
-
-    dbg!(port);
-
     let Ok(log_config) = get_prop_value(LOG_CONFIG_FILE_PROPERTY) else {
         eprintln!("💣 Cannot read the log4rs config");
         exit(-57);
@@ -314,9 +310,10 @@ fn main() {
     log_info!("😎 Read Common Edible Key");
     read_cek_and_store();
 
-    let new_prop = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY);
-    dbg!(&new_prop);
-
+    let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
+        panic!("💣 Cannot read the cek properties");
+    };
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     // Init DB pool
     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()

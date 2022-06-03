@@ -39,24 +39,24 @@ macro_rules! log_info {
 #[macro_export]
 macro_rules! log_debug {
     ($($arg:tt)*) => {
-        //debug!("{} [{}:{}]", format!($($arg)*), file!(), line!());
-        debug!($($arg)*)
+        debug!("[{}:{}] {}",  file!(), line!(), format!($($arg)*))
+        //debug!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! log_error {
     ($($arg:tt)*) => {
-        //error!("{} [{}:{}]", format!($($arg)*), file!(), line!());
-        error!($($arg)*)
+        error!("{} [{}:{}]", format!($($arg)*), file!(), line!());
+        //error!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! log_warn {
     ($($arg:tt)*) => {
-        //warn!("{} [{}:{}]", format!($($arg)*), file!(), line!());
-        warn!($($arg)*)
+        warn!("{} [{}:{}]", format!($($arg)*), file!(), line!());
+        //warn!($($arg)*)
     };
 }
 

@@ -73,8 +73,6 @@ fn read_key(customer_code: &RawStr, security_token: SecurityToken) -> Json<Custo
     // customer key to return.
     let customer_key_reply = read_entries(Some(&customer_code));
 
-    dbg!(&customer_key_reply);
-
     log_info!("🏁 End read_key api, token=[{:?}]", token);
 
     Json(customer_key_reply)
@@ -166,17 +164,12 @@ fn main() {
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
     let props = read_config(PROJECT_CODE, VAR_NAME);
-
-    dbg!(&props);
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
-
-    dbg!(port);
-
     let Ok(log_config) = get_prop_value(LOG_CONFIG_FILE_PROPERTY) else {
         eprintln!("💣 Cannot read the log4rs config");
         exit(-57);
@@ -213,8 +206,10 @@ fn main() {
 
     log_info!("🚀 Start {}", PROGRAM_NAME);
 
-    let new_prop = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY);
-    dbg!(&new_prop);
+    let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
+        panic!("💣 Cannot read the cek properties");
+    };
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     let mut my_config = Config::new(Environment::Production);
     my_config.set_port(port);
@@ -249,32 +244,9 @@ mod test {
             .json(&new_post)
             .send()?.json()?;
 
-
-        // let reply : AddKeyReply = reqwest::Client::new()
-        //     .post("http://localhost:30040/key-manager/key")
-        //     .header("token", token.clone())
-        //     .json(&new_post)
-        //     .send()
-        //     .await?
-        //     .json()
-        //     .await?;
-
         dbg!(&reply);
-
-        // println!("{:#?}", new_post);
 
         Ok(())
 
-        // let rocket = rocket::ignite();
-        // let client = Client::new(rocket).expect("valid rocket");
-        //
-        // let msg = format!("{{    \"customer_code\":   \"denis.\"{}       }}", customer_code);
-        //
-        // let _response = client.post("/key-manager/key")
-        //     .header(Header::new("token_id", token.clone()))
-        //     .header(ContentType::JSON)
-        //     .remote("127.0.0.1:30040".parse().unwrap())
-        //     .body(&msg)
-        //     .dispatch();
     }
 }

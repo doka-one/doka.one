@@ -44,23 +44,6 @@ impl TokenType {
     }
 }
 
-// #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-// pub enum TokenType<'a> {
-//     Token(&'a str),
-//     Sid(&'a str),
-//     None,
-// }
-//
-// impl <'a> TokenType<'a> {
-//     pub fn value(&self) -> String {
-//         String::from(match self {
-//             Token(tok) => {*tok}
-//             Sid(sid) => {*sid}
-//             TokenType::None => {""}
-//         })
-//     }
-// }
-
 struct WebServer
 {
     server_name : String,
@@ -312,7 +295,6 @@ impl WebServer {
                 return  JsonErrorSet::from(HTTP_CLIENT_ERROR);
             },
         };
-        dbg!(&reply);
         reply
     }
 

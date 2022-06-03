@@ -31,7 +31,7 @@ impl LoginDelegate {
     pub fn new(x_request_id: XRequestID) -> Self {
         LoginDelegate {
             follower: Follower {
-                x_request_id,
+                x_request_id : x_request_id.new_if_null(),
                 token_type: TokenType::None,
             }
         }
@@ -40,7 +40,7 @@ impl LoginDelegate {
     pub fn login(mut self, login_request: Json<LoginRequest>) -> Json<LoginReply> {
         // There isn't any token to check
 
-        self.follower.x_request_id = self.follower.x_request_id.new_if_null();
+        // Already done : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
         log_info!("🚀 Start login api, login=[{}], follower=[{}]", &login_request.login, &self.follower);
 
         // Generate a sessionId

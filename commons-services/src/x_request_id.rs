@@ -54,7 +54,6 @@ impl Display for XRequestID {
 impl<'a, 'r> FromRequest<'a, 'r> for XRequestID {
     type Error = ();
     fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
-        //dbg!(my_request);
         let map = my_request.headers();
 
         let x_request_id = map.get_one("X-Request-ID").map(|t|

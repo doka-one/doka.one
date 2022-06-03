@@ -32,7 +32,6 @@ mod api_document_tests {
             properties: None,
         };
         let item_reply = document_server.create_item(&request, &login_reply.session_id);
-        dbg!(&item_reply);
 
         // Read the item
         let item_back = document_server.get_item(item_reply.item_id, &login_reply.session_id);

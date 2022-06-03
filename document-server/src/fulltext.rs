@@ -186,7 +186,7 @@ fn indexing(mut trans : &mut SQLTransaction, raw_text_request: &FullTextRequest,
 ///
 #[post("/fulltext_indexing", format = "application/json", data = "<raw_text_request>")]
 pub (crate) fn fulltext_indexing(raw_text_request: Json<FullTextRequest>, session_token: SessionToken) -> Json<FullTextReply> {
-    dbg!(&raw_text_request);
+
     // Check if the token is valid
     if !session_token.is_valid() {
         return Json(FullTextReply::invalid_token_error_reply());

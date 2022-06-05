@@ -18,12 +18,12 @@ use dkconfig::conf_reader::read_config;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use log::{error,info};
 use rocket_contrib::json::Json;
-use rocket::{get, post};
+use rocket::{get, post, delete};
 use commons_error::*;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkdto::{AddItemReply, AddItemRequest, GetItemReply, GetTagReply};
+use dkdto::{AddItemReply, AddItemRequest, GetItemReply, GetTagReply, JsonErrorSet};
 use crate::item::ItemDelegate;
 use crate::tag::{TagDelegate};
 
@@ -68,6 +68,15 @@ pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, se
     delegate.get_all_tag(start_page, page_size)
 }
 
+
+///
+/// ✨ Create a new tag
+///
+#[delete("/tag/<tag_id>")]
+pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<JsonErrorSet> {
+    let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.delete_tag(tag_id)
+}
 
 fn main() {
 
@@ -142,7 +151,7 @@ fn main() {
             add_item,
             get_all_tag,
             tag::add_tag,
-            tag::delete_tag,
+            delete_tag,
             fulltext::fulltext_indexing,
         ])
         .attach(Template::fairing())

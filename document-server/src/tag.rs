@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use anyhow::anyhow;
 use commons_services::token_lib::SessionToken;
-use rocket::{post, delete};
+use rocket::{post};
 use rocket_contrib::json::Json;
 use commons_error::*;
 use log::{error, info, debug};
@@ -132,10 +132,106 @@ impl TagDelegate {
     }
 
 
+    ///
+    /// ✨ Create a new tag
+    ///
+    pub fn delete_tag(mut self, tag_id: i64) -> Json<JsonErrorSet> {
+
+        log_info!("🚀 Start delete_tag api, follower={}", &self.follower);
+
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            return Json(
+                JsonErrorSet::from(INVALID_TOKEN),
+            );
+        }
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower={}", &self.follower)) else {
+            return Json(JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR));
+        };
+
+        let customer_code = entry_session.customer_code.as_str();
+
+        // Open the transaction
+
+        let internal_database_error_reply = Json(
+            JsonErrorSet::from(INTERNAL_DATABASE_ERROR),
+        );
+
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower={}", &self.follower));
+        let Ok(mut trans) = r_trans  else {
+            return internal_database_error_reply;
+        };
+
+        // Check if the tag definition is used somewhere
+
+        if self.check_tag_usage(&mut trans, tag_id, customer_code).is_err() {
+            return Json(
+                JsonErrorSet::from(STILL_IN_USE),
+            );
+        }
+
+        // Delete the tag definition
+
+        let sql_query = format!( r"DELETE FROM cs_{}.tag_definition
+	                                WHERE id = :p_tag_id", customer_code );
+
+        let mut params = HashMap::new();
+        params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
+
+        let sql_delete = SQLChange {
+            sql_query,
+            params,
+            sequence_name: "".to_string()
+        };
+
+        let Ok(_tag_id) = sql_delete.delete(&mut trans)
+                    .map_err(err_fwd!("💣 Tag delete failed, tag_id=[{}], follower=[{}]", tag_id, &self.follower)) else {
+            return internal_database_error_reply;
+        };
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower)).is_err() {
+            return internal_database_error_reply;
+        }
+
+        log_info!("🏁 End delete_tag api, follower=[{}]", &self.follower);
+
+        Json(
+            JsonErrorSet::from(SUCCESS),
+        )
+
+    }
+
+
+    fn check_tag_usage(&self, trans : &mut SQLTransaction, tag_id: i64, customer_code : &str) -> anyhow::Result<()> {
+
+        let sql_query = format!( r"SELECT 1 FROM cs_{}.tag_value
+	                                WHERE tag_id = :p_tag_id", customer_code );
+
+        let mut params = HashMap::new();
+        params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
+
+        let sql = SQLQueryBlock {
+            sql_query,
+            start: 0,
+            length: Some(1),
+            params,
+        };
+
+        let dataset = sql.execute( trans).map_err(tr_fwd!())?;
+
+        if dataset.len() > 0 {
+            return Err(anyhow::anyhow!("Tag still in use, follower=[{}]", &self.follower));
+        }
+
+        Ok(())
+    }
+
+
 }
-
-
-
 
 
 ///
@@ -228,110 +324,9 @@ fn check_input_values(add_tag_request: &AddTagRequest)-> Option<AddTagReply> {
 }
 
 
-fn check_tag_usage(trans : &mut SQLTransaction, tag_id: i64, customer_code : &str) -> anyhow::Result<()> {
-
-    let sql_query = format!( r"SELECT 1 FROM cs_{}.tag_value
-	                                WHERE tag_id = :p_tag_id", customer_code );
-
-    let mut params = HashMap::new();
-    params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
-
-    let sql = SQLQueryBlock {
-        sql_query,
-        start: 0,
-        length: Some(1),
-        params,
-    };
-
-    let dataset = sql.execute( trans)?;
-
-    if dataset.len() > 0 {
-        return Err(anyhow::anyhow!("Tag still in use"));
-    }
-
-    Ok(())
-}
 
 
-///
-/// Create a new tag
-///
-#[delete("/tag/<tag_id>")]
-pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<JsonErrorSet> {
 
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        return Json(
-            JsonErrorSet::from(INVALID_TOKEN),
-        );
-    }
-    let sid = session_token.take_value();
-
-    log_info!("🚀 Start delete_tag api, sid={}", &sid);
-
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return Json(
-                JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-            );
-        }
-    };
-
-    let customer_code = entry_session.customer_code.as_str();
-
-    // Open the transaction
-
-    let internal_database_error_reply = Json(
-        JsonErrorSet::from(INTERNAL_DATABASE_ERROR),
-    );
-
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    // Check if the tag definition is used somewhere
-
-    if check_tag_usage(&mut trans, tag_id, customer_code).is_err() {
-        return Json(
-            JsonErrorSet::from(STILL_IN_USE),
-        );
-    }
-
-    // Delete the tag definition
-
-    let sql_query = format!( r"DELETE FROM cs_{}.tag_definition
-	                                WHERE id = :p_tag_id", customer_code );
-
-    let mut params = HashMap::new();
-    params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
-
-
-    let sql_delete = SQLChange {
-        sql_query,
-        params,
-        sequence_name: "".to_string()
-    };
-
-    let _tag_id = match sql_delete.delete(&mut trans).map_err(err_fwd!("Tag delete failed, tag_id=[{}]", tag_id)) {
-        Ok(x) => x,
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
-
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
-    }
-
-    Json(
-        JsonErrorSet::from(SUCCESS),
-    )
-
-}
 
 fn add_tag_delegate(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> Json<AddTagReply> {
     // Check if the token is valid

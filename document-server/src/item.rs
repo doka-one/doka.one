@@ -117,7 +117,7 @@ impl ItemDelegate {
 
         let mut items = vec![];
         while sql_result.next() {
-            let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
+            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wring id"))?;
             let name : String = sql_result.get_string("name").unwrap_or("".to_owned());
             let created_gmt  = sql_result.get_timestamp_as_datetime("created_gmt")
                 .ok_or(anyhow::anyhow!("Wrong created gmt"))

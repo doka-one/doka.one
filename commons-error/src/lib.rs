@@ -48,7 +48,14 @@ macro_rules! log_debug {
 macro_rules! log_error {
     ($($arg:tt)*) => {
         error!("{} [{}:{}]", format!($($arg)*), file!(), line!());
-        //error!($($arg)*)
+        // error!($($arg)*)
+    };
+}
+
+#[macro_export]
+macro_rules! log_error_simple {
+    ($($arg:tt)*) => {
+        error!($($arg)*)
     };
 }
 
@@ -77,7 +84,7 @@ macro_rules! err_fwd {
 pub fn err_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn(T) -> T + 'a>
 {
     let lambda = move |e : T | {
-        log_error!("[{}] - {}", e, msg);
+        log_error_simple!("[{}] - {}", e, msg);
         e
     };
     Box::new(lambda)
@@ -168,8 +175,8 @@ mod tests {
         init();
         println!("----------- Start crash_error ----------");
         let session_number = 123456;
-        let _r = middle_level_routine().map_err(err_fwd!("Session : {} - Cannot read the internal map", session_number));
-        // println!("Q = {:?}", r);
+        let r = middle_level_routine().map_err(err_fwd!("Session : {} - Cannot read the internal map", session_number));
+        log_error!("Last return = [{:?}]", r);
         println!("----------- End crash_error ----------");
     }
 

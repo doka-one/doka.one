@@ -319,6 +319,28 @@ impl ItemDelegate {
         // | Insert all the properties
         if let Some(properties) = &add_item_request.properties {
             for prop in properties {
+                // Check / Define the property
+                let id = match (prop.tag_id, &prop.tag_name) {
+                    (None, None) => {
+                        // Impossible case, return an error.
+                        0i64
+                    }
+                    (Some(tag_id), None) => {
+                        // Tag id only, verify if the tag exists, return the tag_id
+                        tag_id
+                    }
+                    (_, Some(tag_name)) => {
+                        // Any case with a teg_name provided, check / create , return the tag_id
+                        let Ok(id) = self.define_tag_if_needed(&mut trans, prop, customer_code)
+                                .map_err(err_fwd!("💣 The definition if the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
+                            return internal_database_error_reply;
+                        };
+                        id
+                    }
+                };
+
+                log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
+                // Create the tag values for the item
                 if self.create_item_property(&mut trans, prop, item_id, customer_code)
                     .map_err(err_fwd!("💣 Insertion of a new tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
                     return internal_database_error_reply;
@@ -374,6 +396,11 @@ impl ItemDelegate {
     }
 
     ///
+    fn define_tag_if_needed(&self, trans : &mut SQLTransaction, prop :&AddTagValue, customer_code : &str) -> anyhow::Result<i64> {
+        Ok(0i64)
+    }
+
+    ///
     fn create_item_property(&self, trans : &mut SQLTransaction, prop :&AddTagValue, item_id : i64, customer_code : &str) -> anyhow::Result<()> {
 
         // FIXME BUG: we named the variable :p_val_date because otherwise it conflict with :p_value_datetime
@@ -382,7 +409,8 @@ impl ItemDelegate {
                  VALUES (:p_tag_id, :p_item_id, :p_value_boolean, :p_value_string, :p_value_integer, :p_value_double, :p_val_date, :p_value_datetime) ", customer_code);
 
         let mut params = HashMap::new();
-        params.insert("p_tag_id".to_string(), CellValue::from_raw_int(prop.tag_id));
+        // TODO manage the optional tag_id , remove the unwwrap()
+        params.insert("p_tag_id".to_string(), CellValue::from_raw_int(prop.tag_id.unwrap()));
         params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
 
         params.insert("p_value_string".to_string(), CellValue::String(None));
@@ -432,7 +460,8 @@ impl ItemDelegate {
             sequence_name: format!("cs_{}.tag_value_id_seq", customer_code)
         };
 
-        log_debug!("Created the property, prop tag id=[{}], follower=[{}]", prop.tag_id, &self.follower);
+        // TODO manage the optional tag_id , remove the unwwrap()
+        log_debug!("Created the property, prop tag id=[{}], follower=[{}]", prop.tag_id.unwrap(), &self.follower);
 
         let _ = sql_insert.insert(trans).map_err(err_fwd!("Cannot insert the tag value, follower=[{}]", &self.follower))?;
         Ok(())

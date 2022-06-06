@@ -241,8 +241,8 @@ pub struct AddItemRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagValue {
-    // pub item_id :  i64,
-    pub tag_id : i64,
+    pub tag_id : Option<i64>,
+    pub tag_name: Option<String>,
     pub value : EnumTagValue,
 }
 

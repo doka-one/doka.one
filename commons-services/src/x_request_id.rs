@@ -82,6 +82,6 @@ impl Display for Follower {
             }
             TokenType::None => {"".to_string()}
         };
-        write!(f, "({} / {})", self.x_request_id, tt)
+        write!(f, "(X:{} / {})", self.x_request_id, tt)
     }
 }

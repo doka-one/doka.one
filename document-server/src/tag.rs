@@ -328,6 +328,9 @@ impl TagDelegate {
     ///
     fn check_input_values(&self, add_tag_request: &AddTagRequest)-> Option<AddTagReply> {
 
+        // TODO check tag_name is a unicode string without any invisible chars
+        //      use the unicode lexem lib
+
         // Check the input values ( ie tag_type, length limit, default_value type, etc )
         match add_tag_request.tag_type.to_lowercase().as_str() {
             "string" => {

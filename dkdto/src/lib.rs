@@ -222,7 +222,7 @@ impl ErrorReply for LoginReply {
 /// Document Server
 ///
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub enum EnumTagValue {
     String(Option<String>),
     Boolean(Option<bool>),
@@ -268,6 +268,25 @@ impl ErrorReply for AddItemReply {
     }
 }
 
+impl AddItemReply {
+    pub fn from_error_with_text(error_set : ErrorSet, text : &str) -> Self {
+        let message = format!("{} - {}", &error_set.err_message, text);
+        let extended_error_set = ErrorSet {
+            error_code: error_set.error_code,
+            err_message: message.as_str(),
+            http_error_code: error_set.http_error_code,
+        };
+
+        Self {
+            item_id: 0,
+            name: "".to_string(),
+            created: "".to_string(),
+            last_modified: None,
+            status: JsonErrorSet::from(extended_error_set),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GetItemReply {
     pub items :  Vec<ItemElement>,
@@ -303,6 +322,13 @@ pub struct TagValueElement {
 }
 
 // Tag
+
+pub const TAG_TYPE_STRING : &str = "string";
+pub const TAG_TYPE_BOOL : &str = "bool";
+pub const TAG_TYPE_INT : &str = "integer";
+pub const TAG_TYPE_DOUBLE : &str = "double";
+pub const TAG_TYPE_DATE : &str = "date";
+pub const TAG_TYPE_DATETIME : &str = "datetime";
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagRequest {

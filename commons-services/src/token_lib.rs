@@ -33,7 +33,7 @@ impl SecurityToken {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SessionToken(pub String);
 
 impl<'a, 'r> FromRequest<'a, 'r> for SessionToken {

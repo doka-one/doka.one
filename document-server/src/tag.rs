@@ -9,7 +9,7 @@ use commons_pg::{CellValue, iso_to_date, iso_to_datetime, SQLChange, SQLConnecti
 use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::error_codes::{INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_STRING_LENGTH, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
+use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_STRING_LENGTH, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
 use dkdto::{AddTagReply, AddTagRequest, GetTagReply, JsonErrorSet, TagElement};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
@@ -128,6 +128,53 @@ impl TagDelegate {
         }
 
         Ok(tags)
+    }
+
+    /// Search items by name
+    pub (crate) fn search_tag_by_name(&self, mut trans : &mut SQLTransaction, tag_name: &str, customer_code : &str) -> anyhow::Result<TagElement> {
+
+        let p_tag_name = CellValue::from_raw_string(tag_name.to_string());
+
+        let mut params = HashMap::new();
+        params.insert("p_tag_name".to_owned(), p_tag_name);
+
+        let sql_query = format!(r"SELECT id, name, type, string_tag_length, default_value
+                                    FROM cs_{}.tag_definition
+                                    WHERE ( name = :p_tag_name )
+                                    ORDER BY name ", customer_code );
+
+        let query = SQLQueryBlock {
+            sql_query,
+            start : 0,
+            length : None,
+            params,
+        };
+
+        let mut sql_result : SQLDataSet =  query.execute(&mut trans)
+            .map_err(err_fwd!("Query failed, sql=[{}], follower=[{}]", &query.sql_query, &self.follower))?;
+
+        if sql_result.next() {
+            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
+            let name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
+            let tag_type= sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
+            // optional
+            let string_tag_length = sql_result.get_int_32("string_tag_length");
+            let default_value= sql_result.get_string("default_value");
+
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
+
+            Ok(TagElement {
+                tag_id: id,
+                name,
+                tag_type,
+                string_tag_length,
+                default_value,
+            })
+        } else {
+            log_error!("💣 Cannot find the tag, tag_name=[{}], follower=[{}]", tag_name, &self.follower);
+            Err(anyhow!("Cannot find tag, tag_name=[{}]", tag_name))
+        }
+
     }
 
 
@@ -273,7 +320,7 @@ impl TagDelegate {
         log_info!("😎 We found the session, customer code=[{}], follower=[{}]", customer_code, &self.follower);
 
         if let Some(err) = self.check_input_values(&add_tag_request) {
-            log_error!("💣 Tag definiton is not correct, tag_id=[{}], err message=[{}], follower=[{}]", err.tag_id, err.status.err_message, &self.follower);
+            log_error!("💣 Tag definition is not correct, tag_id=[{}], err message=[{}], follower=[{}]", err.tag_id, err.status.err_message, &self.follower);
             return Json(err);
         }
 
@@ -284,27 +331,8 @@ impl TagDelegate {
             return internal_database_error_reply;
         };
 
-        let sql_query = format!( r"INSERT INTO cs_{}.tag_definition(name, string_tag_length, default_value, type)
-	            VALUES (:p_name, :p_string_tag_length , :p_default_value, :p_type)", customer_code );
-
-        let sequence_name = format!( "cs_{}.tag_definition_id_seq", customer_code );
-
-        let length = CellValue::Int32(add_tag_request.string_tag_length);
-        let default_value = CellValue::from_opt_str(add_tag_request.default_value.as_deref());
-        let mut params = HashMap::new();
-        params.insert("p_name".to_string(), CellValue::from_raw_string(add_tag_request.name.clone()));
-        params.insert("p_type".to_string(), CellValue::from_raw_string(add_tag_request.tag_type.clone()));
-        params.insert("p_string_tag_length".to_string(), length);
-        params.insert("p_default_value".to_string(), default_value);
-
-
-        let sql_insert = SQLChange {
-            sql_query,
-            params,
-            sequence_name,
-        };
-
-        let Ok(tag_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("💣 Insertion of a new item failed")) else {
+        let Ok(tag_id) = self.insert_tag_definition(&mut trans, &add_tag_request, customer_code)
+                                    .map_err(err_fwd!("💣 Insertion of a new tag failed, follower=[{}]", &self.follower)) else {
             return internal_database_error_reply;
         };
 
@@ -323,13 +351,56 @@ impl TagDelegate {
     }
 
 
+
+    pub (crate) fn insert_tag_definition(&self, mut trans : &mut SQLTransaction, add_tag_request: &AddTagRequest,
+                             customer_code : &str) -> anyhow::Result<i64> {
+
+        let sql_query = format!( r"INSERT INTO cs_{}.tag_definition(name, string_tag_length, default_value, type)
+	            VALUES (:p_name, :p_string_tag_length , :p_default_value, :p_type)", customer_code );
+
+        let sequence_name = format!( "cs_{}.tag_definition_id_seq", customer_code );
+
+        let length = CellValue::Int32(add_tag_request.string_tag_length);
+        let default_value = CellValue::from_opt_str(add_tag_request.default_value.as_deref());
+        let mut params = HashMap::new();
+        params.insert("p_name".to_string(), CellValue::from_raw_string(add_tag_request.name.clone()));
+        params.insert("p_type".to_string(), CellValue::from_raw_string(add_tag_request.tag_type.clone()));
+        params.insert("p_string_tag_length".to_string(), length);
+        params.insert("p_default_value".to_string(), default_value);
+
+        let sql_insert = SQLChange {
+            sql_query,
+            params,
+            sequence_name,
+        };
+
+        let tag_id = sql_insert.insert(&mut trans).map_err(err_fwd!("💣 Insertion of a new tag failed, follower=[{}]", &self.follower))?;
+
+        Ok(tag_id)
+    }
+
+
     ///
     /// Return a None if the tag definition is correct
     ///
-    fn check_input_values(&self, add_tag_request: &AddTagRequest)-> Option<AddTagReply> {
+    pub (crate) fn check_input_values(&self, add_tag_request: &AddTagRequest)-> Option<AddTagReply> {
 
-        // TODO check tag_name is a unicode string without any invisible chars
-        //      use the unicode lexem lib
+        log_info!("Check the tag definition, add_tag_request=[{:?}], follower=[{}]", add_tag_request, &self.follower);
+
+        // Check the tag name
+        if Self::has_not_printable_char(&add_tag_request.name) {
+            return Some(AddTagReply {
+                tag_id: 0,
+                status:  JsonErrorSet::from(INCORRECT_CHAR_TAG_NAME),
+            })
+        }
+
+        if add_tag_request.name.len() > 50 {
+            return Some(AddTagReply {
+                tag_id: 0,
+                status:  JsonErrorSet::from(INCORRECT_LENGTH_TAG_NAME),
+            })
+        }
 
         // Check the input values ( ie tag_type, length limit, default_value type, etc )
         match add_tag_request.tag_type.to_lowercase().as_str() {
@@ -415,6 +486,30 @@ impl TagDelegate {
         None
     }
 
+
+    fn has_not_printable_char(tag_name: &str) -> bool {
+        use unicode_segmentation::{UnicodeSegmentation};
+        let mut g_str = tag_name.graphemes(true);
+
+        loop {
+            let o_s = g_str.next();
+            match o_s {
+                None => {
+                    break;
+                }
+                Some(c) => {
+                    for cc in  c.chars() {
+                        let val = cc as u32;
+                        if  val == 32 || val <= 15 {
+                            return true;
+                        }
+                    }
+
+                }
+            }
+        }
+        false
+    }
 
 }
 

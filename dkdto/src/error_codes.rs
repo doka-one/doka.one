@@ -32,6 +32,12 @@ pub const INCORRECT_DEFAULT_INTEGER_VALUE : ErrorSet = ErrorSet { error_code : 4
 pub const INCORRECT_DEFAULT_DATE_VALUE : ErrorSet = ErrorSet { error_code : 420, err_message : "Incorrect default date value", http_error_code : 200};
 pub const INCORRECT_DEFAULT_DATETIME_VALUE : ErrorSet = ErrorSet { error_code : 420, err_message : "Incorrect default datetime value", http_error_code : 200};
 pub const INCORRECT_TAG_TYPE : ErrorSet = ErrorSet { error_code : 430, err_message : "Incorrect tag type", http_error_code : 200};
+pub const INCORRECT_CHAR_TAG_NAME : ErrorSet = ErrorSet { error_code : 440, err_message : "Wrong char in tag name", http_error_code : 200};
+pub const INCORRECT_LENGTH_TAG_NAME : ErrorSet = ErrorSet { error_code : 440, err_message : "Tag name too long", http_error_code : 200};
+
+/// Items
+pub const BAD_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 510, err_message : "Bad tag definition", http_error_code : 200};
+pub const MISSING_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 520, err_message : "Missing tag definition", http_error_code : 200};
 
 
 pub const HTTP_CLIENT_ERROR : ErrorSet = ErrorSet { error_code : 999, err_message : "Http Client Error", http_error_code : 200};

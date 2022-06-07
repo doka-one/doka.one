@@ -37,7 +37,7 @@ pub const INCORRECT_LENGTH_TAG_NAME : ErrorSet = ErrorSet { error_code : 440, er
 
 /// Items
 pub const BAD_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 510, err_message : "Bad tag definition", http_error_code : 200};
-pub const MISSING_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 520, err_message : "Missing tag definition", http_error_code : 200};
+pub const MISSING_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 520, err_message : "Missing or Incorrect tag definition", http_error_code : 200};
 
 
 pub const HTTP_CLIENT_ERROR : ErrorSet = ErrorSet { error_code : 999, err_message : "Http Client Error", http_error_code : 200};

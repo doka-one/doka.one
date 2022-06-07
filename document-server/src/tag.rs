@@ -9,7 +9,8 @@ use commons_pg::{CellValue, iso_to_date, iso_to_datetime, SQLChange, SQLConnecti
 use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_STRING_LENGTH, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
+use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME,
+                         INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
 use dkdto::{AddTagReply, AddTagRequest, GetTagReply, JsonErrorSet, TagElement};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
@@ -82,7 +83,7 @@ impl TagDelegate {
 
     /// Search items by id
     /// If no item id provided, return all existing items
-    fn search_tag_by_id(&self, mut trans : &mut SQLTransaction, tag_id: Option<i64>,
+    pub (crate) fn search_tag_by_id(&self, mut trans : &mut SQLTransaction, tag_id: Option<i64>,
                         start_page : Option<u32>, page_size : Option<u32>,
                         customer_code : &str) -> anyhow::Result<Vec<TagElement>> {
 
@@ -112,7 +113,7 @@ impl TagDelegate {
             let name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
             let tag_type= sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
             // optional
-            let string_tag_length = sql_result.get_int_32("string_tag_length");
+
             let default_value= sql_result.get_string("default_value");
 
             log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
@@ -121,7 +122,7 @@ impl TagDelegate {
                 tag_id: id,
                 name,
                 tag_type,
-                string_tag_length,
+
                 default_value,
             };
             let _ = &tags.push(item);
@@ -158,7 +159,7 @@ impl TagDelegate {
             let name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
             let tag_type= sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
             // optional
-            let string_tag_length = sql_result.get_int_32("string_tag_length");
+            // let string_tag_length = sql_result.get_int_32("string_tag_length");
             let default_value= sql_result.get_string("default_value");
 
             log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
@@ -167,7 +168,7 @@ impl TagDelegate {
                 tag_id: id,
                 name,
                 tag_type,
-                string_tag_length,
+
                 default_value,
             })
         } else {
@@ -360,7 +361,7 @@ impl TagDelegate {
 
         let sequence_name = format!( "cs_{}.tag_definition_id_seq", customer_code );
 
-        let length = CellValue::Int32(add_tag_request.string_tag_length);
+        let length = CellValue::Int32(Some(2000_i32)); // TODO Db column to be removed
         let default_value = CellValue::from_opt_str(add_tag_request.default_value.as_deref());
         let mut params = HashMap::new();
         params.insert("p_name".to_string(), CellValue::from_raw_string(add_tag_request.name.clone()));
@@ -406,20 +407,13 @@ impl TagDelegate {
         match add_tag_request.tag_type.to_lowercase().as_str() {
             "string" => {
                 // The string_length between 0 and 10_000_000
-                if let Some(length ) = add_tag_request.string_tag_length {
-                    if length > 10_000_000 || length < 0 {
+                const MAX_STRING_LENGTH : usize = 2000;
+                if let Some(default_string) = &add_tag_request.default_value {
+                    if default_string.len() > MAX_STRING_LENGTH as usize {
                         return Some(AddTagReply {
                             tag_id: 0,
-                            status:  JsonErrorSet::from(INCORRECT_STRING_LENGTH),
+                            status:  JsonErrorSet::from(INCORRECT_DEFAULT_STRING_LENGTH),
                         })
-                    }
-                    if let Some(default_string) = &add_tag_request.default_value {
-                        if default_string.len() > length as usize {
-                            return Some(AddTagReply {
-                                tag_id: 0,
-                                status:  JsonErrorSet::from(INCORRECT_DEFAULT_STRING_LENGTH),
-                            })
-                        }
                     }
                 }
             },

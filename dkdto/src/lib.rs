@@ -318,6 +318,7 @@ pub struct TagValueElement {
     pub tag_value_id : i64,
     pub item_id :  i64,
     pub tag_id : i64,
+    pub tag_name: String,
     pub value : EnumTagValue,
 }
 
@@ -334,7 +335,7 @@ pub const TAG_TYPE_DATETIME : &str = "datetime";
 pub struct AddTagRequest {
     pub name : String,
     pub tag_type : String, // string, bool, integer, double, date, datetime
-    pub string_tag_length : Option<i32>, // Limited [0, 10_000_0000]
+
     pub default_value : Option<String>,
 }
 
@@ -375,7 +376,7 @@ pub struct TagElement {
     pub tag_id : i64,
     pub name : String,
     pub tag_type : String, // string, bool, integer, double, date, datetime
-    pub string_tag_length : Option<i32>,
+
     pub default_value : Option<String>,
 }
 

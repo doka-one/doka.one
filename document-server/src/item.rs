@@ -93,6 +93,7 @@ impl ItemDelegate {
 
     /// Search items by id
     /// If no item id provided, return all existing items
+    /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
     fn search_item_by_id(&self, mut trans : &mut SQLTransaction, item_id: Option<i64>,
                          start_page : Option<u32>, page_size : Option<u32>,
                          customer_code : &str) -> anyhow::Result<Vec<ItemElement>> {
@@ -173,8 +174,13 @@ impl ItemDelegate {
 
         while sql_result.next() {
 
-            let _name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
+            let tag_name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
             let tag_type : String = sql_result.get_string("type").ok_or(anyhow!("Wrong type"))?;
+
+            let tag_id = sql_result.get_int("tag_id").ok_or(anyhow!("Wrong tag_id"))?;
+            let tag_value_id = sql_result.get_int("id").ok_or(anyhow!("Wrong tag_value_id"))?;
+            let row_item_id = sql_result.get_int("item_id").ok_or(anyhow!("Wrong item id"))?;
+
 
             let r_value = match tag_type.to_lowercase().as_str() {
                 "string" => {
@@ -211,9 +217,10 @@ impl ItemDelegate {
             let value = r_value.map_err(tr_fwd!())?;
 
             let tv = TagValueElement {
-                tag_value_id: 0,
-                item_id: 0,
-                tag_id: 0,
+                tag_value_id,
+                item_id: row_item_id,
+                tag_id,
+                tag_name,
                 value,
             };
             let _ = &props.push(tv);
@@ -330,15 +337,15 @@ impl ItemDelegate {
                     (Some(tag_id), None) => {
                         // Tag id only, verify if the tag exists, return the tag_id
                         // Any case with a teg_name provided, check / create , return the tag_id
-                        let Ok(id) = self.check_tag_id_validity(&mut trans, tag_id, customer_code)
-                            .map_err(err_fwd!("💣 The definition if the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
+                        let Ok(id) = self.check_tag_id_validity(&mut trans, tag_id, prop, customer_code)
+                            .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
                             let message = format!("tag_id: [{}]", &tag_id);
                             return Json(AddItemReply::from_error_with_text(MISSING_TAG_FOR_ITEM, &message));
                         };
                         id
                     }
                     (_, Some(tag_name)) => {
-                        // Any case with a teg_name provided, check / create , return the tag_id
+                        // Any case with a tag_name provided, check / create , return the tag_id
                         let Ok(id) = self.define_tag_if_needed(&mut trans, prop, customer_code)
                                 .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
                             let message = format!("tag_name: [{}]", &tag_name);
@@ -410,8 +417,29 @@ impl ItemDelegate {
         Ok(item_id)
     }
 
-    /// TODO Check if the tag_id exists
-    fn check_tag_id_validity(&self, _trans : &mut SQLTransaction, tag_id: i64, _customer_code : &str) -> anyhow::Result<i64> {
+    /// Ensure the tag_id exists
+    fn check_tag_id_validity(&self, trans : &mut SQLTransaction, tag_id: i64, prop: &AddTagValue, customer_code : &str) -> anyhow::Result<i64> {
+
+        // Find tag by name
+        let session_token = self.session_token.clone();
+        let x_request_id = self.follower.x_request_id.clone();
+        let tag_delegate = TagDelegate::new(session_token, x_request_id);
+
+        let tags = tag_delegate.search_tag_by_id(trans, Some(tag_id), None, None, customer_code)
+            .map_err(err_fwd!("Tag not found, tag_id=[{}], follower=[{}]", tag_id, &self.follower))?;
+
+        if tags.is_empty() {
+            return Err(anyhow!("Tag not found, tag_id=[{}], follower=[{}]", tag_id, &self.follower));
+        };
+
+        let tag = tags.get(0).ok_or(anyhow!("Missing tag element"))?;
+
+        if tag.tag_type != Self::enum_tag_value_to_tag_type(&prop) {
+            return Err(anyhow!("Tag has a different value type than its definition, tag_id=[{}], follower=[{}]", tag_id, &self.follower));
+        }
+
+        log_info!("Tag is valid, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
+
         Ok(tag_id)
     }
 
@@ -437,7 +465,6 @@ impl ItemDelegate {
                 let add_tag_request = AddTagRequest {
                     name: tag_name.clone(),
                     tag_type: Self::enum_tag_value_to_tag_type(&prop),
-                    string_tag_length: Some(1000), // TODO
                     default_value: None
                 };
 

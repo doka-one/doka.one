@@ -85,13 +85,13 @@ pub(crate) fn map_code(lang_code_2: &'_ str) -> &'_ str {
 mod test {
     // use lingua::{Language, LanguageDetectorBuilder};
     // use lingua::Language::{English, French, German, Spanish};
-    use crate::language::{lang_code_2_from, lang_name_from_code_2, map_code};
+    use crate::language::{lang_name_from_code_2, map_code};
 
-    #[test]
-    fn test_search_code2() {
-        let code = lang_code_2_from("french");
-        assert_eq!("fr", code);
-    }
+    // #[test]
+    // fn test_search_code2() {
+    //     let code = lang_code_2_from("french");
+    //     assert_eq!("fr", code);
+    // }
 
     #[test]
     fn test_search_name() {

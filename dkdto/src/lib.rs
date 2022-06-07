@@ -222,7 +222,7 @@ impl ErrorReply for LoginReply {
 /// Document Server
 ///
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub enum EnumTagValue {
     String(Option<String>),
     Boolean(Option<bool>),
@@ -241,8 +241,8 @@ pub struct AddItemRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagValue {
-    // pub item_id :  i64,
-    pub tag_id : i64,
+    pub tag_id : Option<i64>,
+    pub tag_name: Option<String>,
     pub value : EnumTagValue,
 }
 
@@ -264,6 +264,25 @@ impl ErrorReply for AddItemReply {
             created: "".to_string(),
             status: JsonErrorSet::from(error_set),
             last_modified: None
+        }
+    }
+}
+
+impl AddItemReply {
+    pub fn from_error_with_text(error_set : ErrorSet, text : &str) -> Self {
+        let message = format!("{} - {}", &error_set.err_message, text);
+        let extended_error_set = ErrorSet {
+            error_code: error_set.error_code,
+            err_message: message.as_str(),
+            http_error_code: error_set.http_error_code,
+        };
+
+        Self {
+            item_id: 0,
+            name: "".to_string(),
+            created: "".to_string(),
+            last_modified: None,
+            status: JsonErrorSet::from(extended_error_set),
         }
     }
 }
@@ -299,16 +318,24 @@ pub struct TagValueElement {
     pub tag_value_id : i64,
     pub item_id :  i64,
     pub tag_id : i64,
+    pub tag_name: String,
     pub value : EnumTagValue,
 }
 
 // Tag
 
+pub const TAG_TYPE_STRING : &str = "string";
+pub const TAG_TYPE_BOOL : &str = "bool";
+pub const TAG_TYPE_INT : &str = "integer";
+pub const TAG_TYPE_DOUBLE : &str = "double";
+pub const TAG_TYPE_DATE : &str = "date";
+pub const TAG_TYPE_DATETIME : &str = "datetime";
+
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagRequest {
     pub name : String,
     pub tag_type : String, // string, bool, integer, double, date, datetime
-    pub string_tag_length : Option<i32>, // Limited [0, 10_000_0000]
+
     pub default_value : Option<String>,
 }
 
@@ -349,7 +376,7 @@ pub struct TagElement {
     pub tag_id : i64,
     pub name : String,
     pub tag_type : String, // string, bool, integer, double, date, datetime
-    pub string_tag_length : Option<i32>,
+
     pub default_value : Option<String>,
 }
 

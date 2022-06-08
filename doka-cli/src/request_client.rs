@@ -12,13 +12,6 @@ use commons_error::*;
 const TIMEOUT : Duration = Duration::from_secs(60 * 60);
 const MAX_HTTP_RETRY: i32 = 5;
 
-// #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-// pub struct CustomHeaders<'a> {
-//     token_type : TokenType<'a>,
-//     x_request_id : Option<u32>,
-//     cek : Option<&'a str>,
-// }
-
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub struct CustomHeaders {
     token_type : TokenType,

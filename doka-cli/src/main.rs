@@ -1,11 +1,17 @@
 #![feature(let_else)]
 
-
 use std::env;
+use std::path::Path;
 use std::process::exit;
 use anyhow::{anyhow};
+use dkconfig::conf_reader::{read_config, read_config_from_path};
+use dkconfig::properties::{get_prop_value, set_prop_values};
 use dkdto::{CreateCustomerRequest};
 use doka_cli::request_client::AdminServerClient;
+
+// This is a dummy token
+// TODO Token generation from a system user (should be limited in time)
+const SECURITY_TOKEN : &str = "j6nk2GaKdfLl3nTPbfWW0C_Tj-MFLrJVS2zdxiIKMZpxNOQGnMwFgiE4C9_cSScqshQvWrZDiPyAVYYwB8zCLRBzd3UUXpwLpK-LMnpqVIs";
 
 #[derive(Debug)]
 struct Params {
@@ -83,15 +89,16 @@ fn create_customer(params: &Params) -> anyhow::Result<()> {
         }
     }
 
-    // TODO Service discovery
-    let client = AdminServerClient::new("localhost", 30060);
+    let server_host = get_prop_value("server.host")?;
+    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
+    println!("Admin server port : {}", admin_server_port);
+    let client = AdminServerClient::new(&server_host, admin_server_port);
     let create_customer_request = CreateCustomerRequest {
         customer_name: customer_name.ok_or(anyhow!("💣 Missing customer name"))?,
         email: email.ok_or(anyhow!("💣 Missing email"))?,
         admin_password: admin_password.ok_or(anyhow!("💣 Missing admin password"))?
     };
-    // TODO Token generation from a system user (should be limited in time)
-    let token = "j6nk2GaKdfLl3nTPbfWW0C_Tj-MFLrJVS2zdxiIKMZpxNOQGnMwFgiE4C9_cSScqshQvWrZDiPyAVYYwB8zCLRBzd3UUXpwLpK-LMnpqVIs";
+    let token = SECURITY_TOKEN;
     let reply = client.create_customer(&create_customer_request, token);
     if reply.status.error_code == 0 {
         println!("😎 Customer successfully created, customer code : {} ", reply.customer_code);
@@ -100,6 +107,8 @@ fn create_customer(params: &Params) -> anyhow::Result<()> {
         Err(anyhow!("{}", reply.status.err_message))
     }
 }
+
+
 
 // disable customer
 fn disable_customer(params: &Params) -> anyhow::Result<()> {
@@ -116,12 +125,14 @@ fn disable_customer(params: &Params) -> anyhow::Result<()> {
         }
     }
 
-    // TODO Service discovery
-    let client = AdminServerClient::new("localhost", 30060);
+    let server_host = get_prop_value("server.host")?;
+    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
+    println!("Admin server port : {}", admin_server_port);
+    let client = AdminServerClient::new(&server_host, admin_server_port);
 
     let customer_code = o_customer_code.ok_or(anyhow!("💣 Missing customer code"))?;
-    // TODO Token generation from a system user (should be limited in time)
-    let token = "j6nk2GaKdfLl3nTPbfWW0C_Tj-MFLrJVS2zdxiIKMZpxNOQGnMwFgiE4C9_cSScqshQvWrZDiPyAVYYwB8zCLRBzd3UUXpwLpK-LMnpqVIs";
+
+    let token = SECURITY_TOKEN;
     let reply = client.customer_removable(&customer_code, token);
     if reply.error_code == 0 {
         println!("😎 Customer successfully disabled, customer code : {} ", &customer_code);
@@ -147,12 +158,14 @@ fn delete_customer(params: &Params) -> anyhow::Result<()> {
         }
     }
 
-    // TODO Service discovery
-    let client = AdminServerClient::new("localhost", 30060);
+    let server_host = get_prop_value("server.host")?;
+    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
+    println!("Admin server port : {}", admin_server_port);
+    let client = AdminServerClient::new(&server_host, admin_server_port);
 
     let customer_code = o_customer_code.ok_or(anyhow!("💣 Missing customer code"))?;
     // TODO Token generation from a system user (should be limited in time)
-    let token = "j6nk2GaKdfLl3nTPbfWW0C_Tj-MFLrJVS2zdxiIKMZpxNOQGnMwFgiE4C9_cSScqshQvWrZDiPyAVYYwB8zCLRBzd3UUXpwLpK-LMnpqVIs";
+    let token = SECURITY_TOKEN;
     let reply = client.delete_customer(&customer_code, token);
     if reply.error_code == 0 {
         println!("😎 Customer successfully deleted, customer code : {} ", &customer_code);
@@ -160,6 +173,26 @@ fn delete_customer(params: &Params) -> anyhow::Result<()> {
     } else {
         Err(anyhow!("{}", reply.err_message))
     }
+}
+
+fn read_configuration_file() -> anyhow::Result<()> {
+
+    let doka_cli_env = env::var("DOKA_CLI_ENV").unwrap_or("".to_string());
+
+    let props = if ! doka_cli_env.is_empty() {
+        // For debug or advanced usage, you define a DOKA_CLI_ENV environment variable
+        // and the path will be {DOKA_CLI_ENV}/doka-cli/config/application.properties
+        println!("Define the properties from {}/doka-cli", &doka_cli_env);
+        read_config("doka-cli", "DOKA_CLI_ENV")
+    } else {
+        println!("Define the properties from local file");
+        read_config_from_path(&Path::new("config/application.properties").to_path_buf())?
+    };
+
+    set_prop_values(props);
+
+    Ok(())
+
 }
 
 ///
@@ -182,6 +215,19 @@ fn main() -> () {
     };
 
     println!("Params [{:?}]", &params);
+
+    match read_configuration_file() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("💣 Error while reading the configuration file, err=[{}]", e);
+            exit_program(110);
+        }
+    }
+
+    let server_host = get_prop_value("server.host").unwrap();
+    println!("Server host [{}]", &server_host);
+
+    //
 
     match params.object.as_str() {
         "customer" => {

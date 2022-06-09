@@ -1,6 +1,9 @@
 #![feature(let_else)]
 
+mod customer_commands;
+
 use std::env;
+use std::env::current_exe;
 use std::path::Path;
 use std::process::exit;
 use anyhow::{anyhow};
@@ -8,6 +11,7 @@ use dkconfig::conf_reader::{read_config, read_config_from_path};
 use dkconfig::properties::{get_prop_value, set_prop_values};
 use dkdto::{CreateCustomerRequest};
 use doka_cli::request_client::AdminServerClient;
+use crate::customer_commands::customer_command;
 
 // This is a dummy token
 // TODO Token generation from a system user (should be limited in time)
@@ -21,7 +25,7 @@ struct Params {
 }
 
 fn parse(args : &Vec<String>) -> anyhow::Result<Params> {
-    println!("number of args, [{}]", args.len());
+    // println!("number of args, [{}]", args.len());
     let object = args.get(1).ok_or(anyhow!("Don't find 1st param"))?.clone();
     let action = args.get(2).ok_or(anyhow!("Don't find 2nd param"))?.clone();
     let mut options : Vec<(String, String)> = vec![];
@@ -31,7 +35,7 @@ fn parse(args : &Vec<String>) -> anyhow::Result<Params> {
         let option_name = args.get(i).ok_or(anyhow!("Don't find param, i=[{}]", i))?.clone();
         let option_value = args.get(i+1).ok_or(anyhow!("Don't find param, i+1=[{}]", i+1))?.clone();
         options.push((option_name, option_value));
-        println!("option=[{:?}]", &options);
+        // println!("option=[{:?}]", &options);
         i += 2;
         if i > args.len()-1 {
             break;
@@ -45,135 +49,6 @@ fn parse(args : &Vec<String>) -> anyhow::Result<Params> {
     })
 }
 
-///
-///
-///
-fn customer_command(params: &Params) -> anyhow::Result<()> {
-
-    match params.action.as_str() {
-        "create" => {
-            create_customer(&params)
-        }
-        "disable" => {
-            disable_customer(&params)
-        }
-        "delete" => {
-            delete_customer(&params)
-        }
-        action => {
-            Err(anyhow!("💣 Unknown action=[{}]", action))
-        }
-    }
-}
-
-///
-fn create_customer(params: &Params) -> anyhow::Result<()> {
-    println!("👶 Create a customer...");
-    let mut customer_name = None;
-    let mut email = None;
-    let mut admin_password = None;
-    for (option, option_value) in &params.options {
-        match option.as_str() {
-            "-c" => {
-                customer_name = Some(option_value.clone());
-            }
-            "-e" => {
-                email = Some(option_value.clone())
-            }
-            "-ap" => {
-                admin_password = Some(option_value.clone())
-            }
-            opt => {
-                return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
-            }
-        }
-    }
-
-    let server_host = get_prop_value("server.host")?;
-    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
-    println!("Admin server port : {}", admin_server_port);
-    let client = AdminServerClient::new(&server_host, admin_server_port);
-    let create_customer_request = CreateCustomerRequest {
-        customer_name: customer_name.ok_or(anyhow!("💣 Missing customer name"))?,
-        email: email.ok_or(anyhow!("💣 Missing email"))?,
-        admin_password: admin_password.ok_or(anyhow!("💣 Missing admin password"))?
-    };
-    let token = SECURITY_TOKEN;
-    let reply = client.create_customer(&create_customer_request, token);
-    if reply.status.error_code == 0 {
-        println!("😎 Customer successfully created, customer code : {} ", reply.customer_code);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.status.err_message))
-    }
-}
-
-
-
-// disable customer
-fn disable_customer(params: &Params) -> anyhow::Result<()> {
-    println!("💧 Disable a customer...");
-    let mut o_customer_code = None;
-    for (option, option_value) in &params.options {
-        match option.as_str() {
-            "-cc" => {
-                o_customer_code = Some(option_value.clone());
-            }
-            opt => {
-                return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
-            }
-        }
-    }
-
-    let server_host = get_prop_value("server.host")?;
-    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
-    println!("Admin server port : {}", admin_server_port);
-    let client = AdminServerClient::new(&server_host, admin_server_port);
-
-    let customer_code = o_customer_code.ok_or(anyhow!("💣 Missing customer code"))?;
-
-    let token = SECURITY_TOKEN;
-    let reply = client.customer_removable(&customer_code, token);
-    if reply.error_code == 0 {
-        println!("😎 Customer successfully disabled, customer code : {} ", &customer_code);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.err_message))
-    }
-}
-
-
-// disable customer
-fn delete_customer(params: &Params) -> anyhow::Result<()> {
-    println!("🔥 Delete a customer...");
-    let mut o_customer_code = None;
-    for (option, option_value) in &params.options {
-        match option.as_str() {
-            "-cc" => {
-                o_customer_code = Some(option_value.clone());
-            }
-            opt => {
-                return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
-            }
-        }
-    }
-
-    let server_host = get_prop_value("server.host")?;
-    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
-    println!("Admin server port : {}", admin_server_port);
-    let client = AdminServerClient::new(&server_host, admin_server_port);
-
-    let customer_code = o_customer_code.ok_or(anyhow!("💣 Missing customer code"))?;
-    // TODO Token generation from a system user (should be limited in time)
-    let token = SECURITY_TOKEN;
-    let reply = client.delete_customer(&customer_code, token);
-    if reply.error_code == 0 {
-        println!("😎 Customer successfully deleted, customer code : {} ", &customer_code);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.err_message))
-    }
-}
 
 fn read_configuration_file() -> anyhow::Result<()> {
 
@@ -185,8 +60,12 @@ fn read_configuration_file() -> anyhow::Result<()> {
         println!("Define the properties from {}/doka-cli", &doka_cli_env);
         read_config("doka-cli", "DOKA_CLI_ENV")
     } else {
-        println!("Define the properties from local file");
-        read_config_from_path(&Path::new("config/application.properties").to_path_buf())?
+        let path = current_exe()?; //
+        let parent_path = path.parent().ok_or(anyhow!("Problem to identify parent's binary folder"))?;
+        let config_path = parent_path.join("config/application.properties");
+        let config_path_str = config_path.to_str().unwrap();
+        println!("Define the properties from local file : {}", config_path_str);
+        read_config_from_path( &config_path )?
     };
 
     set_prop_values(props);
@@ -206,6 +85,7 @@ fn main() -> () {
 
     let mut exit_code = 0;
     let args: Vec<String> = env::args().collect();
+
     let params =  match parse(&args) {
         Ok(p) => p,
         Err(e) => {
@@ -214,7 +94,7 @@ fn main() -> () {
         }
     };
 
-    println!("Params [{:?}]", &params);
+    // println!("Params [{:?}]", &params);
 
     match read_configuration_file() {
         Ok(_) => {}

@@ -25,6 +25,7 @@ pub (crate) fn customer_command(params: &Params) -> anyhow::Result<()> {
     }
 }
 
+
 ///
 fn create_customer(params: &Params) -> anyhow::Result<()> {
     println!("👶 Create a customer...");

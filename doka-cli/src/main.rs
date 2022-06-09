@@ -1,17 +1,19 @@
 #![feature(let_else)]
 
 mod customer_commands;
+mod session_commands;
+mod item_commands;
 
 use std::env;
 use std::env::current_exe;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use anyhow::{anyhow};
-use dkconfig::conf_reader::{read_config, read_config_from_path};
+use dkconfig::conf_reader::{read_config_from_path};
 use dkconfig::properties::{get_prop_value, set_prop_values};
-use dkdto::{CreateCustomerRequest};
-use doka_cli::request_client::AdminServerClient;
 use crate::customer_commands::customer_command;
+use crate::item_commands::item_command;
+use crate::session_commands::session_command;
 
 // This is a dummy token
 // TODO Token generation from a system user (should be limited in time)
@@ -51,27 +53,28 @@ fn parse(args : &Vec<String>) -> anyhow::Result<Params> {
 
 
 fn read_configuration_file() -> anyhow::Result<()> {
-
-    let doka_cli_env = env::var("DOKA_CLI_ENV").unwrap_or("".to_string());
-
-    let props = if ! doka_cli_env.is_empty() {
-        // For debug or advanced usage, you define a DOKA_CLI_ENV environment variable
-        // and the path will be {DOKA_CLI_ENV}/doka-cli/config/application.properties
-        println!("Define the properties from {}/doka-cli", &doka_cli_env);
-        read_config("doka-cli", "DOKA_CLI_ENV")
-    } else {
-        let path = current_exe()?; //
-        let parent_path = path.parent().ok_or(anyhow!("Problem to identify parent's binary folder"))?;
-        let config_path = parent_path.join("config/application.properties");
-        let config_path_str = config_path.to_str().unwrap();
-        println!("Define the properties from local file : {}", config_path_str);
-        read_config_from_path( &config_path )?
-    };
+    let config_path = get_target_file("config/application.properties")?;
+    let config_path_str = config_path.to_str().ok_or(anyhow!("Cannot convert path to str"))?;
+    println!("Define the properties from file : {}", config_path_str);
+    let props = read_config_from_path( &config_path )?;
 
     set_prop_values(props);
 
     Ok(())
+}
 
+/// Get the location of a file into the working folder
+fn get_target_file(termnination_path: &str) -> anyhow::Result<PathBuf> {
+
+    let doka_cli_env = env::var("DOKA_CLI_ENV").unwrap_or("".to_string());
+
+    if ! doka_cli_env.is_empty() {
+        Ok(Path::new(&doka_cli_env).join("doka-cli").join(termnination_path).to_path_buf())
+    } else {
+        let path = current_exe()?; //
+        let parent_path = path.parent().ok_or(anyhow!("Problem to identify parent's binary folder"))?;
+        Ok(parent_path.join(termnination_path))
+    }
 }
 
 ///
@@ -81,7 +84,7 @@ fn read_configuration_file() -> anyhow::Result<()> {
 /// They are potentially on different servers and ports
 ///
 fn main() -> () {
-    println!("dk cli version 0.1.0");
+    println!("doka-cli version 0.1.0");
 
     let mut exit_code = 0;
     let args: Vec<String> = env::args().collect();
@@ -121,8 +124,27 @@ fn main() -> () {
                 }
             }
         }
-        "user" => {
-
+        "session" => {
+            match session_command(&params) {
+                Ok(_) => {
+                    exit_code = 0;
+                }
+                Err(e) => {
+                    eprintln!("💣 Error : {}", e);
+                    exit_code = 90;
+                }
+            }
+        }
+        "item" => {
+            match item_command(&params) {
+                Ok(_) => {
+                    exit_code = 0;
+                }
+                Err(e) => {
+                    eprintln!("💣 Error : {}", e);
+                    exit_code = 90;
+                }
+            }
         }
         _ => {
 

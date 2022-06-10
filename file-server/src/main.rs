@@ -162,6 +162,8 @@ fn parse_content(file_ref: &str, mem_file : Vec<u8>, customer_code: &str, sid: &
     let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
     let raw_text = tsc.parse_data(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
 
+    log_info!("Parsing done for file_ref=[{}], content size=[{}]", file_ref, raw_text.x_tika_content.len());
+
     let document_server = DocumentServerClient::new(&document_server_host, document_server_port);
     let reply = document_server.fulltext_indexing(&raw_text.x_tika_content,
                                                   "no_filename_for_now",

@@ -12,13 +12,6 @@ use commons_error::*;
 const TIMEOUT : Duration = Duration::from_secs(60 * 60);
 const MAX_HTTP_RETRY: i32 = 5;
 
-// #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-// pub struct CustomHeaders<'a> {
-//     token_type : TokenType<'a>,
-//     x_request_id : Option<u32>,
-//     cek : Option<&'a str>,
-// }
-
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub struct CustomHeaders {
     token_type : TokenType,
@@ -583,6 +576,27 @@ impl DocumentServerClient {
         reply
     }
 
+    ///
+    /// TODO might be merged with get_item
+    ///
+    pub fn search_item(&self, sid : &str) -> GetItemReply {
+
+        // let url = format!("http://{}:{}/document-server/item/", &self.server.server_name, self.server.port,
+        //                   item_id );
+        let url = self.server.build_url("item");
+
+        let reply : GetItemReply = match self.server.get_data_retry(&url, &Sid(sid.to_string())) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("Technical error, [{}]", e);
+                return GetItemReply {
+                    items: vec![],
+                    status : JsonErrorSet::from(HTTP_CLIENT_ERROR),
+                };
+            },
+        };
+        reply
+    }
 
     ///
     ///

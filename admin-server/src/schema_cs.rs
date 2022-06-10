@@ -115,7 +115,7 @@ CREATE INDEX tag_value_str_sort_btree_idx ON tag_value USING btree (public.unacc
 CREATE OR REPLACE PROCEDURE insert_document(file_ref character varying, part_no integer, doc_text character varying, tsv character varying, lang character varying)
  LANGUAGE sql
 AS $procedure$
-   INSERT INTO document  ( FILE_REF,  PART_NO, DOC_TEXT, TSV, LANG )
+   INSERT INTO {customer_schema}.document  ( FILE_REF,  PART_NO, DOC_TEXT, TSV, LANG )
         VALUES ( FILE_REF, PART_NO, DOC_TEXT,
 				TSV :: TSVECTOR
 				,  LANG );

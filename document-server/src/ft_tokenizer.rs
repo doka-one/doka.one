@@ -1,7 +1,6 @@
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 use dkcrypto::dk_crypto::DkEncrypt;
-use log::warn;
-use log::info;
+use log::{warn, debug};
 use commons_error::*;
 
 enum CharType {
@@ -70,7 +69,7 @@ impl <'a> FTTokenizer<'a> {
         };
 
         if word.len() >= MIN_WORD_LEN {
-            log_info!("Added word [{}]", &w);
+            log_debug!("Added word [{}]", &w);
             self.words.push(w);
         }
 

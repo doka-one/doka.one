@@ -109,6 +109,7 @@ impl FullTextDelegate {
         // Clean up the raw text
         let mut ftt = FTTokenizer::new(&raw_text_request.raw_text);
 
+        log_info!("Parsing the words from the raw data, file_ref=[{}], follower=[{}]", &raw_text_request.file_ref, &self.follower);
         loop {
             // Parse the words from the raw data until FINESSE_NBCHAR => pure word block (PWB)
             let mut pure_word_block = ftt.next_n_words(FINESSE_LANGUAGE_BLOCK);
@@ -122,16 +123,15 @@ impl FullTextDelegate {
 
             let language_words = match language_buffer_block.get_mut(lang_code) {
                 None => {
-                    log_info!("Init the language map for language=[{}], follower=[{}]", lang_code, &self.follower);
+                    log_debug!("Init the language map for language=[{}], follower=[{}]", lang_code, &self.follower);
                     language_buffer_block.insert(lang_code.to_string(), vec![] );
                     language_buffer_block.get_mut(lang_code).unwrap()
                 }
                 Some(lw) => {lw}
             };
 
-            log_info!("Add words for language, nb words=[{}], language=[{}({})], follower=[{}]", pure_word_block.len(), lang_code, &meta_data.language, &self.follower);
+            log_debug!("Add words for language, nb words=[{}], language=[{}({})], follower=[{}]", pure_word_block.len(), lang_code, &meta_data.language, &self.follower);
             language_words.append(&mut pure_word_block);
-
         }
 
         log_info!("Init part counter, file_ref=[{}], follower=[{}]", &raw_text_request.file_ref, &self.follower);
@@ -187,7 +187,7 @@ impl FullTextDelegate {
 
         // Encrypt the words of the tsvector
         let tsv_encrypted = encrypt_tsvector(&tsv, customer_key);
-        log_info!("Encrypted tsvector: [{}]", &tsv_encrypted);
+        log_info!("Encrypted tsvector length: [{}]", tsv_encrypted.len());
 
         // Use a stored proc to hide the TSVECTOR type from Rust
         let sql_query = format!(r"CALL cs_{}.insert_document( :p_file_ref, :p_part_no, :p_doc_text, :p_tsv, :p_lang )", customer_code);

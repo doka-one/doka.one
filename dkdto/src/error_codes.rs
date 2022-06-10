@@ -22,7 +22,6 @@ pub const SESSION_INVALID_CUSTOMER_CODE : ErrorSet = ErrorSet { error_code : 240
 pub const SESSION_CANNOT_BE_CLOSED : ErrorSet = ErrorSet { error_code : 250, err_message : "Cannot close the session", http_error_code : 200};
 pub const SESSION_LOGIN_DENIED: ErrorSet = ErrorSet { error_code : 300, err_message : "Login denied", http_error_code : 200};
 
-
 /// Tags
 pub const INCORRECT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
 pub const INCORRECT_DEFAULT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
@@ -38,6 +37,11 @@ pub const INCORRECT_LENGTH_TAG_NAME : ErrorSet = ErrorSet { error_code : 440, er
 /// Items
 pub const BAD_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 510, err_message : "Bad tag definition", http_error_code : 200};
 pub const MISSING_TAG_FOR_ITEM : ErrorSet = ErrorSet { error_code : 520, err_message : "Missing or Incorrect tag definition", http_error_code : 200};
+
+/// Customer
+pub const CUSTOMER_NAME_ALREADY_TAKEN: ErrorSet = ErrorSet { error_code : 600, err_message : "Customer name already taken", http_error_code : 200};
+pub const USER_NAME_ALREADY_TAKEN: ErrorSet = ErrorSet { error_code : 610, err_message : "User name already taken", http_error_code : 200};
+pub const CUSTOMER_NOT_REMOVABLE: ErrorSet = ErrorSet { error_code : 610, err_message : "Customer not removable", http_error_code : 200};
 
 
 pub const HTTP_CLIENT_ERROR : ErrorSet = ErrorSet { error_code : 999, err_message : "Http Client Error", http_error_code : 200};

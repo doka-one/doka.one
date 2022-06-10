@@ -3,15 +3,19 @@
 mod customer_commands;
 mod session_commands;
 mod item_commands;
+mod file_commands;
 
 use std::env;
 use std::env::current_exe;
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use anyhow::{anyhow};
 use dkconfig::conf_reader::{read_config_from_path};
 use dkconfig::properties::{get_prop_value, set_prop_values};
 use crate::customer_commands::customer_command;
+use crate::file_commands::file_command;
 use crate::item_commands::item_command;
 use crate::session_commands::session_command;
 
@@ -34,14 +38,13 @@ fn parse(args : &Vec<String>) -> anyhow::Result<Params> {
     let mut i = 3;
 
     loop {
-        let option_name = args.get(i).ok_or(anyhow!("Don't find param, i=[{}]", i))?.clone();
-        let option_value = args.get(i+1).ok_or(anyhow!("Don't find param, i+1=[{}]", i+1))?.clone();
-        options.push((option_name, option_value));
-        // println!("option=[{:?}]", &options);
-        i += 2;
         if i > args.len()-1 {
             break;
         }
+        let option_name = args.get(i).ok_or(anyhow!("Don't find param, i=[{}]", i))?.clone();
+        let option_value = args.get(i+1).ok_or(anyhow!("Don't find param, i+1=[{}]", i+1))?.clone();
+        options.push((option_name, option_value));
+        i += 2;
     }
 
     Ok(Params {
@@ -76,6 +79,15 @@ fn get_target_file(termnination_path: &str) -> anyhow::Result<PathBuf> {
         Ok(parent_path.join(termnination_path))
     }
 }
+
+pub (crate) fn read_session_id() -> anyhow::Result<String> {
+    let file = File::open(get_target_file("config/session.id")?)?;
+    let mut buf_reader = BufReader::new(file);
+    let mut content: String = "".to_string();
+    let _ = buf_reader.read_to_string(&mut content)?;
+    Ok(content)
+}
+
 
 ///
 /// dk [object] [action] [options]
@@ -142,7 +154,18 @@ fn main() -> () {
                 }
                 Err(e) => {
                     eprintln!("💣 Error : {}", e);
-                    exit_code = 90;
+                    exit_code = 120;
+                }
+            }
+        }
+        "file" => {
+            match file_command(&params) {
+                Ok(_) => {
+                    exit_code = 0;
+                }
+                Err(e) => {
+                    eprintln!("💣 Error : {}", e);
+                    exit_code = 140;
                 }
             }
         }

@@ -232,6 +232,31 @@ pub enum EnumTagValue {
     DateTime(Option<String>), // "1970-03-23T23:04:10.236Z"
 }
 
+impl EnumTagValue {
+    pub fn to_string(&self) -> String {
+        match self {
+            EnumTagValue::String(v) => {
+                v.clone().unwrap_or("".to_string())
+            }
+            EnumTagValue::Boolean(v) => {
+                v.clone().unwrap_or(false).to_string()
+            }
+            EnumTagValue::Integer(v) => {
+                v.clone().unwrap_or(0_i64).to_string()
+            }
+            EnumTagValue::Double(v) => {
+                v.clone().unwrap_or(0.0_f64).to_string()
+            }
+            EnumTagValue::SimpleDate(v) => {
+                v.clone().unwrap_or("".to_string()).to_string()
+            }
+            EnumTagValue::DateTime(v) => {
+                v.clone().unwrap_or("".to_string()).to_string()
+            }
+        }
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemRequest {

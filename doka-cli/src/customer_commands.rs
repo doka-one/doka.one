@@ -34,7 +34,7 @@ fn create_customer(params: &Params) -> anyhow::Result<()> {
     let mut admin_password = None;
     for (option, option_value) in &params.options {
         match option.as_str() {
-            "-c" => {
+            "-n" => {
                 customer_name = Some(option_value.clone());
             }
             "-e" => {

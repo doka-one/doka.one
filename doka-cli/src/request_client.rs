@@ -576,6 +576,27 @@ impl DocumentServerClient {
         reply
     }
 
+    ///
+    /// TODO might be merged with get_item
+    ///
+    pub fn search_item(&self, sid : &str) -> GetItemReply {
+
+        // let url = format!("http://{}:{}/document-server/item/", &self.server.server_name, self.server.port,
+        //                   item_id );
+        let url = self.server.build_url("item");
+
+        let reply : GetItemReply = match self.server.get_data_retry(&url, &Sid(sid.to_string())) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("Technical error, [{}]", e);
+                return GetItemReply {
+                    items: vec![],
+                    status : JsonErrorSet::from(HTTP_CLIENT_ERROR),
+                };
+            },
+        };
+        reply
+    }
 
     ///
     ///

@@ -5,7 +5,6 @@ mod key;
 
 use std::path::Path;
 use std::process::exit;
-use std::collections::HashMap;
 use log::{info, error};
 use rocket::*;
 use rocket_contrib::json::Json;
@@ -17,136 +16,48 @@ use dkconfig::conf_reader::{read_config};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 
 use commons_error::*;
-use commons_pg::{SQLConnection, CellValue, SQLQueryBlock, SQLDataSet, SQLTransaction, init_db_pool};
-use commons_services::database_lib::open_transaction;
+use commons_pg::{init_db_pool};
+
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
-use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, EntryReply, JsonErrorSet};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
-use crate::key::add_key_delegate;
+use commons_services::x_request_id::XRequestID;
+use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply,};
+use crate::key::{KeyDelegate};
 
 
-// Read the list of users from the DB
-fn read_entries( customer_code : Option<&str> ) -> CustomerKeyReply {
-
-    let internal_database_error_reply = CustomerKeyReply{ keys: HashMap::new(), status: JsonErrorSet::from(INTERNAL_DATABASE_ERROR) };
-
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    let entries = match search_key_by_customer_code(&mut trans, customer_code) {
-        Ok(ds) => { ds },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
-    }
-    CustomerKeyReply{ keys: entries, status: JsonErrorSet::from(SUCCESS) }
-
-}
-
-
+///
+/// ✨ Read the key for a specific customer code [customer_code]
+/// ** NORM
+///
 #[get("/key/<customer_code>")]
 fn read_key(customer_code: &RawStr, security_token: SecurityToken) -> Json<CustomerKeyReply> {
-
-    // ** Check if the token is valid
-    if ! security_token.is_valid() {
-        log_error!("Invalid security token {:?}", &security_token);
-        return Json(CustomerKeyReply { keys: HashMap::new(), status: JsonErrorSet::from(INVALID_TOKEN) } )
-    }
-    let token = security_token.take_value();
-
-    log_info!("🚀 Start read_key api, token_id=[{:?}]", token);
-
-    let customer_code = match customer_code.percent_decode().map_err(err_fwd!("Invalid input parameter [{}]", customer_code) ) {
-        Ok(s) => s.to_string(),
-        Err(_) => {
-            return Json(CustomerKeyReply {  keys: HashMap::new(), status: JsonErrorSet::from(INVALID_REQUEST) } )
-        }
-    };
-
-    // customer key to return.
-    let customer_key_reply = read_entries(Some(&customer_code));
-
-    log_info!("🏁 End read_key api, token=[{:?}]", token);
-
-    Json(customer_key_reply)
-
+    let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
+    delegate.read_key(customer_code)
 }
 
 
 ///
-///
+/// ✨ Read all the keys
+/// ** NORM
 ///
 #[get("/key")]
 fn key_list(security_token: SecurityToken) -> Json<CustomerKeyReply> {
-    // ** Check if the token is valid
-    if ! security_token.is_valid() {
-        log_error!("Invalid security token {:?}", &security_token);
-        return Json(CustomerKeyReply { keys: HashMap::new(), status: JsonErrorSet::from(INVALID_TOKEN) } )
-    }
-    let token = security_token.take_value();
-
-    log_info!("🚀 Start key api, token_id=[{:?}]", &token);
-
-    // List of customer keys to return.
-    let customer_key_reply = read_entries(None);
-
-    log_info!("🏁 End key api, token=[{:?}]", &token);
-
-    Json(customer_key_reply)
-
+    let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
+    delegate.key_list()
 }
 
 
 
-fn search_key_by_customer_code(mut trans : &mut SQLTransaction, customer_code : Option<&str>) -> anyhow::Result<HashMap<String, EntryReply>> {
-    let p_customer_code = CellValue::from_opt_str(customer_code);
-
-    let mut params = HashMap::new();
-    params.insert("p_customer_code".to_owned(), p_customer_code);
-
-    let query = SQLQueryBlock {
-        sql_query : r"SELECT id, customer_code, ciphered_key FROM keymanager.customer_keys
-                    WHERE customer_code = :p_customer_code OR :p_customer_code IS NULL ".to_string(),
-        start : 0,
-        length : None,
-        params,
-    };
-
-    let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
-
-    let mut entries= HashMap::new();
-    while sql_result.next() {
-        let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
-        let customer_code: String = sql_result.get_string("customer_code").unwrap_or("".to_owned());
-        let ciphered_key: String = sql_result.get_string("ciphered_key").unwrap_or("".to_owned());
-
-        let key_info = EntryReply {
-            key_id : id,
-            customer_code,
-            ciphered_key,
-            active: true,
-        };
-
-        let _ = &entries.insert(key_info.customer_code.clone(), key_info);
-
-    }
-
-    Ok(entries)
-}
-
-
+///
+/// ✨ Add a key for customer code [customer]
+/// ** NORM
+///
 #[post("/key", format = "application/json", data = "<customer>")]
 fn add_key(customer: Json<AddKeyRequest>, security_token: SecurityToken) -> Json<AddKeyReply> {
-    add_key_delegate(customer, security_token)
+    let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
+    delegate.add_key(customer)
 }
-
 
 ///
 ///
@@ -223,6 +134,7 @@ fn main() {
 
     log_info!("🏁 End {}", PROGRAM_NAME);
 }
+
 
 #[cfg(test)]
 mod test {

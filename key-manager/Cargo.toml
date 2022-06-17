@@ -34,6 +34,7 @@ dkconfig = {path="../dkconfig"}
 dkcrypto = {path="../dkcrypto"}
 commons-services = {path= "../commons-services" }
 dkdto = {path="../dkdto"}
+doka-cli = {path="../doka-cli"}
 
 # test
 reqwest = { version = "0.11", features = ["blocking", "json"] }

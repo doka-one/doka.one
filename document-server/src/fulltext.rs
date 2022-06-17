@@ -244,14 +244,6 @@ impl FullTextDelegate {
         Ok(tsv)
     }
 
-    // fn create_full_default_item(mut trans : &mut SQLTransaction, file_name : &str, customer_code: &str, sid: &str) -> anyhow::Result<i64> {
-    //     let item_id = create_item(trans, file_name, customer_code)?;
-    //
-    //     // TODO the item_file table is totally useless, please move the file_ref into the item table...
-    //     let _ = create_item_file(trans, item_id, file_ref, customer_code);
-    //
-    //     Ok(item_id)
-    // }
 }
 
 

@@ -522,7 +522,7 @@ impl FileDelegate {
     ///
     pub fn file_stats(&mut self, file_ref: &RawStr) -> Json<GetFileInfoShortReply> {
 
-        log_info!("🚀 Start upload api, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
+        log_info!("🚀 Start file_stats api, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
@@ -539,16 +539,16 @@ impl FileDelegate {
         let customer_code = entry_session.customer_code.as_str();
 
         // TODO instead of constant 1, check if the document is fulltext parsed and previewed
-        let sql_query = format!(r"
-                SELECT fr.mime_type, fr.checksum, fr.original_file_size, fr.total_part, enc.encrypted, fulltext.fulltext, preview.preview
-                    FROM fs_{}.file_reference fr,
-                    (SELECT count(*) as encrypted
-                        FROM  fs_{}.file_parts
-                        WHERE file_reference_id = (SELECT id FROM fs_{}.file_reference WHERE file_ref = :p_file_ref)
-                        AND is_encrypted = true) enc,
-                    1 fulltext,
-                    1 preview
-                    WHERE file_ref = :p_file_ref ", customer_code, customer_code, customer_code );
+        let sql_query = format!(
+            r" SELECT
+                fr.mime_type, fr.checksum, fr.original_file_size, fr.total_part, 1 fulltext,  1 preview,
+                (SELECT count(*)
+                FROM  fs_{}.file_parts
+                WHERE file_reference_id = (SELECT id FROM fs_{}.file_reference WHERE file_ref = :p_file_ref)
+                AND is_encrypted = true) enc
+            FROM fs_{}.file_reference fr
+            WHERE file_ref = :p_file_ref"
+            , customer_code, customer_code, customer_code );
 
         let r_data_set : anyhow::Result<SQLDataSet> = (|| {
             let mut r_cnx = SQLConnection::new();
@@ -585,56 +585,46 @@ impl FileDelegate {
 
         // inner function
         fn build_file_info(data_set: &mut SQLDataSet, file_ref: &str) -> anyhow::Result<GetFileInfoShortReply> {
-            let _mime_type = data_set.get_string("mime_type").ok_or(anyhow!("Wrong mime_type col"))?;
-            let _checksum = data_set.get_string("checksum").ok_or(anyhow!("Wrong checksum col"))?;
+            let _mime_type = data_set.get_string("mime_type").unwrap_or("".to_string()); // optional
+            let _checksum = data_set.get_string("checksum").unwrap_or("".to_string()); // optional
             let original_file_size = data_set.get_int("original_file_size").ok_or(anyhow!("Wrong original_file_size col"))?;
             let total_part = data_set.get_int_32("total_part").ok_or(anyhow!("Wrong total_part col"))?;
-            let encrypted_count = data_set.get_int("encrypted").ok_or(anyhow!("Wrong encrypted col"))?;
-            let fulltext_indexed_count = data_set.get_int("fulltext").ok_or(anyhow!("Wrong fulltext col"))?;
-            let preview_generated_count = data_set.get_int("preview").ok_or(anyhow!("Wrong preview col"))?;
+            let encrypted_count = data_set.get_int("enc").ok_or(anyhow!("Wrong encrypted col"))?;
+            let fulltext_indexed_count = data_set.get_int_32("fulltext").ok_or(anyhow!("Wrong fulltext col"))?;
+            let preview_generated_count = data_set.get_int_32("preview").ok_or(anyhow!("Wrong preview col"))?;
 
             Ok(GetFileInfoShortReply{
                 file_ref: file_ref.to_string(),
                 block_count: total_part as u32,
                 original_file_size : original_file_size as u64,
                 encrypted_count,
-                fulltext_indexed_count,
-                preview_generated_count,
+                fulltext_indexed_count : fulltext_indexed_count as i64,
+                preview_generated_count: preview_generated_count as i64,
                 status: JsonErrorSet::from(SUCCESS),
             })
         }
 
 
-        let mut stats = GetFileInfoShortReply{
-            file_ref: "".to_string(),
-            original_file_size : 0,
-            block_count: 0,
-            encrypted_count: 0,
-            fulltext_indexed_count: 0,
-            preview_generated_count: 0,
-            status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-        };
-
-        if data_set.next() {
-
-            let Ok(stats) = build_file_info(&mut data_set, file_ref) else {
+        let stats = if data_set.next() {
+            let Ok(stats) = build_file_info(&mut data_set, file_ref).map_err(err_fwd!("Build file info failed, follower=[{}]", &self.follower)) else {
               return Json(GetFileInfoShortReply::internal_database_error_reply());
             };
 
-        }
-        // else {
-        //     stats = GetFileInfoShortReply{
-        //         file_ref: "".to_string(),
-        //         original_file_size : 0,
-        //         block_count: 0,
-        //         encrypted_count: 0,
-        //         fulltext_indexed_count: 0,
-        //         preview_generated_count: 0,
-        //         status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-        //     };
-        // }
-
-        log_info!("😎 Successfully read the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
+            log_info!("😎 Successfully read the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
+            // dbg!(&stats);
+            stats
+        } else {
+            log_info!("⛔ Cannot find the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
+            GetFileInfoShortReply{
+                file_ref: "".to_string(),
+                original_file_size : 0,
+                block_count: 0,
+                encrypted_count: 0,
+                fulltext_indexed_count: 0,
+                preview_generated_count: 0,
+                status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
+            }
+        };
 
         log_info!("🏁 End file_stats api, follower=[{}]", &self.follower);
 

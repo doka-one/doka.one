@@ -46,7 +46,7 @@ impl ItemDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
-            log_error!("Invalid session token {:?}", &self.session_token);
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(GetItemReply::invalid_token_error_reply())
         }
 
@@ -295,6 +295,7 @@ impl ItemDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(AddItemReply::invalid_token_error_reply());
         }
 

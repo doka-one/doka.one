@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use anyhow::anyhow;
 use rocket_contrib::json::Json;
 use log::*;
 use rocket::http::RawStr;
@@ -40,12 +41,9 @@ impl KeyDelegate {
 
         log_info!("🚀 Start add_key api, customer_code=[{}], follower=[{}]", &customer.customer_code, &self.follower);
 
-        // Check if the trace_id is valid
-        if !self.security_token.is_valid() {
-            return Json(AddKeyReply {
-                success: false,
-                status: JsonErrorSet::from(INVALID_TOKEN),
-            });
+        if ! self.security_token.is_valid() {
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
+            return Json(AddKeyReply::invalid_token_error_reply())
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -122,6 +120,8 @@ impl KeyDelegate {
     }
 
 
+    // Search the keys for a customer_code
+    // If the customer code is not present, returns all the keys
     fn search_key_by_customer_code(&self, mut trans : &mut SQLTransaction, customer_code : Option<&str>) -> anyhow::Result<HashMap<String, EntryReply>> {
         let p_customer_code = CellValue::from_opt_str(customer_code);
 
@@ -140,9 +140,9 @@ impl KeyDelegate {
 
         let mut entries= HashMap::new();
         while sql_result.next() {
-            let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
-            let customer_code: String = sql_result.get_string("customer_code").unwrap_or("".to_owned());
-            let ciphered_key: String = sql_result.get_string("ciphered_key").unwrap_or("".to_owned());
+            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong column: id"))?;
+            let customer_code: String = sql_result.get_string("customer_code").ok_or(anyhow!("Wrong column: customer_code"))?;
+            let ciphered_key: String = sql_result.get_string("ciphered_key").ok_or(anyhow!("Wrong column: ciphered_key"))?;
 
             let key_info = EntryReply {
                 key_id : id,
@@ -167,7 +167,7 @@ impl KeyDelegate {
 
         // Check if the token is valid
         if ! self.security_token.is_valid() {
-            log_error!("💣 Invalid security, follower=[{}]", &self.follower);
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return Json(CustomerKeyReply::invalid_token_error_reply())
         }
 
@@ -202,7 +202,7 @@ impl KeyDelegate {
 
         // Check if the token is valid
         if ! self.security_token.is_valid() {
-            log_error!("💣 Invalid security, follower=[{}]", &self.follower);
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return Json(CustomerKeyReply::invalid_token_error_reply())
         }
 

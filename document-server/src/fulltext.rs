@@ -44,6 +44,7 @@ impl FullTextDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(FullTextReply::invalid_token_error_reply());
         }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());

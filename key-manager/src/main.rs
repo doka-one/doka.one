@@ -2,6 +2,7 @@
 #![feature(let_else)]
 
 mod key;
+mod all_tests;
 
 use std::path::Path;
 use std::process::exit;

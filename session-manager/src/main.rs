@@ -33,7 +33,7 @@ fn read_session(session_id: &RawStr, security_token: SecurityToken) -> Json<Sess
 
     // Check if the token is valid
     if ! security_token.is_valid() {
-        log_error!("Invalid token {:?}", &security_token);
+        log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
         return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(INVALID_TOKEN) } )
     }
     let token = security_token.take_value();

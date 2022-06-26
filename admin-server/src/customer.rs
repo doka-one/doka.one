@@ -128,6 +128,7 @@ impl CustomerDelegate {
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return Json(CreateCustomerReply::invalid_token_error_reply());
         }
 
@@ -398,6 +399,7 @@ impl CustomerDelegate {
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return Json(JsonErrorSet::from(INVALID_TOKEN));
         }
 
@@ -648,6 +650,7 @@ impl CustomerDelegate {
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return  Json(JsonErrorSet::from(INVALID_TOKEN));
         }
 

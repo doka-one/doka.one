@@ -611,7 +611,6 @@ impl FileDelegate {
             };
 
             log_info!("😎 Successfully read the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
-            // dbg!(&stats);
             stats
         } else {
             log_info!("⛔ Cannot find the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);

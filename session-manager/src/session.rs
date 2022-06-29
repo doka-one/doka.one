@@ -9,7 +9,7 @@ use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock,
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::{EntrySession, JsonErrorSet, OpenSessionReply, OpenSessionRequest, SessionReply};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SESSION_CANNOT_BE_RENEWED, SESSION_NOT_FOUND, SESSION_TIMED_OUT, SUCCESS};
+use dkdto::error_codes::{INVALID_REQUEST, SESSION_CANNOT_BE_RENEWED, SESSION_NOT_FOUND, SESSION_TIMED_OUT, SUCCESS};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
 
@@ -113,31 +113,25 @@ impl SessionDelegate {
         }
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        let session_id = match session_id.percent_decode().map_err(err_fwd!("💣 Invalid input parameter, [{}]", session_id) ) {
-            Ok(s) => s.to_string(),
-            Err(_) => {
-                return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(INVALID_REQUEST) } )
-            }
+        let Ok(session_id) =  session_id.percent_decode().map_err(err_fwd!("💣 Invalid input parameter, [{}]", session_id) ) else {
+            return Json(SessionReply::from_error(INVALID_REQUEST) );
         };
 
         // Open Db connection
+        let internal_database_error_reply = Json(SessionReply::internal_database_error_reply());
 
-        let internal_database_error_reply = Json(SessionReply{ sessions : vec![], status: JsonErrorSet::from(INTERNAL_DATABASE_ERROR) });
-
-        let mut cnx = match SQLConnection::new().map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower)){
-            Ok(x) => { x },
-            Err(_) => { return internal_database_error_reply; },
+        let Ok(mut cnx) = SQLConnection::new().map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower)) else {
+            return internal_database_error_reply;
         };
 
-        let mut trans = match cnx.sql_transaction().map_err(err_fwd!("💣 Error transaction, follower=[{}]", &self.follower)) {
-            Ok(x) => { x },
-            Err(_) => { return internal_database_error_reply; },
+        let r_trans = cnx.sql_transaction().map_err(err_fwd!("💣 Error transaction, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return internal_database_error_reply;
         };
 
         // Query the sessions to find the right one
-        let sessions = match self.search_session_by_sid(&mut trans, Some(&session_id) ) {
-            Ok(x) => { x },
-            Err(_) => { return internal_database_error_reply; },
+        let Ok(sessions) =  self.search_session_by_sid(&mut trans, Some(&session_id) ) else {
+            return internal_database_error_reply;
         };
 
         // Customer key to return
@@ -196,7 +190,7 @@ impl SessionDelegate {
             params,
         };
 
-        let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
+        let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}], follower=[{}]", &query.sql_query, &self.follower))?;
 
         let mut sessions = vec![];
         while sql_result.next() {

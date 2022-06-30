@@ -3,42 +3,41 @@
 
 mod file_delegate;
 
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read};
+
+
+
 use std::path::Path;
 use std::process::exit;
-use std::{io, thread};
-use std::thread::{JoinHandle};
+
+
 
 use rocket::config::Environment;
 use rocket_contrib::templates::Template;
 use rocket::{Config, Data, routes};
-use commons_pg::{CellValue, init_db_pool, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, };
+use commons_pg::{init_db_pool, };
 use commons_services::read_cek_and_store;
 use dkconfig::conf_reader::read_config;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use log::{error,info, warn};
+use log::*;
 use commons_error::*;
 
 use rocket::{post,get};
 
-use rocket::http::{ContentType, RawStr};
+use rocket::http::{ RawStr};
 use rocket::response::{Content};
 use rocket_contrib::json::Json;
-use rs_uuid::iso::uuid_v4;
-use rustc_serialize::base64::{ToBase64, URL_SAFE};
-use commons_services::database_lib::open_transaction;
-use commons_services::key_lib::fetch_customer_key;
-use commons_services::property_name::{DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY, TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
-use commons_services::session_lib::fetch_entry_session;
+
+
+
+
+use commons_services::property_name::{ LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,};
+
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::{BlockStatus,GetFileInfoReply, GetFileInfoShortReply, JsonErrorSet, UploadReply};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, SUCCESS};
-use dkdto::error_replies::ErrorReply;
-use doka_cli::request_client::{DocumentServerClient, TikaServerClient};
+
+use dkdto::{GetFileInfoReply, GetFileInfoShortReply, UploadReply};
+
+
 use crate::file_delegate::FileDelegate;
 
 

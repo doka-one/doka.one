@@ -10,7 +10,7 @@ use dkdto::{FullTextReply, FullTextRequest, JsonErrorSet};
 use dkdto::error_codes::{SUCCESS};
 use doka_cli::request_client::{TikaServerClient, TokenType};
 use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
-use log::{info, debug};
+use log::*;
 use commons_error::*;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::x_request_id::{Follower, XRequestID};
@@ -62,7 +62,7 @@ impl FullTextDelegate {
 
         // Get the crypto key
 
-        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower.token_type.value())
+        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
                                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
             return internal_technical_error;
         };

@@ -81,7 +81,8 @@ impl SessionDelegate {
             sequence_name : "dokasys.sessions_id_seq".to_string(),
         };
 
-        let Ok(session_db_id) = query.insert(&mut trans).map_err( err_fwd!("💣 Cannot insert the session, follower=[{}]", &self.follower)) else {
+        let Ok(session_db_id) = query.insert(&mut trans)
+                            .map_err( err_fwd!("💣 Cannot insert the session, follower=[{}]", &self.follower)) else {
             return internal_database_error_reply;
         };
 
@@ -147,8 +148,9 @@ impl SessionDelegate {
             return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_NOT_FOUND) } )
         }
 
-        let Ok(session) = session_reply.sessions.get_mut(0).ok_or(anyhow!("Wrong index 0")) else {
-            log_warn!("💣 Cannot find the session in the list of sessions, follower=[{}]", &self.follower);
+        let Ok(session) = session_reply.sessions.get_mut(0)
+                    .ok_or(anyhow!("Wrong index 0"))
+                    .map_err(err_fwd!("💣 Cannot find the session in the list of sessions, follower=[{}]", &self.follower)) else {
             return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_NOT_FOUND) } );
         };
 
@@ -173,6 +175,8 @@ impl SessionDelegate {
         if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
+
+        log_info!("😎 Updated the session renew timestamp, session id=[{}], follower=[{}]", &session_id, &self.follower);
 
         log_info!("🏁 End read_session api, follower=[{}]", &self.follower);
 

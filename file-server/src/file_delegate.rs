@@ -87,7 +87,7 @@ impl FileDelegate {
 
         // Get the crypto key
 
-        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower.token_type.value())
+        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
             if cfg!(windows) {
                 self.empty_datastream(&mut file_data.open().take(u64::MAX));

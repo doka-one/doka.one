@@ -57,7 +57,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for XRequestID {
         let map = my_request.headers();
 
         let x_request_id = map.get_one("X-Request-ID").map(|t|
-            t.parse().map_err(err_fwd!("Cannot parse the x_request_id from the header,set default to 0")).unwrap_or(0u32) );
+            t.parse().map_err(err_fwd!("⛔ Cannot parse the x_request_id from the header,set default to 0")).unwrap_or(0u32) );
 
         request::Outcome::Success(XRequestID(x_request_id))
     }
@@ -73,11 +73,11 @@ impl Display for Follower {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let tt = match &self.token_type {
             TokenType::Token(tok) => {
-                let limit = min(tok.len(), 22);
+                let limit = min(tok.len()-2, 22);
                 format!("T:{}...", &tok[..limit])
             }
             TokenType::Sid(sid) => {
-                let limit = min(sid.len(), 22);
+                let limit = min(sid.len()-2, 22);
                 format!("S:{}...", &sid[..limit])
             }
             TokenType::None => {"".to_string()}

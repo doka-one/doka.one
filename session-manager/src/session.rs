@@ -1,6 +1,7 @@
 use log::*;
 use std::collections::HashMap;
 use std::time::SystemTime;
+use anyhow::anyhow;
 use chrono::Utc;
 use rocket::http::RawStr;
 use rocket_contrib::json::Json;
@@ -100,7 +101,7 @@ impl SessionDelegate {
 
 
     ///
-    /// 🔑 Find a session from its sid
+    /// 🔑 Find a session from its session id
     ///
     pub fn read_session(&mut self, session_id: &RawStr) -> Json<SessionReply> {
 
@@ -130,31 +131,39 @@ impl SessionDelegate {
         };
 
         // Query the sessions to find the right one
-        let Ok(sessions) =  self.search_session_by_sid(&mut trans, Some(&session_id) ) else {
+        let Ok(sessions) =  self.search_session_by_sid(&mut trans, Some(&session_id))
+                .map_err(err_fwd!("💣 Session search failed for session id=[{}], follower=[{}]", session_id, &self.follower)) else {
             return internal_database_error_reply;
         };
+
+        log_info!("😎 Found the session information, number of sessions=[{}], follower=[{}]", sessions.len(), &self.follower);
 
         // Customer key to return
         let mut session_reply = SessionReply{ sessions, status: JsonErrorSet::from(SUCCESS) };
 
         // Check if the session was found
         if session_reply.sessions.is_empty() {
+            log_warn!("⛔ The session was not found, follower=[{}]", &self.follower);
             return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_NOT_FOUND) } )
         }
 
-        // ... then check the end date
-        let session = session_reply.sessions.get_mut(0).unwrap();
+        let Ok(session) = session_reply.sessions.get_mut(0).ok_or(anyhow!("Wrong index 0")) else {
+            log_warn!("💣 Cannot find the session in the list of sessions, follower=[{}]", &self.follower);
+            return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_NOT_FOUND) } );
+        };
 
+        // If the termination time exists, it means the session is closed
         if session.termination_time_gmt.is_some() {
+            log_warn!("⛔ The session is closed. Closing time =[{}], follower=[{}]", &session.termination_time_gmt.as_ref().unwrap(), &self.follower);
             return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_TIMED_OUT) } )
         }
 
         // Update the session renew_time_gmt
-
         let r_update = self.update_renew_time(&mut trans, &session_id);
 
         if r_update.is_err() {
             trans.rollback();
+            log_warn!("💣 Rollback. Cannot update the renew time of the session, follower=[{}]", &self.follower);
             return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_CANNOT_BE_RENEWED) } )
         }
 
@@ -172,9 +181,7 @@ impl SessionDelegate {
     }
 
 
-    ///
-    ///
-    ///
+    /// Search the session information from the session id
     fn search_session_by_sid(&self, mut trans : &mut SQLTransaction, session_id: Option<&str>) -> anyhow::Result<Vec<EntrySession>> {
         let p_sid = CellValue::from_opt_str(session_id);
 
@@ -194,18 +201,24 @@ impl SessionDelegate {
 
         let mut sessions = vec![];
         while sql_result.next() {
-            let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
-            let customer_code: String = sql_result.get_string("customer_code").unwrap_or("".to_owned());
-            let customer_id: i64 = sql_result.get_int("customer_id").unwrap_or(0i64);
-            let user_name: String = sql_result.get_string("user_name").unwrap_or("".to_owned());
-            let user_id: i64 = sql_result.get_int("user_id").unwrap_or(0i64);
-            let session_id: String = sql_result.get_string("session_id").unwrap_or("".to_owned());
+            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong column id"))?;
+            let customer_code: String = sql_result.get_string("customer_code").ok_or(anyhow!("Wrong column customer_code"))?;
+            let customer_id: i64 = sql_result.get_int("customer_id").ok_or(anyhow!("Wrong column customer_id"))?;
+            let user_name: String = sql_result.get_string("user_name").ok_or(anyhow!("Wrong column user_name"))?;
+            let user_id: i64 = sql_result.get_int("user_id").ok_or(anyhow!("Wrong column user_id"))?;
+            let session_id: String = sql_result.get_string("session_id").ok_or(anyhow!("Wrong column session_id"))?;
             let start_time_gmt  = sql_result.get_timestamp_as_datetime("start_time_gmt")
-                .ok_or(anyhow::anyhow!(""))
+                .ok_or(anyhow::anyhow!("Wrong column start_time_gmt"))
                 .map_err(err_fwd!("Cannot read the start time"))?;
 
-            let renew_time_gmt = sql_result.get_timestamp_as_datetime("renew_time_gmt").as_ref().map( |x| x.to_string() );
-            let termination_time_gmt = sql_result.get_timestamp_as_datetime("termination_time_gmt").as_ref().map( |x| x.to_string() );
+            // Optional
+            let renew_time_gmt = sql_result.get_timestamp_as_datetime("renew_time_gmt")
+                    .as_ref()
+                    .map( |x| x.to_string() );
+            // Optional
+            let termination_time_gmt = sql_result.get_timestamp_as_datetime("termination_time_gmt")
+                    .as_ref()
+                    .map( |x| x.to_string() );
 
             let session_info = EntrySession {
                 id,
@@ -226,10 +239,7 @@ impl SessionDelegate {
         Ok(sessions)
     }
 
-
-    ///
-    ///
-    ///
+    /// Set the renew timestamp of the session to the current UTC time.
     fn update_renew_time(&self, mut trans : &mut SQLTransaction, session_id: &str) -> anyhow::Result<bool> {
         let p_sid = CellValue::from_raw_string(session_id.to_owned());
 
@@ -246,10 +256,7 @@ impl SessionDelegate {
             sequence_name : "".to_string(),
         };
 
-        let _ = query.update(&mut trans).map_err( err_fwd!("Cannot update the session"))?;
-
+        let _ = query.update(&mut trans).map_err( err_fwd!("Cannot update the session renew timestamp, follower=[{}]", &self.follower))?;
         Ok(true)
     }
-
-
 }

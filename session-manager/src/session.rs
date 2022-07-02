@@ -225,7 +225,7 @@ impl SessionDelegate {
                     .map( |x| x.to_string() );
 
             let session_info = EntrySession {
-                id : id as i64,
+                id,
                 customer_code,
                 user_name,
                 customer_id,

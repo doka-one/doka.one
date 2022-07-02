@@ -19,6 +19,7 @@ okapi = { version = "0.4", features = ["derive_json_schema"] }
 anyhow = "1.0"
 uuid = "^0.5"
 rustc-serialize = "0.3.24"
+num_cpus = "1.13.1"
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}

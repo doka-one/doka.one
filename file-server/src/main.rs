@@ -157,94 +157,94 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
-    use std::process::exit;
-    use commons_pg::{init_db_pool, SQLConnection, SQLTransaction};
-    use commons_services::database_lib::open_transaction;
-    use dkconfig::conf_reader::read_config;
-    use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-    use crate::{insert_document_part, parse_content, select_tsvector};
-    use log::{error,info};
-    use commons_error::*;
-    use commons_services::property_name::LOG_CONFIG_FILE_PROPERTY;
-
-    fn init_test() {
-        const PROGRAM_NAME: &str = "Test File Server";
-
-        println!("😎 Init {}", PROGRAM_NAME);
-
-        const PROJECT_CODE: &str = "file-server";
-        const VAR_NAME: &str = "DOKA_ENV";
-
-        // Read the application config's file
-        println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
-
-        let props = read_config(PROJECT_CODE, VAR_NAME);
-        set_prop_values(props);
-
-        log_info!("🚀 Start {}", PROGRAM_NAME);
-
-        let log_config: String = get_prop_value(LOG_CONFIG_FILE_PROPERTY).unwrap();
-        let log_config_path = Path::new(&log_config);
-
-        // Read the global properties
-        println!("😎 Read log properties from {:?}", &log_config_path);
-
-        match log4rs::init_file(&log_config_path, Default::default()) {
-            Err(e) => {
-                eprintln!("{:?} {:?}", &log_config_path, e);
-                exit(-59);
-            }
-            Ok(_) => {}
-        }
-
-
-        // Init DB pool
-        let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-            .map_err(err_fwd!("Cannot read the database connection information")) {
-            Ok(x) => x,
-            Err(e) => {
-                log_error!("{:?}", e);
-                exit(-64);
-            }
-        };
-
-        init_db_pool(&connect_string, db_pool_size);
-    }
-
-    #[test]
-    fn test_parse_content() -> anyhow::Result<()> {
-        init_test();
-        let mem_file: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/big_planet.pdf")?;
-        let ret = parse_content("0f373b54-5dbb-4c75-98e7-98fd141593dc", mem_file, "f1248fab", "MY_SID")?;
-        Ok(())
-    }
-
-
-    #[test]
-    fn test_compute_tsvector() -> anyhow::Result<()> {
-        init_test();
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx)?;
-        let ret = select_tsvector(&mut trans,Some("french"), "Planète Phase formation cœurs planétaires Phase formation noyaux telluriques moderne")?;
-        assert_eq!("'coeur':4 'format':3,7 'modern':10 'noyal':8 'phas':2,6 'planet':1 'planetair':5 'tellur':9", ret);
-        Ok(())
-    }
-
-    #[test]
-    fn test_insert_document() -> anyhow::Result<()> {
-        init_test();
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx)?;
-
-        let id = insert_document_part(&mut trans, "0f373b54-5dbb-4c75-98e7-98fd141593dc", 107,
-                                     "Phase formation cœurs planétaires Phase formation noyaux telluriques moderne",
-                                     "french", "f1248fab" )?;
-
-        trans.commit();
-        log_info!("ID = [{}]", id);
-        assert!(id > 0);
-        Ok(())
-    }
+    // use std::path::Path;
+    // use std::process::exit;
+    // use commons_pg::{init_db_pool, SQLConnection, SQLTransaction};
+    // use commons_services::database_lib::open_transaction;
+    // use dkconfig::conf_reader::read_config;
+    // use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+    // //use crate::{insert_document_part, parse_content, select_tsvector};
+    // use log::{error,info};
+    // use commons_error::*;
+    // use commons_services::property_name::LOG_CONFIG_FILE_PROPERTY;
+    //
+    // fn init_test() {
+    //     const PROGRAM_NAME: &str = "Test File Server";
+    //
+    //     println!("😎 Init {}", PROGRAM_NAME);
+    //
+    //     const PROJECT_CODE: &str = "file-server";
+    //     const VAR_NAME: &str = "DOKA_ENV";
+    //
+    //     // Read the application config's file
+    //     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
+    //
+    //     let props = read_config(PROJECT_CODE, VAR_NAME);
+    //     set_prop_values(props);
+    //
+    //     log_info!("🚀 Start {}", PROGRAM_NAME);
+    //
+    //     let log_config: String = get_prop_value(LOG_CONFIG_FILE_PROPERTY).unwrap();
+    //     let log_config_path = Path::new(&log_config);
+    //
+    //     // Read the global properties
+    //     println!("😎 Read log properties from {:?}", &log_config_path);
+    //
+    //     match log4rs::init_file(&log_config_path, Default::default()) {
+    //         Err(e) => {
+    //             eprintln!("{:?} {:?}", &log_config_path, e);
+    //             exit(-59);
+    //         }
+    //         Ok(_) => {}
+    //     }
+    //
+    //
+    //     // Init DB pool
+    //     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
+    //         .map_err(err_fwd!("Cannot read the database connection information")) {
+    //         Ok(x) => x,
+    //         Err(e) => {
+    //             log_error!("{:?}", e);
+    //             exit(-64);
+    //         }
+    //     };
+    //
+    //     init_db_pool(&connect_string, db_pool_size);
+    // }
+    //
+    // #[test]
+    // fn test_parse_content() -> anyhow::Result<()> {
+    //     init_test();
+    //     let mem_file: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/big_planet.pdf")?;
+    //     let ret = parse_content("0f373b54-5dbb-4c75-98e7-98fd141593dc", mem_file, "f1248fab", "MY_SID")?;
+    //     Ok(())
+    // }
+    //
+    //
+    // #[test]
+    // fn test_compute_tsvector() -> anyhow::Result<()> {
+    //     init_test();
+    //     let mut r_cnx = SQLConnection::new();
+    //     let mut trans = open_transaction(&mut r_cnx)?;
+    //     let ret = select_tsvector(&mut trans,Some("french"), "Planète Phase formation cœurs planétaires Phase formation noyaux telluriques moderne")?;
+    //     assert_eq!("'coeur':4 'format':3,7 'modern':10 'noyal':8 'phas':2,6 'planet':1 'planetair':5 'tellur':9", ret);
+    //     Ok(())
+    // }
+    //
+    // #[test]
+    // fn test_insert_document() -> anyhow::Result<()> {
+    //     init_test();
+    //     let mut r_cnx = SQLConnection::new();
+    //     let mut trans = open_transaction(&mut r_cnx)?;
+    //
+    //     let id = insert_document_part(&mut trans, "0f373b54-5dbb-4c75-98e7-98fd141593dc", 107,
+    //                                  "Phase formation cœurs planétaires Phase formation noyaux telluriques moderne",
+    //                                  "french", "f1248fab" )?;
+    //
+    //     trans.commit();
+    //     log_info!("ID = [{}]", id);
+    //     assert!(id > 0);
+    //     Ok(())
+    // }
 
 }

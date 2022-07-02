@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::{io, thread};
 use std::fs::File;
-use std::thread::JoinHandle;
+use std::thread::{JoinHandle, sleep};
+use std::time::Duration;
 use anyhow::anyhow;
 use rocket::Data;
 use rocket::http::{ContentType, RawStr};
@@ -26,7 +27,9 @@ use dkdto::{BlockStatus, GetFileInfoReply, GetFileInfoShortReply, JsonErrorSet, 
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, SUCCESS};
 use doka_cli::request_client::{DocumentServerClient, TikaServerClient, TokenType};
 
-#[derive(Debug,Clone)]
+type IndexedParts = HashMap<u32, Vec<u8>>;
+
+#[derive(Debug, Clone)]
 pub(crate) struct FileDelegate {
     pub session_token: SessionToken,
     pub follower: Follower,
@@ -46,7 +49,6 @@ impl FileDelegate {
             }
         }
     }
-
 
     ///
     /// ✨ Upload the binary content of a file
@@ -176,10 +178,7 @@ impl FileDelegate {
             log_info!("End slice : {} {}", block_index, slice.len());
             block_set.insert(block_num, slice.to_vec());
 
-
-            thread_pool.push(self.parallel_crypto_and_store_block(file_id, &block_set,/*block_num, slice,*/
-                                                             customer_code,
-                                                             &customer_key));
+            thread_pool.push(self.parallel_crypto_and_store_block(file_id, &block_set, customer_code, &customer_key));
             block_set.clear();
 
             total_size += block_index;
@@ -248,7 +247,7 @@ impl FileDelegate {
         let local_self = self.clone();
 
         let th = thread::spawn( move || {
-            local_self.crypto_and_store_block( file_id, local_block_set,
+            local_self.crypto_and_store_block(file_id, local_block_set,
                                     s_customer_code, s_customer_key)
         });
 
@@ -258,7 +257,6 @@ impl FileDelegate {
     fn parallel_parse_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> JoinHandle<anyhow::Result<()>> {
 
         let my_file_ref = file_ref.to_owned();
-        // let my_sid = self.follower.token_type.value().to_owned();
         let my_customer_code = customer_code.to_owned();
 
         let local_self = self.clone();
@@ -639,9 +637,30 @@ impl FileDelegate {
 
         // Check if the token is valid
         log_info!("🚀 Start download api, file_ref = [{}], follower=[{}]", file_ref, &self.follower);
-        //
-        // // Create parts
-        // log_info!("🏁 End upload api, sid={}", &sid);
+
+        // Search the document's parts from the database
+
+        let Ok(enc_parts) = self.search_parts(file_ref).map_err(tr_fwd!()) else {
+            log_error!("");
+            panic!()
+        };
+
+
+
+        // Parallel send the decrypt of slides of parts [Parts, Q+(1*)]
+
+        let Ok(clear_parts) = self.parallel_decrypt(enc_parts) else {
+            log_error!("");
+            panic!()
+        };
+
+        // Output : Get a file array of P parts
+
+        // Merge all the parts in one big file (on disk??)
+        let _bytes = self.merge_parts(&clear_parts);
+
+        // Send the final binary as a response
+
 
         let mut file = File::open("c:/Users/denis/Dropbox/Upload/russian_planet.pdf").unwrap();
 
@@ -652,6 +671,118 @@ impl FileDelegate {
 
         Content(ContentType::PDF, bytes)
 
+    }
+
+    fn search_parts(&self, _file_ref : &str) -> anyhow::Result<IndexedParts> {
+        Ok(HashMap::new())
+    }
+
+    fn merge_parts(&self, _parts : &IndexedParts) -> anyhow::Result<Vec<u8>> {
+        Ok(vec![])
+    }
+
+    // N = Number of threads = Number of Cores - 1;
+    // 5 cores , 20 parts => 4 decrypt by core
+    // 5 cores, 22 parts => 5 5 4 4 4
+    // 22 eucl 5 = 4,2 => 2 (number of extra decryts)
+    // P eucl N = [Q,R]  Q is the number of decrypts by thread and R is the number of thread with 1 extra decrypt.
+    fn compute_pool_size(number_of_threads : u32, number_of_parts: u32) -> Vec<u32> {
+        let mut pool_size = vec![];
+        let q = number_of_parts / number_of_threads;
+        let mut r = number_of_parts % number_of_threads;
+
+        dbg!(number_of_parts, number_of_threads, q,r);
+
+        for _ in 0..number_of_threads {
+            let extra = if r > 0  {
+                r -= 1;
+                1
+            }
+            else {
+                0
+            };
+            pool_size.push(q+extra);
+
+        }
+        pool_size
+    }
+
+    fn parallel_decrypt(&self, enc_parts: IndexedParts) -> anyhow::Result<IndexedParts> {
+        // let my_file_ref = file_ref.to_owned();
+        // let my_customer_code = customer_code.to_owned();
+
+        let mut thread_pool = vec![];
+        let n_threads = num_cpus::get() - 1; // Number of threads is number of cores - 1
+
+        println!("Number of threads {}", n_threads);
+
+        let number_of_parts = enc_parts.len();
+        // For n_threads = 5 and num of part = 22 , we get (5,5,4,4,4)
+        let pool_size = Self::compute_pool_size(n_threads as u32, number_of_parts as u32);
+
+        let mut offset : u32 = 0;
+        for pool_index in 0..n_threads {
+
+            log_info!("Prepare the pool number [{}] of [{}] parts : [{} -> {}]", pool_index, pool_size[pool_index], offset, offset+pool_size[pool_index]-1 );
+
+            let mut enc_slides= HashMap::new();
+            for index in offset..offset+pool_size[pool_index] {
+                let v = enc_parts.get(&index).ok_or(anyhow!("Wrong index")).map_err(err_fwd!(""))?.clone();
+                enc_slides.insert(index, v);
+            }
+
+            offset += pool_size[pool_index];
+
+            // TODO find a better way
+            let local_self = self.clone();
+            let th = thread::spawn(move || {
+                local_self.decrypt_slide_of_parts(pool_index as u32, enc_slides)
+            });
+
+            thread_pool.push(th);
+            // sleep(Duration::from_secs(4));
+        }
+
+        // sleep(Duration::from_secs(20));
+
+        let mut clear_slide_parts : IndexedParts = HashMap::new();
+
+        for th in thread_pool {
+            // Run the decrypt for a specific slide of parts (will use 1 core)
+            match th.join() {
+                Ok(v) => {
+                    if let Ok(clear_parts) = v {
+                        for x in clear_parts {
+                            clear_slide_parts.insert(x.0, x.1);
+                        }
+                    };
+                }
+                Err(e) => {
+                    log_error!("Thread join error [{:?}], follower=[{}]", e, &self.follower);
+                }
+            }
+        }
+
+        Ok(clear_slide_parts)
+    }
+
+
+    //
+    //
+    //
+    fn decrypt_slide_of_parts(&self, pool_index : u32, enc_slides : HashMap<u32, Vec<u8>>) -> anyhow::Result<IndexedParts> {
+        let mut clear_slides : HashMap<u32, Vec<u8>> = HashMap::new();
+
+        // if pool_index == 2 {
+        //     sleep(Duration::from_secs(2));
+        // }
+
+        for (index, _content) in enc_slides {
+            log_info!("Decrypt, pool_index=[{}], index=[{}]", pool_index, index);
+            let clear_content = vec![65_u8];
+            clear_slides.insert(index, clear_content);
+        }
+        Ok(clear_slides)
     }
 
 
@@ -729,5 +860,67 @@ impl FileDelegate {
 
         Ok(())
     }
+
+}
+
+//
+// cargo test file_server_tests  -- --nocapture
+//
+#[cfg(test)]
+mod file_server_tests {
+    use std::collections::HashMap;
+    use std::path::Path;
+    use std::process::exit;
+    use std::sync::Once;
+    use commons_services::token_lib::SessionToken;
+    use commons_services::x_request_id::XRequestID;
+    use crate::FileDelegate;
+
+
+    static INIT: Once = Once::new();
+
+    fn init_log() {
+        INIT.call_once(|| {
+
+            // TODO Use the future commons-config
+            let log_config: String = "E:/doka-configs/dev/ppm/config/log4rs.yaml".to_string();
+            let log_config_path = Path::new(&log_config);
+
+            match log4rs::init_file(&log_config_path, Default::default()) {
+                Err(e) => {
+                    eprintln!("{:?} {:?}", &log_config_path, e);
+                    exit(-59);
+                }
+                Ok(_) => {}
+            }
+        });
+    }
+
+
+    #[test]
+    fn test_1() {
+
+        init_log();
+
+        const N_PARTS: u32 = 100;
+
+        let delegate = FileDelegate::new(SessionToken("MY SESSION".to_owned()), XRequestID::from_value(Option::None));
+        let mut enc_parts = HashMap::new();
+
+        for index in 0..N_PARTS {
+            let v = vec![0 as u8];
+            enc_parts.insert(index, v);
+        }
+
+        // dbg!(&enc_parts);
+
+        let r = delegate.parallel_decrypt(enc_parts).unwrap();
+
+        for i in 0..N_PARTS {
+            println!("{} -> {:?}", i, r.get(&i).unwrap());
+        }
+
+    }
+
 
 }

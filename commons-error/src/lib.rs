@@ -30,8 +30,7 @@ use log::*;
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {
-        // TODO Maybe we can do file and line with config settings
-        info!("[{}:{}] {}",  file!(), line!(), format!($($arg)*))
+        info!("«{}:{}» 👓 {}",  file!(), line!(), format!($($arg)*))
         //info!($($arg)*)
     };
 }
@@ -47,7 +46,7 @@ macro_rules! log_debug {
 #[macro_export]
 macro_rules! log_error {
     ($($arg:tt)*) => {
-        error!("{} [{}:{}]", format!($($arg)*), file!(), line!());
+        error!("«{}:{}» 💣 {}",  file!(), line!(), format!($($arg)*));
         // error!($($arg)*)
     };
 }
@@ -62,7 +61,7 @@ macro_rules! log_error_simple {
 #[macro_export]
 macro_rules! log_warn {
     ($($arg:tt)*) => {
-        warn!("{} [{}:{}]", format!($($arg)*), file!(), line!());
+        warn!("«{}:{}» ⛔ {}",  file!(), line!(), format!($($arg)*));
         //warn!($($arg)*)
     };
 }

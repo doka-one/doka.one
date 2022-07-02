@@ -205,7 +205,7 @@ impl SessionDelegate {
 
         let mut sessions = vec![];
         while sql_result.next() {
-            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong column id"))?;
+            let id = sql_result.get_int("id").ok_or(anyhow!("Wrong column id"))?;
             let customer_code: String = sql_result.get_string("customer_code").ok_or(anyhow!("Wrong column customer_code"))?;
             let customer_id: i64 = sql_result.get_int("customer_id").ok_or(anyhow!("Wrong column customer_id"))?;
             let user_name: String = sql_result.get_string("user_name").ok_or(anyhow!("Wrong column user_name"))?;
@@ -225,7 +225,7 @@ impl SessionDelegate {
                     .map( |x| x.to_string() );
 
             let session_info = EntrySession {
-                id,
+                id : id as i64,
                 customer_code,
                 user_name,
                 customer_id,

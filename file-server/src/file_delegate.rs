@@ -192,12 +192,6 @@ impl FileDelegate {
 
         let original_file_size = mem_file.len();
 
-        // Create the content parsing process
-        // | We know that all the blocks have been read and the mem_file contains all the data.
-        // | We don't know the state of each parts
-        // | But still we know the original_file_size (mem_file.len()) and the total_part (block_num)
-        thread_pool.push(self.parallel_parse_content(&file_ref, mem_file, customer_code));
-
         let local_follower = self.follower.clone();
         thread::spawn( move || {
             for th in thread_pool {
@@ -207,10 +201,36 @@ impl FileDelegate {
             }
         });
 
+        // Create the content parsing process
+        // | We know that all the blocks have been read and the mem_file contains all the data.
+        // | We don't know the state of each parts
+        // | But still we know the original_file_size (mem_file.len()) and the total_part (block_num)
+        let thread_parse_content = self.parallel_parse_content(&file_ref, mem_file, customer_code);
+        //let local_follower = self.follower.clone();
+        //let r = thread::spawn( move || {
+        let media_type =  match thread_parse_content.join() {
+                Ok(v) => {
+                    let Ok(mp) = v else {
+                        log_error!("Thread parse content, media type error, follower=[{}]", &self.follower);
+                        return internal_database_error_reply; // TODO replace with parse content error
+                    };
+                    mp
+                }
+                Err(e) => {
+                    log_error!("Thread parse content error [{:?}], follower=[{}]", e, &self.follower);
+                    return internal_database_error_reply; // TODO replace with parse content error
+                }
+            };
+        //});
+
+        // let s = r.join().unwrap();
+
+        ///dbg!(media_type);
+
         log_info!("Start updating the file reference, follower=[{}]", &self.follower);
 
-        // Update the file_reference table : checksum, original_file_size, total_part
-        if self.update_file_reference(&mut r_cnx, file_id, original_file_size, block_num, customer_code)
+        // Update the file_reference table : checksum, original_file_size, total_part, media_type
+        if self.update_file_reference(&mut r_cnx, file_id, original_file_size, block_num, &media_type, customer_code)
             .map_err(err_fwd!("Cannot create an entry in the file reference table, follower=[{}]", &self.follower)).is_err() {
             return internal_database_error_reply;
         }
@@ -259,7 +279,7 @@ impl FileDelegate {
         th
     }
 
-    fn parallel_parse_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> JoinHandle<anyhow::Result<()>> {
+    fn parallel_parse_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> JoinHandle<anyhow::Result<String>> {
 
         let my_file_ref = file_ref.to_owned();
         let my_customer_code = customer_code.to_owned();
@@ -348,8 +368,9 @@ impl FileDelegate {
     ///
     /// Call the tika server to parse the file and get the text data
     /// Call the document server to fulltext parse the text data
+    /// return the media type
     ///
-    fn parse_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<()> {
+    fn parse_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
 
         log_info!("Parsing file content ... ,file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
@@ -362,7 +383,8 @@ impl FileDelegate {
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
         let raw_text = tsc.parse_data(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
 
-        log_debug!("Parsing done for file_ref=[{}], content size=[{}], follower=[{}]", file_ref, raw_text.x_tika_content.len(), &self.follower);
+        log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
+            file_ref, raw_text.x_tika_content.len(), &raw_text.content_type,  &self.follower);
 
         let document_server = DocumentServerClient::new(&document_server_host, document_server_port);
         // TODO we must also pass the  self.follower.x_request_id
@@ -382,7 +404,7 @@ impl FileDelegate {
         }
 
         log_info!("... End of parse file content processing, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
-        Ok(())
+        Ok(raw_text.content_type)
     }
 
 
@@ -640,7 +662,6 @@ impl FileDelegate {
     ///
     pub fn download(&mut self, file_ref: &RawStr) -> Content<Vec<u8>> {
 
-        // Check if the token is valid
         log_info!("🚀 Start download api, file_ref = [{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
@@ -666,12 +687,20 @@ impl FileDelegate {
 
         // Search the document's parts from the database
 
-        let Ok(enc_parts) = self.search_parts(file_ref, customer_code).map_err(tr_fwd!()) else {
+        let Ok((media_type, enc_parts)) = self.search_parts(file_ref, customer_code).map_err(tr_fwd!()) else {
             log_error!("");
             // TODO How to return an empty binary content with a 404 error or something
             return Content(ContentType::PDF, vec![]);
         };
 
+        let o_media : Option<ContentType> = ContentType::parse_flexible(&media_type);
+        let Ok(media) = o_media.ok_or(anyhow!("Wrong media type")).map_err(tr_fwd!()) else {
+            log_error!("");
+            // TODO How to return an empty binary content with a 404 error or something
+            return Content(ContentType::PDF, vec![]);
+        };
+
+        log_info!("😎 Found correct media type=[{}], follower=[{}]", &media, &self.follower);
 
         // Get the customer key
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
@@ -694,37 +723,49 @@ impl FileDelegate {
         // Output : Get a file array of P parts
 
         // Merge all the parts in one big file (on disk??)
-        let _bytes = self.merge_parts(&clear_parts);
+        let Ok(bytes) = self.merge_parts(&clear_parts) else {
+            log_error!("");
+            // TODO How to return an empty binary content with a 404 error or something
+            return Content(ContentType::PDF, vec![]);
+        };
 
+
+        log_info!("😎 Merged all the parts, file size=[{}], follower=[{}]", bytes.len(), &self.follower);
         // Send the final binary as a response
 
 
-        let mut file = File::open("c:/Users/denis/Dropbox/Upload/russian_planet.pdf").unwrap();
-
-        let mut bytes = vec![];
-        let _b = file.read_to_end(&mut bytes);
+        // let mut file = File::open("c:/Users/denis/Dropbox/Upload/russian_planet.pdf").unwrap();
+        //
+        // let mut bytes = vec![];
+        // let _b = file.read_to_end(&mut bytes);
 
         log_info!("🏁 End download api, follower=[{}]", &self.follower);
 
-        Content(ContentType::PDF, bytes)
+
+
+
+        //Content(ContentType::PDF, bytes)
+        Content(media, bytes)
 
     }
 
     // Get all the encrypted parts of the file
-    fn search_parts(&self, file_ref : &str, customer_code : &str) -> anyhow::Result<HashMap<u32, String>> {
+    // ( "application/pdf", {0 : "...", 1: "...", ...} )
+    fn search_parts(&self, file_ref : &str, customer_code : &str) -> anyhow::Result<(String, HashMap<u32, String>)> {
 
         log_info!("Search the parts for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         let sql_str = r"
             SELECT fp.id,
                 fr.file_ref,
+                fr.mime_type,
                 fp.is_encrypted,
                 fp.part_number,
                 fp.part_data
             FROM  fs_{customer_code}.file_reference fr, fs_{customer_code}.file_parts fp
             WHERE
                 fp.file_reference_id = fr.id AND
-                fr.file_ref = :p_file_ref'
+                fr.file_ref = :p_file_ref
             ORDER BY fr.file_ref, fp.part_number";
 
         let sql_query = sql_str.replace("{customer_code}", customer_code);
@@ -746,19 +787,22 @@ impl FileDelegate {
         let mut dataset = query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
 
         let mut parts : HashMap<u32, String> = HashMap::new();
+        let mut media_type = String::new();
         while dataset.next() {
-            let data = Self::read_part(&mut dataset).map_err(err_fwd!("Cannot read part data, follower=[{}]", &self.follower))?;
-            parts.insert(data.0, data.1);
+            let part_info = Self::read_part(&mut dataset).map_err(err_fwd!("Cannot read part data, follower=[{}]", &self.follower))?;
+            media_type = part_info.0; // always the same media type for each row
+            parts.insert(part_info.1, part_info.2);
         }
 
         log_info!("😎 Found parts for the file, file_ref=[{}], n_parts=[{}], follower=[{}]", file_ref, parts.len(), &self.follower);
 
-        Ok(parts)
+        Ok((media_type, parts))
     }
 
 
-    //
-    fn read_part(data_set: &mut SQLDataSet) -> anyhow::Result<(u32, String)> {
+    // ( <mdeia_type>, <part_number>, <data> )
+    fn read_part(data_set: &mut SQLDataSet) -> anyhow::Result<(String, u32, String)> {
+        let media_type = data_set.get_string("mime_type").ok_or(anyhow!("Wrong mime_type col"))?;
         let is_encrypted = data_set.get_bool("is_encrypted").ok_or(anyhow!("Wrong is_encrypted col"))?;
         let part_number = data_set.get_int_32("part_number").ok_or(anyhow!("Wrong part_number col"))?;
         let part_data = data_set.get_string("part_data").ok_or(anyhow!("Wrong part_data col"))?;
@@ -767,12 +811,23 @@ impl FileDelegate {
             return Err(anyhow!("Part is not encrypted, part number=[{}]", part_number));
         }
 
-        Ok((part_number as u32, part_data))
+        Ok((media_type, part_number as u32, part_data))
     }
 
     //
-    fn merge_parts(&self, _parts : &IndexedParts) -> anyhow::Result<Vec<u8>> {
-        Ok(vec![])
+    fn merge_parts(&self, clear_parts_slides: &IndexedParts) -> anyhow::Result<Vec<u8>> {
+        let mut bytes = vec![];
+        //let mut part_index: u32 = 0;
+        for i in 0..clear_parts_slides.len() {
+            log_info!("Join part, part number=[{}], follower=[{}]", i, &self.follower);
+            let index = i as u32;
+            let parts = clear_parts_slides.get(&index).ok_or(anyhow!("Wrong index")).map_err(tr_fwd!())?;
+            for b in parts {
+                bytes.push(*b);
+            }
+       //     part_index +=1;
+        }
+        Ok(bytes)
     }
 
     // N = Number of threads = Number of Cores - 1;
@@ -785,8 +840,7 @@ impl FileDelegate {
         let q = number_of_parts / number_of_threads;
         let mut r = number_of_parts % number_of_threads;
 
-        dbg!(number_of_parts, number_of_threads, q,r);
-
+        // dbg!(number_of_parts, number_of_threads, q,r);
         for _ in 0..number_of_threads {
             let extra = if r > 0  {
                 r -= 1;
@@ -818,7 +872,8 @@ impl FileDelegate {
         let mut offset : u32 = 0;
         for pool_index in 0..n_threads {
 
-            log_info!("Prepare the pool number [{}] of [{}] parts : [{} -> {}], follower=[{}]", pool_index, pool_size[pool_index], offset, offset+pool_size[pool_index]-1, &self.follower );
+            log_info!("Prepare the pool number [{}] of [{}] parts : [{} -> {}], follower=[{}]",
+                pool_index, pool_size[pool_index], offset, offset+pool_size[pool_index]-1, &self.follower );
 
             let mut enc_slides= HashMap::new();
             for index in offset..offset+pool_size[pool_index] {
@@ -873,12 +928,14 @@ impl FileDelegate {
         // }
 
         for (index, enc_content) in enc_slides {
-            log_info!("Decrypt, pool_index=[{}], index=[{}]", pool_index, index);
+            log_info!("Decrypt, pool_index=[{}], part number=[{}], follower=[{}]", pool_index, index, &self.follower);
 
             let clear_content = DkEncrypt::decrypt_vec(&enc_content, &customer_key)
                         .map_err(err_fwd!("Cannot decrypt the part, pool_index=[{}], follower=[{}]", pool_index, &self.follower))?;
 
+            let clear_content_size = clear_content.len();
             clear_slides.insert(index, clear_content);
+            log_info!("😎 Decrypted, pool_index=[{}], part number=[{}], clear part size=[{}], follower=[{}]", pool_index, index, clear_content_size, &self.follower);
         }
         Ok(clear_slides)
     }
@@ -929,13 +986,14 @@ impl FileDelegate {
                              file_id : i64,
                              total_size: usize,
                              total_part: u32,
+                             media_type : &str,
                              customer_code: &str) -> anyhow::Result<()> {
 
         // TODO check where the file_ref is actually created and stored ...
         let mut trans = open_transaction(r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
 
         let sql_query = format!(r"UPDATE fs_{}.file_reference
-                                        SET original_file_size = :p_original_file_size, total_part = :p_total_part
+                                        SET original_file_size = :p_original_file_size, total_part = :p_total_part, mime_type = :p_mime_type
                                         WHERE id = :p_file_id "
                                         , customer_code);
 
@@ -945,6 +1003,7 @@ impl FileDelegate {
         params.insert("p_original_file_size".to_string(), CellValue::from_raw_int(total_size as i64));
         params.insert("p_total_part".to_string(), CellValue::from_raw_int_32(total_part as i32));
         params.insert("p_file_id".to_string(), CellValue::from_raw_int(file_id));
+        params.insert("p_mime_type".to_string(), CellValue::from_raw_string(media_type.to_string()));
 
         let sql_update = SQLChange {
             sql_query,

@@ -520,7 +520,7 @@ impl SQLQueryBlock {
                         let option_cell = CellValue::Bool(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
-                    "varchar" | "bpchar" => {
+                    "varchar" | "bpchar" | "text" => {
                         let db_value: Option<&str> = row.get(name);
                         let option_cell = CellValue::from_opt_str(db_value);
                         my_row.insert(name.to_owned(), option_cell);

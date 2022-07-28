@@ -657,21 +657,18 @@ impl FileDelegate {
     }
 
 
-    ///
     /// ✨ Download the binary content of a file
-    ///
+    /// TODO Return an empty binary content with an http error code in case of failure
+    ///         for example, see : status::Custom(Status::ImATeapot, content::RawJson("{ \"hi\": \"world\" }"))
+    ///         https://rocket.rs/v0.5-rc/guide/responses/
     pub fn download(&mut self, file_ref: &RawStr) -> Content<Vec<u8>> {
 
         log_info!("🚀 Start download api, file_ref = [{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
-            // if cfg!(windows) {
-            //     self.empty_datastream(&mut file_data.open().take(u64::MAX));
-            // }
             log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            // TODO How to return an empty binary content with a 404 error or something
-            return Content(ContentType::PDF, vec![]);
+            return Content(ContentType::HTML, vec![]);
         }
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
@@ -679,8 +676,8 @@ impl FileDelegate {
         // Read the session information
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
             .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            // TODO How to return an empty binary content with a 404 error or something
-            return Content(ContentType::PDF, vec![]);
+
+            return Content(ContentType::HTML, vec![]);
         };
 
         let customer_code = entry_session.customer_code.as_str();
@@ -689,15 +686,13 @@ impl FileDelegate {
 
         let Ok((media_type, enc_parts)) = self.search_parts(file_ref, customer_code).map_err(tr_fwd!()) else {
             log_error!("");
-            // TODO How to return an empty binary content with a 404 error or something
-            return Content(ContentType::PDF, vec![]);
+            return Content(ContentType::HTML, vec![]);
         };
 
         let o_media : Option<ContentType> = ContentType::parse_flexible(&media_type);
         let Ok(media) = o_media.ok_or(anyhow!("Wrong media type")).map_err(tr_fwd!()) else {
             log_error!("");
-            // TODO How to return an empty binary content with a 404 error or something
-            return Content(ContentType::PDF, vec![]);
+            return Content(ContentType::HTML, vec![]);
         };
 
         log_info!("😎 Found correct media type=[{}], follower=[{}]", &media, &self.follower);
@@ -705,19 +700,14 @@ impl FileDelegate {
         // Get the customer key
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
             .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
-            // if cfg!(windows) {
-            //     self.empty_datastream(&mut file_data.open().take(u64::MAX));
-            // }
-            return Content(ContentType::PDF, vec![]);
+            return Content(ContentType::HTML, vec![]);
         };
-
 
         // Parallel decrypt of slides of parts [Parts, Q+(1*)]
 
         let Ok(clear_parts) = self.parallel_decrypt(enc_parts, &customer_key) else {
             log_error!("");
-            // TODO How to return an empty binary content with a 404 error or something
-            return Content(ContentType::PDF, vec![]);
+            return Content(ContentType::HTML, vec![]);
         };
 
         // Output : Get a file array of P parts
@@ -725,29 +715,16 @@ impl FileDelegate {
         // Merge all the parts in one big file (on disk??)
         let Ok(bytes) = self.merge_parts(&clear_parts) else {
             log_error!("");
-            // TODO How to return an empty binary content with a 404 error or something
-            return Content(ContentType::PDF, vec![]);
+            return Content(ContentType::HTML, vec![]);
         };
 
-
         log_info!("😎 Merged all the parts, file size=[{}], follower=[{}]", bytes.len(), &self.follower);
-        // Send the final binary as a response
-
-
-        // let mut file = File::open("c:/Users/denis/Dropbox/Upload/russian_planet.pdf").unwrap();
-        //
-        // let mut bytes = vec![];
-        // let _b = file.read_to_end(&mut bytes);
-
         log_info!("🏁 End download api, follower=[{}]", &self.follower);
 
-
-
-
-        //Content(ContentType::PDF, bytes)
         Content(media, bytes)
 
     }
+
 
     // Get all the encrypted parts of the file
     // ( "application/pdf", {0 : "...", 1: "...", ...} )
@@ -770,7 +747,6 @@ impl FileDelegate {
 
         let sql_query = sql_str.replace("{customer_code}", customer_code);
 
-        //let r_data_set : anyhow::Result<SQLDataSet> = (|| {
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx)?;
 

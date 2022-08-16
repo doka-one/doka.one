@@ -455,16 +455,13 @@ impl FileDelegate {
 
         // Read the session information
 
-
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
                                     .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
             return Json(GetFileInfoReply::internal_technical_error_reply());
         };
 
         let customer_code = entry_session.customer_code.as_str();
-
         let mut block_status = vec![];
-
 
         let sql_query = format!(r"SELECT fp.id, fr.file_ref, fp.part_number,
             fp.is_encrypted,
@@ -658,7 +655,7 @@ impl FileDelegate {
 
 
     /// ✨ Download the binary content of a file
-    /// TODO Return an empty binary content with an http error code in case of failure
+    /// TODO REF_TAG : HTTP_ERROR_CODE Return an empty binary content with an http error code in case of failure
     ///         for example, see : status::Custom(Status::ImATeapot, content::RawJson("{ \"hi\": \"world\" }"))
     ///         https://rocket.rs/v0.5-rc/guide/responses/
     pub fn download(&mut self, file_ref: &RawStr) -> Content<Vec<u8>> {
@@ -676,11 +673,11 @@ impl FileDelegate {
         // Read the session information
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
             .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-
             return Content(ContentType::HTML, vec![]);
         };
 
         let customer_code = entry_session.customer_code.as_str();
+        log_info!("Found session and customer code=[{}], follower=[{}]", &customer_code, &self.follower);
 
         // Search the document's parts from the database
 
@@ -711,6 +708,8 @@ impl FileDelegate {
         };
 
         // Output : Get a file array of P parts
+
+        log_info!("😎 Decrypt done, number of parts=[{}], follower=[{}]", &clear_parts.len(), &self.follower);
 
         // Merge all the parts in one big file (on disk??)
         let Ok(bytes) = self.merge_parts(&clear_parts) else {
@@ -809,7 +808,7 @@ impl FileDelegate {
     // N = Number of threads = Number of Cores - 1;
     // 5 cores , 20 parts => 4 decrypt by core
     // 5 cores, 22 parts => 5 5 4 4 4
-    // 22 eucl 5 = 4,2 => 2 (number of extra decryts)
+    // 22 eucl 5 = 4,2 => 2 (number of extra decrypts)
     // P eucl N = [Q,R]  Q is the number of decrypts by thread and R is the number of thread with 1 extra decrypt.
     fn compute_pool_size(number_of_threads : u32, number_of_parts: u32) -> Vec<u32> {
         let mut pool_size = vec![];
@@ -833,9 +832,6 @@ impl FileDelegate {
 
     //
     fn parallel_decrypt(&self, enc_parts: HashMap<u32, String>, customer_key: &str) -> anyhow::Result<IndexedParts> {
-        // let my_file_ref = file_ref.to_owned();
-        // let my_customer_code = customer_code.to_owned();
-
         let mut thread_pool = vec![];
         let n_threads = max( 1, num_cpus::get() - 1); // Number of threads is number of cores - 1
 
@@ -848,28 +844,27 @@ impl FileDelegate {
         let mut offset : u32 = 0;
         for pool_index in 0..n_threads {
 
-            log_info!("Prepare the pool number [{}] of [{}] parts : [{} -> {}], follower=[{}]",
+            if pool_size[pool_index] != 0 {
+                log_info!("Prepare the pool number [{}] of size [{}] (parts) : [{} -> {}], follower=[{}]",
                 pool_index, pool_size[pool_index], offset, offset+pool_size[pool_index]-1, &self.follower );
 
-            let mut enc_slides= HashMap::new();
-            for index in offset..offset+pool_size[pool_index] {
-                let v = enc_parts.get(&index).ok_or(anyhow!("Wrong index")).map_err(tr_fwd!())?.from_base64().map_err(tr_fwd!())?;
-                enc_slides.insert(index, v);
+                let mut enc_slides = HashMap::new();
+                for index in offset..offset + pool_size[pool_index] {
+                    let v = enc_parts.get(&index).ok_or(anyhow!("Wrong index")).map_err(tr_fwd!())?.from_base64().map_err(tr_fwd!())?;
+                    enc_slides.insert(index, v);
+                }
+
+                offset += pool_size[pool_index];
+
+                let s_customer_key = customer_key.to_owned();
+                let local_self = self.clone();
+                let th = thread::spawn(move || {
+                    local_self.decrypt_slide_of_parts(pool_index as u32, enc_slides, s_customer_key)
+                });
+
+                thread_pool.push(th);
             }
-
-            offset += pool_size[pool_index];
-
-            let s_customer_key = customer_key.to_owned();
-            let local_self = self.clone(); // TODO find a better way
-            let th = thread::spawn(move || {
-                local_self.decrypt_slide_of_parts(pool_index as u32, enc_slides, s_customer_key)
-            });
-
-            thread_pool.push(th);
-            // sleep(Duration::from_secs(4));
         }
-
-        // sleep(Duration::from_secs(20));
 
         let mut clear_slide_parts : IndexedParts = HashMap::new();
 

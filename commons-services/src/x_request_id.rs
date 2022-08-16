@@ -72,7 +72,7 @@ pub struct Follower {
 impl Display for Follower {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let tt = match &self.token_type {
-            TokenType::Token(tok) => {
+            TokenType::Sid(tok) => {
                 let limit = min(tok.len()-2, 22);
                 format!("T:{}...", &tok[..limit])
             }

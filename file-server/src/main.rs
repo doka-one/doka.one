@@ -2,15 +2,8 @@
 #![feature(let_else)]
 
 mod file_delegate;
-
-
-
-
 use std::path::Path;
 use std::process::exit;
-
-
-
 use rocket::config::Environment;
 use rocket_contrib::templates::Template;
 use rocket::{Config, Data, routes};
@@ -20,23 +13,15 @@ use dkconfig::conf_reader::read_config;
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use log::*;
 use commons_error::*;
-
 use rocket::{post,get};
-
 use rocket::http::{ RawStr};
 use rocket::response::{Content};
 use rocket_contrib::json::Json;
 
-
-
-
 use commons_services::property_name::{ LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,};
-
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-
 use dkdto::{GetFileInfoReply, GetFileInfoShortReply, UploadReply};
-
 
 use crate::file_delegate::FileDelegate;
 

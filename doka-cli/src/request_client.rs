@@ -1,9 +1,14 @@
+use std::any::Any;
 use std::fmt::Display;
+use std::io::{Cursor};
 use std::time::Duration;
+use anyhow::anyhow;
 use dkdto::{AddItemReply, AddItemRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet, LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, SessionReply, TikaMeta, TikaParsing, UploadReply};
 use log::{error, warn};
+use rocket::http::ContentType;
 
 use rocket::http::uri::Uri;
+use rocket::response::Content;
 use serde::{de, Serialize};
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use crate::request_client::TokenType::{Sid, Token};
@@ -82,6 +87,44 @@ impl WebServer {
         let mut count = 0;
         loop {
             r_reply = self.get_data(url, token);
+            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+                break;
+            }
+            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+            count += 1;
+        }
+        let reply = r_reply?;
+        Ok(reply)
+    }
+
+
+    /// Returns the media type and the binary content
+    fn get_binary_data( &self, url : &str, token : &TokenType ) -> anyhow::Result<(String,bytes::Bytes)> {
+        let request_builder = reqwest::blocking::Client::new().get(url).timeout(TIMEOUT);
+
+        let request_builder_2 = match token {
+            Token(token_value) => {
+                request_builder.header("token", token_value.clone())
+            }
+            Sid(sid_value) => {
+                request_builder.header("sid", sid_value.clone())
+            }
+            TokenType::None => {
+                request_builder
+            }
+        };
+
+        let response = request_builder_2.send()?; // .bytes().unwrap();
+        // response.status() // TODO REF_TAG : HTTP_ERROR_CODE we cannot do better until we correctly send the Http error code
+        let mime_type = response.headers().get("content-type").ok_or(anyhow!("No content-type"))?.to_str()?;
+        Ok((mime_type.to_string(), response.bytes()?))
+    }
+
+    fn get_binary_data_retry( &self, url : &str, token : &TokenType ) ->  anyhow::Result<(String,bytes::Bytes)> {
+       let mut r_reply;
+        let mut count = 0;
+        loop {
+            r_reply = self.get_binary_data(url, token);
             if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
                 break;
             }
@@ -755,6 +798,27 @@ impl FileServerClient {
         };
         reply
     }
+
+
+    pub fn download(&self, file_reference: &str, sid: &str ) -> ( String, bytes::Bytes ) {
+        // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
+        let url = self.server.build_url_with_refcode("download", file_reference);
+
+        let r_reply : anyhow::Result<(String, bytes::Bytes)> = self.server.get_binary_data_retry(&url, &Sid(sid.to_string()));
+
+        let reply = match r_reply {
+            Ok(x) => {
+                x
+            }
+            Err(e) => {
+                println!("Technical error, [{}]", e);
+                return ("".to_string(), bytes::Bytes::new());
+            }
+        };
+
+        reply
+    }
+
 }
 
 #[cfg(test)]

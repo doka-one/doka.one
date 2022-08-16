@@ -100,6 +100,6 @@ fn file_download(params: &Params) -> anyhow::Result<()> {
     } else {
         println!("Document not stored because it's empty");
     }
-    
+
     Ok(())
 }

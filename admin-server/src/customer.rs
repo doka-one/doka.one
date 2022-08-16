@@ -132,7 +132,7 @@ impl CustomerDelegate {
             return Json(CreateCustomerReply::invalid_token_error_reply());
         }
 
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         log_info!("😎 Security token is valid, follower=[{}]", &self.follower);
         let internal_database_error_reply = Json(CreateCustomerReply::internal_database_error_reply());
@@ -404,7 +404,7 @@ impl CustomerDelegate {
         }
 
         // Change the token type to "Token"
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         let customer_code = match customer_code.percent_decode()
             .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {
@@ -654,7 +654,7 @@ impl CustomerDelegate {
             return  Json(JsonErrorSet::from(INVALID_TOKEN));
         }
 
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         let customer_code = match customer_code.percent_decode()
             .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {

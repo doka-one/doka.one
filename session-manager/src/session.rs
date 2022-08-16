@@ -47,7 +47,7 @@ impl SessionDelegate {
             return Json(OpenSessionReply::invalid_token_error_reply());
         }
 
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         let internal_database_error_reply = Json(OpenSessionReply::internal_database_error_reply());
 
@@ -113,7 +113,7 @@ impl SessionDelegate {
             log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return Json(SessionReply::invalid_token_error_reply());
         }
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         let Ok(session_id) =  session_id.percent_decode().map_err(err_fwd!("💣 Invalid input parameter, [{}]", session_id) ) else {
             return Json(SessionReply::from_error(INVALID_REQUEST) );

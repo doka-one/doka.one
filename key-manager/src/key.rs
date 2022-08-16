@@ -15,7 +15,7 @@ use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, EntryReply, JsonErrorS
 use dkdto::error_codes::{CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
-use doka_cli::request_client::TokenType::Sid;
+use doka_cli::request_client::TokenType::Token;
 
 
 pub(crate) struct KeyDelegate {
@@ -46,7 +46,7 @@ impl KeyDelegate {
             return Json(AddKeyReply::invalid_token_error_reply())
         }
 
-        self.follower.token_type = Sid(self.security_token.0.clone());
+        self.follower.token_type = Token(self.security_token.0.clone());
 
         let internal_database_error_reply = Json(AddKeyReply::internal_database_error_reply());
 
@@ -171,7 +171,7 @@ impl KeyDelegate {
             return Json(CustomerKeyReply::invalid_token_error_reply())
         }
 
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         let Ok(customer_code) = customer_code.percent_decode()
                         .map_err(err_fwd!("💣 Invalid input parameter, customer_code=[{}], follower=[{}]", customer_code, &self.follower) ) else {
@@ -206,7 +206,7 @@ impl KeyDelegate {
             return Json(CustomerKeyReply::invalid_token_error_reply())
         }
 
-        self.follower.token_type = TokenType::Sid(self.security_token.0.clone());
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         // List of customer keys to return.
         let customer_key_reply = self.read_entries(None);

@@ -5,7 +5,8 @@ use std::time::Duration;
 use anyhow::anyhow;
 use dkdto::{AddItemReply, AddItemRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet, LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, SessionReply, TikaMeta, TikaParsing, UploadReply};
 use log::{error, warn};
-use rocket::http::ContentType;
+use reqwest::StatusCode;
+use rocket::http::{ContentType, Status};
 
 use rocket::http::uri::Uri;
 use rocket::response::Content;
@@ -98,8 +99,8 @@ impl WebServer {
     }
 
 
-    /// Returns the media type and the binary content
-    fn get_binary_data( &self, url : &str, token : &TokenType ) -> anyhow::Result<(String,bytes::Bytes)> {
+    /// Returns the media type and the binary content and the status code
+    fn get_binary_data( &self, url : &str, token : &TokenType ) -> anyhow::Result<(String,bytes::Bytes, StatusCode)> {
         let request_builder = reqwest::blocking::Client::new().get(url).timeout(TIMEOUT);
 
         let request_builder_2 = match token {
@@ -115,12 +116,16 @@ impl WebServer {
         };
 
         let response = request_builder_2.send()?; // .bytes().unwrap();
-        // response.status() // TODO REF_TAG : HTTP_ERROR_CODE we cannot do better until we correctly send the Http error code
+        // TODO REF_TAG : HTTP_ERROR_CODE we cannot do better until we correctly send the Http error code
+        //          For now, the status code returned by the service is always 200
+        //          When fixed, the status code will be propagated to the upper routine and the http potential error
+        //          will be handled there.
+        let status_code = response.status();
         let mime_type = response.headers().get("content-type").ok_or(anyhow!("No content-type"))?.to_str()?;
-        Ok((mime_type.to_string(), response.bytes()?))
+        Ok((mime_type.to_string(), response.bytes()?, status_code))
     }
 
-    fn get_binary_data_retry( &self, url : &str, token : &TokenType ) ->  anyhow::Result<(String,bytes::Bytes)> {
+    fn get_binary_data_retry( &self, url : &str, token : &TokenType ) ->  anyhow::Result<(String,bytes::Bytes, StatusCode)> {
        let mut r_reply;
         let mut count = 0;
         loop {
@@ -547,6 +552,7 @@ impl AdminServerClient {
                 log_error!("Technical error, [{}]", e);
                 return LoginReply {
                     session_id : "".to_string(),
+                    customer_code: "".to_string(),
                     status : JsonErrorSet::from(HTTP_CLIENT_ERROR),
                 };
             },
@@ -800,11 +806,11 @@ impl FileServerClient {
     }
 
 
-    pub fn download(&self, file_reference: &str, sid: &str ) -> ( String, bytes::Bytes ) {
+    pub fn download(&self, file_reference: &str, sid: &str ) -> ( String, bytes::Bytes, StatusCode ) {
         // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
         let url = self.server.build_url_with_refcode("download", file_reference);
 
-        let r_reply : anyhow::Result<(String, bytes::Bytes)> = self.server.get_binary_data_retry(&url, &Sid(sid.to_string()));
+        let r_reply : anyhow::Result<(String, bytes::Bytes, StatusCode)> = self.server.get_binary_data_retry(&url, &Sid(sid.to_string()));
 
         let reply = match r_reply {
             Ok(x) => {
@@ -812,7 +818,8 @@ impl FileServerClient {
             }
             Err(e) => {
                 println!("Technical error, [{}]", e);
-                return ("".to_string(), bytes::Bytes::new());
+                // TODO REF_TAG : HTTP_ERROR_CODE
+                return ("".to_string(), bytes::Bytes::new(), StatusCode::NO_CONTENT);
             }
         };
 

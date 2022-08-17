@@ -205,6 +205,7 @@ pub struct LoginRequest {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct LoginReply {
     pub session_id: String,
+    pub customer_code : String,
     pub status : JsonErrorSet,
 }
 
@@ -213,6 +214,7 @@ impl ErrorReply for LoginReply {
     fn from_error(error_set: ErrorSet) -> Self::T {
         LoginReply {
             session_id: "".to_string(),
+            customer_code: "".to_string(),
             status: JsonErrorSet::from(error_set),
         }
     }

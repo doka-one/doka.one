@@ -87,6 +87,8 @@ fn file_download(params: &Params) -> anyhow::Result<()> {
     let sid = read_session_id()?;
 
     let reply = client.download(&file_reference, &sid);
+    // TODO REF_TAG : HTTP_ERROR_CODE   For now the StatusCode is always 200
+    println!("Status Code: {}", reply.2);
 
     // Store the result in a file
     let size = reply.1.len();

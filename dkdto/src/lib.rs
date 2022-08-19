@@ -263,6 +263,7 @@ impl EnumTagValue {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemRequest {
     pub name : String,
+    pub file_ref : Option<String>, // file reference to be associated to the item
     pub properties: Option<Vec<AddTagValue>>,
 }
 
@@ -334,6 +335,7 @@ impl ErrorReply for GetItemReply {
 pub struct ItemElement {
     pub item_id : i64,
     pub name : String,
+    pub file_ref: Option<String>,
     pub created : String,
     pub last_modified : Option<String>,
     pub properties: Option<Vec<TagValueElement>>,

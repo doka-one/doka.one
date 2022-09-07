@@ -26,7 +26,6 @@ use commons_services::x_request_id::XRequestID;
 use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply,};
 use crate::key::{KeyDelegate};
 
-
 ///
 /// ✨ Read the key for a specific customer code [customer_code]
 /// ** NORM

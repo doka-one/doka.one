@@ -140,7 +140,7 @@ fn create_item(params: &Params) -> anyhow::Result<()> {
                     }
                 } else {
                     let tag_value = &tag_value[1..];
-                    // TODO guess the tag type from it's value format, ex : 2022-01-02 is date, and so on
+                    // TODO guess the tag type from its value format, ex : 2022-01-02 is date, and so on
                     AddTagValue {
                         tag_id: None,
                         tag_name: Some(tag_name.to_string()),

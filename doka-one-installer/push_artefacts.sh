@@ -17,7 +17,6 @@ rm $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip
 # zip -r key-manager.zip key-manager.exe
 cd $DOKA_SERVICE_SOURCE_FOLDER
 zip $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip  ./key-manager.exe
-# gzip -c $DOKA_SERVICE_SOURCE_FOLDER/key-manager.exe > $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip $TARGET_FOLDER
 echo "Done"
 
@@ -25,8 +24,44 @@ echo "Upload session-manager"
 rm $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
 zip $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip  ./session-manager.exe
-# gzip -c $DOKA_SERVICE_SOURCE_FOLDER/session-manager.exe > $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip $TARGET_FOLDER
+echo "Done"
+
+echo "Upload admin-server"
+rm $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip
+cd $DOKA_SERVICE_SOURCE_FOLDER
+zip $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip  ./admin-server.exe
+sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip $TARGET_FOLDER
+echo "Done"
+
+echo "Upload document-server"
+rm $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip
+cd $DOKA_SERVICE_SOURCE_FOLDER
+zip $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip  ./document-server.exe
+sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip $TARGET_FOLDER
+echo "Done"
+
+
+echo "Upload file-server"
+rm $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip
+cd $DOKA_SERVICE_SOURCE_FOLDER
+zip $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip  ./file-server.exe
+sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip $TARGET_FOLDER
+echo "Done"
+
+echo "Upload doka-cli"
+rm $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip
+cd $DOKA_SERVICE_SOURCE_FOLDER
+zip $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip  ./doka-cli.exe
+sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip $TARGET_FOLDER
+echo "Done"
+
+
+echo "Upload doka-one-installer"
+rm $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip
+cd $DOKA_SERVICE_SOURCE_FOLDER
+zip $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip  ./doka-one-installer.exe
+sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip $TARGET_FOLDER
 echo "Done"
 
 # ----

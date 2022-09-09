@@ -89,7 +89,21 @@ pub fn err_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn(T)
     Box::new(lambda)
 }
 
+#[macro_export]
+macro_rules! eprint_fwd {
+    ($($arg:tt)*) => {
+        eprint_closure_fwd(format!("{} [{}:{}]", format!($($arg)*).as_str(), file!(), line!()).as_str())
+    };
+}
 
+pub fn eprint_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn(T) -> T + 'a>
+{
+    let lambda = move |e : T | {
+        eprintln!("[{}] - {}", e, msg);
+        e
+    };
+    Box::new(lambda)
+}
 
 ///
 /// cargo test -- --nocapture --test-threads=1

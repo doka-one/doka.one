@@ -1,11 +1,11 @@
-use std::fs::File;
-use std::io::{BufReader, Read};
+
+
 use anyhow::anyhow;
-use serde_json::ser::State::Empty;
+
 use dkconfig::properties::get_prop_value;
-use dkdto::{AddItemRequest, AddTagValue, EnumTagValue, GetItemReply, TagValueElement};
+use dkdto::{AddItemRequest, AddTagValue, EnumTagValue, GetItemReply};
 use doka_cli::request_client::DocumentServerClient;
-use crate::{get_target_file, Params, read_session_id};
+use crate::{Params, read_session_id};
 
 ///
 pub (crate) fn item_command(params: &Params) -> anyhow::Result<()> {
@@ -52,7 +52,7 @@ fn get_item(params: &Params) -> anyhow::Result<()> {
     let reply = client.get_item(item_id, &sid);
     if reply.status.error_code == 0 {
         println!("😎 Item successfully found, count : {} ", reply.items.len());
-        show_items(&reply);
+        let _ = show_items(&reply);
         Ok(())
     } else {
         Err(anyhow!("{}", reply.status.err_message))
@@ -60,7 +60,7 @@ fn get_item(params: &Params) -> anyhow::Result<()> {
 }
 
 ///
-fn search_item(params: &Params) -> anyhow::Result<()> {
+fn search_item(_params: &Params) -> anyhow::Result<()> {
     println!("👶 Getting the item...");
     let server_host = get_prop_value("server.host")?;
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
@@ -70,7 +70,7 @@ fn search_item(params: &Params) -> anyhow::Result<()> {
     let reply = client.search_item(&sid);
     if reply.status.error_code == 0 {
         println!("😎 Item successfully found, count : {} ", reply.items.len());
-        show_items(&reply);
+        let _r = show_items(&reply); // TODO handle error and use eprint_fwd!
         Ok(())
     } else {
         Err(anyhow!("{}", reply.status.err_message))

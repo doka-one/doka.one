@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::{io, thread};
 use std::cmp::max;
-use std::fs::File;
+
 use std::thread::{JoinHandle};
 use anyhow::anyhow;
 use rocket::Data;
@@ -222,10 +222,6 @@ impl FileDelegate {
                 }
             };
         //});
-
-        // let s = r.join().unwrap();
-
-        ///dbg!(media_type);
 
         log_info!("Start updating the file reference, follower=[{}]", &self.follower);
 

@@ -1,15 +1,15 @@
-use std::any::Any;
+
 use std::fmt::Display;
-use std::io::{Cursor};
+
 use std::time::Duration;
 use anyhow::anyhow;
 use dkdto::{AddItemReply, AddItemRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet, LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, SessionReply, TikaMeta, TikaParsing, UploadReply};
 use log::{error, warn};
 use reqwest::StatusCode;
-use rocket::http::{ContentType, Status};
+
 
 use rocket::http::uri::Uri;
-use rocket::response::Content;
+
 use serde::{de, Serialize};
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use crate::request_client::TokenType::{Sid, Token};

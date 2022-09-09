@@ -12,7 +12,7 @@ use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, EntryReply, JsonErrorSet};
-use dkdto::error_codes::{CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SUCCESS};
+use dkdto::error_codes::{CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INVALID_REQUEST, SUCCESS};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
 use doka_cli::request_client::TokenType::Token;

@@ -3,22 +3,13 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 use commons_error::*;
-use crate::{Config, DEF_FILE_TEMPLATE};
+use crate::{Config, DEF_FILE_TEMPLATE, step_println};
 
-///
-/// Create a standalone windows service.
-/// In the serman folder, we must have a definition file <service_id>.xml
-///
-fn create_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
-    //let service_id = "key_dummy_1";
-
+fn uninstall_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     // serman install key_manager.xml --overwrite
     let serman_program = format!( "{}/bin/serman/serman.exe", &config.installation_path);
 
-    // TODO check if the definition file exists
-    let service_definition_file = format!("{}/bin/serman/{}.xml", &config.installation_path, service_id);
-
-    println!("{service_id}, {serman_program}, {service_definition_file}");
+    // println!("{service_id}, {serman_program}, {service_definition_file}");
 
     // uninstall the service
 
@@ -38,6 +29,23 @@ fn create_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
 
     sleep(Duration::from_secs(4));
 
+    Ok(())
+}
+
+///
+/// Create a standalone windows service.
+/// In the serman folder, we must have a definition file <service_id>.xml
+///
+fn create_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
+
+    // serman install key_manager.xml --overwrite
+    let serman_program = format!( "{}/bin/serman/serman.exe", &config.installation_path);
+
+    // TODO check if the definition file exists
+    let service_definition_file = format!("{}/bin/serman/{}.xml", &config.installation_path, service_id);
+
+    //println!("{service_id}, {serman_program}, {service_definition_file}");
+
     // install the service
 
     let _the_output = Command::new(serman_program.as_str()).args(&["install", &service_definition_file, "--overwrite"]).output()
@@ -48,8 +56,22 @@ fn create_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+
+pub(crate) fn uninstall_windows_services(config: &Config) -> anyhow::Result<()> {
+    let _ = step_println("Uninstall windows services ...");
+
+    uninstall_service(config, "key-manager")?;
+    uninstall_service(config,  "session-manager")?;
+    // uninstall_service(config,  "admin-server")?;
+    // uninstall_service(config,  "document-server")?;
+    // uninstall_service(config,  "file-server")?;
+    // uninstall_service(config,  "tika-server")?;
+
+    Ok(())
+}
+
 pub(crate) fn build_windows_services(config: &Config) -> anyhow::Result<()> {
-    println!("Creating windows services ...");
+    let _ = step_println("Creating windows services ...");
 
     create_service(config, "key-manager")?;
     // create_service(config,  "session-manager")?;
@@ -72,7 +94,7 @@ fn write_service_definition_file(config: &Config, service_id: &str, service_name
     let executable = format!("{}/bin/{service_id}/{service_id}.exe", &config.installation_path);
     let my_env = format!("{}/doka-configs/{}", &config.installation_path, &config.instance_name);
 
-    dbg!(&executable, &my_env);
+    // dbg!(&executable, &my_env);
 
     let mut definition = String::from(DEF_FILE_TEMPLATE);
     // TODO : we should XML escape the replacement values, but for now, we know what we are doing.
@@ -81,7 +103,7 @@ fn write_service_definition_file(config: &Config, service_id: &str, service_name
         .replace("{EXECUTABLE}", &executable)
         .replace("{MY_ENV}", &my_env);
 
-    dbg!(&definition);
+    // dbg!(&definition);
 
     let definiton_file = Path::new(config.installation_path.as_str())
         .join("bin/serman/")

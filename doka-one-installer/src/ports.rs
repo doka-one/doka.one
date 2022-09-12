@@ -1,5 +1,7 @@
 use anyhow::anyhow;
 use portpicker::{is_free, Port};
+use termcolor::Color;
+use crate::{color_println, step_println};
 
 #[derive(Debug)]
 pub(crate) struct Ports {
@@ -43,7 +45,7 @@ pub(crate) fn find_service_port() -> anyhow::Result<Ports> {
     const PORT_FILE_SERVER : u16 = 30_080;
     const PORT_TIKA_SERVER : u16 = 40_010;
 
-    println!("Searching ports for services ...");
+    let _ = step_println("Searching ports for services ...")?;
 
     let port_key_manager = test_ports(PORT_KEY_MANAGER)?;
     println!("Found port {port_key_manager}");

@@ -5,20 +5,19 @@ mod artefacts;
 mod config;
 mod services;
 mod ports;
+mod color_text;
 
 use std::{fs};
 use std::path::{Path};
 use std::process::{exit};
-
-
-
-
+use termcolor::Color;
 
 use commons_error::*;
 use crate::artefacts::download_artefacts;
+use crate::color_text::{color_println, end_println, step_println};
 use crate::config::{Config};
 use crate::ports::{find_service_port, Ports};
-use crate::services::{build_windows_services, write_all_service_definition};
+use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
 use crate::templates::{DEF_FILE_TEMPLATE, KM_APP_PROPERTIES_TEMPLATE};
 
 
@@ -85,7 +84,7 @@ fn create_std_doka_service_folders(config: &Config, service_id: &str) -> anyhow:
 }
 
 fn verification(config: &Config) -> anyhow::Result<()> {
-    println!("Verification ...");
+    let _ = step_println("Verification...")?;
 
     let _ = fs::create_dir_all(&config.installation_path).map_err(eprint_fwd!("Error on installation path"))?;
 
@@ -106,11 +105,9 @@ fn verification(config: &Config) -> anyhow::Result<()> {
 }
 
 
-
-
-
-
 fn generate_key_manager_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
+
+    let _ = step_println("Generate Doka Services property files");
 
     println!("Generate application.properties for key-manager");
 
@@ -137,7 +134,7 @@ fn generate_key_manager_app_properties(config: &Config, ports: &Ports) -> anyhow
         .replace("{DB_PASSWORD}", db_password)
         .replace("{KM_LOG4RS}", &km_log4rs);
 
-    dbg!(&properties_file_content);
+    // dbg!(&properties_file_content);
 
     let properties_file = Path::new(config.installation_path.as_str())
         .join("doka-configs")
@@ -154,10 +151,8 @@ fn generate_key_manager_app_properties(config: &Config, ports: &Ports) -> anyhow
     Ok(())
 }
 
-
-
 fn main() {
-    println!("Installing Doka One...");
+    let _ = step_println("Installing Doka One...");
 
     let config = match  read_basic_install_info() {
         Ok(config) => {
@@ -173,6 +168,10 @@ fn main() {
     let Ok(_) = verification(&config)
         .map_err(eprint_fwd!("Verification failed")) else {
         exit(20);
+    };
+
+    let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
+        exit(25);
     };
 
     if let Err(e) = download_artefacts(&config) {
@@ -202,4 +201,5 @@ fn main() {
     // TODO call the http://localhost:30040/key-manager/health  request to ensure all is working.
 
 
+    let _ = end_println("Doka installed with success");
 }

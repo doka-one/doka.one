@@ -1,7 +1,9 @@
 use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
+use termcolor::Color;
 use commons_error::*;
+use crate::{color_println, step_println};
 use crate::config::Config;
 
 const TIMEOUT : Duration = Duration::from_secs(60 * 60); // 60 min
@@ -49,7 +51,7 @@ fn unzip(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
     // Already exists
     let target_dir  = Path::new(&config.installation_path ).join("bin").join(artefact_name);
 
-    dbg!(&target_dir);
+    // dbg!(&target_dir);
 
     // The third parameter allows you to strip away toplevel directories.
     // If `archive` contained a single directory, its contents would be extracted instead.
@@ -63,7 +65,8 @@ fn unzip(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
 
 
 pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
-    println!("Downloading artefacts ...");
+
+    let _ = step_println("Downloading artefacts ...")?;
 
     // Download the doka services and the cli
     download_file(&config,  "key-manager")?;

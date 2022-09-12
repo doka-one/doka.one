@@ -14,6 +14,7 @@ members = [
     "file-server",
     "document-server",
     "doka-api-tests",
+    "doka-one-installer",
 ]
 
 [profile.release]

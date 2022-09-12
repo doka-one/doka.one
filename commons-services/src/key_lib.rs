@@ -6,11 +6,14 @@ use doka_cli::request_client::{KeyManagerClient};
 use commons_error::*;
 use crate::COMMON_EDIBLE_KEY_PROPERTY;
 use crate::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
+use crate::x_request_id::Follower;
 
 ///
 /// Find the customer key if any
 ///
-pub fn fetch_customer_key(customer_code : &str, sid : &str) -> anyhow::Result<String> {
+pub fn fetch_customer_key(customer_code : &str, follower : &Follower) -> anyhow::Result<String> {
+
+    let sid = &follower.token_type.value();
 
     let key_not_found = anyhow::anyhow!("Cannot find the customer key");
 
@@ -21,7 +24,7 @@ pub fn fetch_customer_key(customer_code : &str, sid : &str) -> anyhow::Result<St
     let response = kmc.get_key(customer_code, &sid);
 
     if response.status.error_code != 0 {
-        log_error!("Key Manager failed with status [{:?}]", response.status);
+        log_error!("Key Manager failed with status [{:?}], follower=[{}]", response.status, &follower);
         return Err(key_not_found);
     }
 

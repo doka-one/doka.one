@@ -50,6 +50,8 @@ fn session_login(params: &Params) -> anyhow::Result<()> {
     let reply = client.login(&login_request);
     if reply.status.error_code == 0 {
 
+        let customer_code = reply.customer_code.clone();
+        println!("Connected as customer {}", &customer_code);
         write_session_id(&reply.session_id)?;
 
         println!("😎 Session successfully opened, session id : {}... ", &reply.session_id[0..7]);

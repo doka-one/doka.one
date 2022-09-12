@@ -118,6 +118,7 @@ impl LoginDelegate {
             return Json(LoginReply::internal_technical_error_reply());
         }
 
+        let customer_code = open_session_request.customer_code.clone();
         let session_id = open_session_request.session_id.clone();
 
         log_info!("😎 Login with success, follower=[{}]", &self.follower);
@@ -126,6 +127,7 @@ impl LoginDelegate {
 
         Json(LoginReply{
             session_id,
+            customer_code,
             status: JsonErrorSet::from(SUCCESS),
         })
     }

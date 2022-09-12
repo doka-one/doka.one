@@ -14,6 +14,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for SecurityToken {
     type Error = ();
     fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
         let map = my_request.headers();
+        // It's fine, if the token is not present, we consider it as an empty string
         let token_id = map.get_one("token").unwrap_or("");
         request::Outcome::Success(SecurityToken(token_id.to_string()))
     }

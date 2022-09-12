@@ -41,7 +41,7 @@ impl TagDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
-            log_error!("Invalid session token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(GetTagReply::invalid_token_error_reply());
         }
 
@@ -188,6 +188,7 @@ impl TagDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(
                 JsonErrorSet::from(INVALID_TOKEN),
             );
@@ -293,10 +294,8 @@ impl TagDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
-            return Json(AddTagReply {
-                tag_id: 0,
-                status: JsonErrorSet::from(INVALID_TOKEN),
-            });
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+            return Json(AddTagReply::invalid_token_error_reply());
         }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 

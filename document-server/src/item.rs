@@ -46,7 +46,7 @@ impl ItemDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
-            log_error!("Invalid session token {:?}", &self.session_token);
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(GetItemReply::invalid_token_error_reply())
         }
 
@@ -103,7 +103,7 @@ impl ItemDelegate {
         let mut params = HashMap::new();
         params.insert("p_item_id".to_owned(), p_item_id);
 
-        let sql_query = format!( r"SELECT id, name, created_gmt, last_modified_gmt
+        let sql_query = format!( r"SELECT id, name, file_ref, created_gmt, last_modified_gmt
                     FROM cs_{}.item
                     WHERE ( id = :p_item_id OR  :p_item_id IS NULL )
                     ORDER BY name ", customer_code );
@@ -121,6 +121,7 @@ impl ItemDelegate {
         while sql_result.next() {
             let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wring id"))?;
             let name : String = sql_result.get_string("name").unwrap_or("".to_owned());
+            let o_file_ref : Option<String> = sql_result.get_string("file_ref"); // .unwrap_or("".to_owned());
             let created_gmt  = sql_result.get_timestamp_as_datetime("created_gmt")
                 .ok_or(anyhow::anyhow!("Wrong created gmt"))
                 .map_err(tr_fwd!())?;
@@ -134,6 +135,7 @@ impl ItemDelegate {
             let item = ItemElement {
                 item_id: id,
                 name,
+                file_ref: o_file_ref,
                 created : date_time_to_iso(&created_gmt),
                 last_modified : last_modified_gmt,
                 properties: Some(props),
@@ -295,6 +297,7 @@ impl ItemDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(AddItemReply::invalid_token_error_reply());
         }
 
@@ -317,7 +320,8 @@ impl ItemDelegate {
             return internal_database_error_reply;
         };
 
-        let Ok(item_id) = self.create_item(&mut trans,  &add_item_request.name, customer_code)
+        let o_file_ref = add_item_request.file_ref.clone();
+        let Ok(item_id) = self.create_item(&mut trans,  &add_item_request.name, customer_code, o_file_ref)
                                 .map_err(err_fwd!("💣 Cannot create the item, follower=[{}]", &self.follower)) else {
             return internal_database_error_reply;
         };
@@ -393,9 +397,9 @@ impl ItemDelegate {
     }
 
 
-    fn create_item(&self, trans : &mut SQLTransaction, item_name: &str, customer_code : &str) -> anyhow::Result<i64> {
-        let sql_query = format!( r"INSERT INTO cs_{}.item(name, created_gmt, last_modified_gmt)
-                                        VALUES (:p_name, :p_created, :p_last_modified)", customer_code );
+    fn create_item(&self, trans : &mut SQLTransaction, item_name: &str, customer_code : &str, file_ref: Option<String>) -> anyhow::Result<i64> {
+        let sql_query = format!( r"INSERT INTO cs_{}.item(name, created_gmt, last_modified_gmt, file_ref)
+                                        VALUES (:p_name, :p_created, :p_last_modified, :p_file_ref)", customer_code );
 
         let sequence_name = format!( "cs_{}.item_id_seq", customer_code );
 
@@ -404,6 +408,7 @@ impl ItemDelegate {
         params.insert("p_name".to_string(), CellValue::from_raw_string(item_name.to_string()));
         params.insert("p_created".to_string(), CellValue::from_raw_systemtime(now.clone()));
         params.insert("p_last_modified".to_string(), CellValue::from_raw_systemtime(now.clone()));
+        params.insert("p_file_ref".to_string(), CellValue::String(file_ref));
 
         let sql_insert = SQLChange {
             sql_query,

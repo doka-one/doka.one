@@ -10,7 +10,7 @@ use dkdto::{FullTextReply, FullTextRequest, JsonErrorSet};
 use dkdto::error_codes::{SUCCESS};
 use doka_cli::request_client::{TikaServerClient, TokenType};
 use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
-use log::{info, debug};
+use log::*;
 use commons_error::*;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::x_request_id::{Follower, XRequestID};
@@ -44,6 +44,7 @@ impl FullTextDelegate {
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
             return Json(FullTextReply::invalid_token_error_reply());
         }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
@@ -61,7 +62,7 @@ impl FullTextDelegate {
 
         // Get the crypto key
 
-        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower.token_type.value())
+        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
                                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
             return internal_technical_error;
         };
@@ -244,14 +245,6 @@ impl FullTextDelegate {
         Ok(tsv)
     }
 
-    // fn create_full_default_item(mut trans : &mut SQLTransaction, file_name : &str, customer_code: &str, sid: &str) -> anyhow::Result<i64> {
-    //     let item_id = create_item(trans, file_name, customer_code)?;
-    //
-    //     // TODO the item_file table is totally useless, please move the file_ref into the item table...
-    //     let _ = create_item_file(trans, item_id, file_ref, customer_code);
-    //
-    //     Ok(item_id)
-    // }
 }
 
 

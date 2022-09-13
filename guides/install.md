@@ -5,6 +5,8 @@
 Install Postgresql 11 or +
 
 * Get a PG user with admin privileges (Ex : user: john, password : doo)
+* Download the unaccent_default.rules file : https://doka.one/artefacts/....
+* Copy the  unaccent_default.rules  into the  <pg_install_folder>\share\tsearch_data
 
 Download the doka_one_installer.exe (SHA-256 : ........... )
 

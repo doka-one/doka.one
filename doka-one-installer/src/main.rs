@@ -6,16 +6,23 @@ mod config;
 mod services;
 mod ports;
 mod color_text;
+mod databases;
 
 use std::{fs};
+use std::fmt::format;
 use std::path::{Path};
 use std::process::{exit};
+use anyhow::anyhow;
+use postgres::{Client, Error, NoTls};
+use postgres::error::SqlState;
+
 use termcolor::Color;
 
 use commons_error::*;
 use crate::artefacts::download_artefacts;
-use crate::color_text::{color_println, end_println, step_println};
+use crate::color_text::{color_println, end_println, main_println, step_println};
 use crate::config::{Config};
+use crate::databases::{create_admin_schema, create_databases, test_db_connection};
 use crate::ports::{find_service_port, Ports};
 use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
 use crate::templates::{DEF_FILE_TEMPLATE, KM_APP_PROPERTIES_TEMPLATE};
@@ -47,7 +54,7 @@ fn read_basic_install_info() -> anyhow::Result<Config> {
     let db_port: u16 = 5432;
     let db_user_name = "denis".to_string();
     let db_user_password = "Oratece4.".to_string();
-    let instance_name = "dev_1".to_string();
+    let instance_name = "test_1".to_string();
 
     Ok(Config {
         installation_path,
@@ -151,8 +158,13 @@ fn generate_key_manager_app_properties(config: &Config, ports: &Ports) -> anyhow
     Ok(())
 }
 
+
+
 fn main() {
     let _ = step_println("Installing Doka One...");
+
+    // Phase 1
+    let _ = main_println("Enter the install information");
 
     let config = match  read_basic_install_info() {
         Ok(config) => {
@@ -164,11 +176,25 @@ fn main() {
         }
     };
 
+    // Phase 2
+    let _ = main_println("Verification");
 
     let Ok(_) = verification(&config)
         .map_err(eprint_fwd!("Verification failed")) else {
         exit(20);
     };
+
+    let Ok(_) = test_db_connection(&config).map_err(eprint_fwd!("Failure while connecting the databases")) else {
+        exit(21);
+    };
+
+    let Ok(_) = create_databases(&config).map_err(eprint_fwd!("Failure while creating the databases")) else {
+        exit(22);
+    };
+
+
+    // Phase 3
+    let _ = main_println("Download artefacts");
 
     let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
         exit(25);
@@ -180,8 +206,16 @@ fn main() {
     };
 
 
+    // Phase 4
+    let _ = main_println("Initialization");
+
     let Ok(ports) = find_service_port().map_err(eprint_fwd!("Port search failed")) else {
         exit(40);
+    };
+
+
+    let Ok(_) = create_admin_schema(&config).map_err(eprint_fwd!("Admin schema creation failed")) else {
+        exit(42);
     };
 
 
@@ -193,6 +227,9 @@ fn main() {
         .map_err(eprint_fwd!("Write definition file failed")) else {
         exit(50);
     };
+
+    // Phase 5
+    let _ = main_println("Start up services");
 
     let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
         exit(60);

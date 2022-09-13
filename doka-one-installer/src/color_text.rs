@@ -27,3 +27,8 @@ pub(crate) fn step_println(text : &str)  -> anyhow::Result<()> {
 pub(crate) fn end_println(text : &str)  -> anyhow::Result<()> {
     color_println(text, Color::Green)
 }
+
+
+pub(crate) fn main_println(text : &str)  -> anyhow::Result<()> {
+    color_println(text, Color::Red)
+}

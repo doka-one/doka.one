@@ -3,6 +3,9 @@ use postgres::{Client, NoTls};
 use postgres::error::SqlState;
 use commons_error::*;
 use crate::{Config, step_println};
+use crate::schema_dokaadmin::SCHEMA_DOKAADMIN;
+use crate::schema_dokasys::SCHEMA_DOKASYS;
+use crate::schema_keymanager::SCHEMA_KEYMANAGER;
 
 pub (crate) fn test_db_connection(config: &Config) -> anyhow::Result<()> {
     let _= step_println("Testing the PostgreSQL connection...");
@@ -75,7 +78,7 @@ fn create_single_database(cnx: &mut Client, db_name : &str) -> anyhow::Result<()
     let result = cnx.query(&batch_script, &[])?;
 
     if result.is_empty() {
-        let mut create_databases_script = r#"
+        let create_databases_script = r#"
             CREATE DATABASE {DB_NAME}
                 WITH ENCODING = 'UTF8';
             "#;
@@ -115,11 +118,51 @@ pub (crate) fn create_databases(config: &Config) -> anyhow::Result<()> {
 }
 
 /// Build the 3 admin schemas
-pub (crate) fn create_admin_schema(config: &Config) -> anyhow::Result<()> {
+pub (crate) fn create_all_admin_schemas(config: &Config) -> anyhow::Result<()> {
     let _ = step_println("Initialize admin schemas");
 
-    println!("Schema 1...");
-    println!("Schema 2...");
-    println!("Schema 3...");
+    println!("Schema dokaadmin...");
+
+    let db_name = format!("ad_{}", &config.instance_name);
+
+    let url = format!("postgresql://{}:{}@{}:{}/{}", &config.db_user_name, &config.db_user_password,
+                      &config.db_host, &config.db_port, &db_name);
+    let mut cnx = Client::connect(&url, NoTls).map_err(eprint_fwd!("Cannot connect the database: {}", db_name))?;
+
+    // 10_dokaadmin_schema.sql
+    let _ = create_ad_schema(&mut cnx, SCHEMA_DOKAADMIN, "dokaadmin")?;
+
+    // 20_dokasys_schema.sql
+    let _ = create_ad_schema(&mut cnx, SCHEMA_DOKASYS, "dokasys")?;
+
+    // 30_keymanager_schema.sql
+    let _ = create_ad_schema(&mut cnx, SCHEMA_KEYMANAGER, "keymanager")?;
+
     Ok(())
+
+}
+
+
+///
+/// Create a schema for the ad_<instance_name> database
+///
+pub fn create_ad_schema(cnx: &mut Client, schema_script : &str, schema_name: &str) -> anyhow::Result<()> {
+
+    let sql_test_existence = r#"SELECT nspname
+                        FROM pg_catalog.pg_namespace where nspname = '{SCHEMA_NAME}' "#;
+
+
+    let batch_script = sql_test_existence.replace("{SCHEMA_NAME}", schema_name);
+    let result = cnx.query(&batch_script, &[])?;
+
+    if result.is_empty() {
+        // Run the commands to create the databases
+        cnx.batch_execute(schema_script).map_err(eprint_fwd!("create schema script error"))?;
+        println!("Done. Schema created : {}", schema_name);
+    } else {
+        println!("⚠ Schema {schema_name} already exists, skip the process");
+    }
+
+    Ok(())
+
 }

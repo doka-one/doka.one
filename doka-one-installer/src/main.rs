@@ -7,25 +7,26 @@ mod services;
 mod ports;
 mod color_text;
 mod databases;
+mod schema_dokaadmin;
+mod schema_dokasys;
+mod schema_keymanager;
+mod application_properties;
 
 use std::{fs};
-use std::fmt::format;
+
 use std::path::{Path};
 use std::process::{exit};
-use anyhow::anyhow;
-use postgres::{Client, Error, NoTls};
-use postgres::error::SqlState;
 
-use termcolor::Color;
 
 use commons_error::*;
+use crate::application_properties::generate_all_app_properties;
 use crate::artefacts::download_artefacts;
-use crate::color_text::{color_println, end_println, main_println, step_println};
+use crate::color_text::{end_println, main_println, step_println};
 use crate::config::{Config};
-use crate::databases::{create_admin_schema, create_databases, test_db_connection};
+use crate::databases::{create_all_admin_schemas, create_databases, test_db_connection};
 use crate::ports::{find_service_port, Ports};
 use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
-use crate::templates::{DEF_FILE_TEMPLATE, KM_APP_PROPERTIES_TEMPLATE};
+use crate::templates::{DEF_FILE_TEMPLATE, STD_APP_PROPERTIES_TEMPLATE};
 
 
 ///
@@ -99,6 +100,8 @@ fn verification(config: &Config) -> anyhow::Result<()> {
 
     let _ = fs::create_dir_all(&Path::new(&config.installation_path).join("bin"))?;
 
+    let _ = fs::create_dir_all(&Path::new(&config.installation_path).join("service-definitions"))?;
+
     // ex : D:\test_install\doka.one\doka-configs\prod_1
     let _ = fs::create_dir_all(&Path::new(&config.installation_path).join("doka-configs").join(&config.instance_name))?;
 
@@ -111,52 +114,6 @@ fn verification(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-
-fn generate_key_manager_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
-
-    let _ = step_println("Generate Doka Services property files");
-
-    println!("Generate application.properties for key-manager");
-
-    // ex : D:\test_install\doka.one\bin\key-manager\key-manager.exe
-    let instance_name = &config.instance_name;
-    let km_port =  ports.key_manager;
-    let km_cek = format!("{}/doka-configs/{instance_name}/key-manager/keys/cek.key", &config.installation_path);
-    let db_host =  &config.db_host;
-    let db_port = &config.db_port;
-
-    let db_user = &config.db_user_name;
-    let db_password = &config.db_user_password;
-    let km_log4rs = format!("{}/doka-configs/{instance_name}/key-manager/config/log4rs.yaml", &config.installation_path);
-
-    let mut properties_file_content = String::from(KM_APP_PROPERTIES_TEMPLATE);
-    // TODO : we should property escape the replacement values, but for now, we know what we are doing.
-    properties_file_content = properties_file_content
-        .replace("{KM_PORT}", &format!("{}", km_port))
-        .replace("{KM_CEK}", &km_cek)
-        .replace("{DB_HOST}", db_host)
-        .replace("{DB_PORT}", &format!("{}", db_port))
-        .replace("{DOKA_INSTANCE}", instance_name)
-        .replace("{DB_USER}", db_user)
-        .replace("{DB_PASSWORD}", db_password)
-        .replace("{KM_LOG4RS}", &km_log4rs);
-
-    // dbg!(&properties_file_content);
-
-    let properties_file = Path::new(config.installation_path.as_str())
-        .join("doka-configs")
-        .join( instance_name)
-        .join( "key-manager")
-        .join( "config")
-        .join("application.properties");
-
-    fs::write(&properties_file, &properties_file_content)
-        .map_err(eprint_fwd!("Cannot create the properties file for key-manager"))?;
-
-    println!("Done. Generate application.properties for key-manager");
-
-    Ok(())
-}
 
 
 
@@ -214,12 +171,12 @@ fn main() {
     };
 
 
-    let Ok(_) = create_admin_schema(&config).map_err(eprint_fwd!("Admin schema creation failed")) else {
+    let Ok(_) = create_all_admin_schemas(&config).map_err(eprint_fwd!("Admin schema creation failed")) else {
         exit(42);
     };
 
 
-    let Ok(_) = generate_key_manager_app_properties(&config, &ports).map_err(eprint_fwd!("")) else {
+    let Ok(_) = generate_all_app_properties(&config, &ports).map_err(eprint_fwd!("")) else {
         exit(45);
     };
 

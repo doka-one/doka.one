@@ -1,9 +1,9 @@
 use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
-use termcolor::Color;
+
 use commons_error::*;
-use crate::{color_println, step_println};
+use crate::{step_println};
 use crate::config::Config;
 
 const TIMEOUT : Duration = Duration::from_secs(60 * 60); // 60 min
@@ -70,7 +70,7 @@ pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
 
     // Download the doka services and the cli
     download_file(&config,  "key-manager")?;
-    // download_file(&config,  "session-manager")?;
+    download_file(&config,  "session-manager")?;
     // download_file(&config,  "admin-server")?;
     // download_file(&config,  "document-server")?;
     // download_file(&config,  "file-server")?;
@@ -87,7 +87,7 @@ pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
 
     // Unzip artefacts
     unzip(&config,  "key-manager")?;
-    // unzip(&config,  "session-manager")?;
+    unzip(&config,  "session-manager")?;
     // unzip(&config,  "admin-server")?;
     // unzip(&config,  "document-server")?;
     // unzip(&config,  "file-server")?;

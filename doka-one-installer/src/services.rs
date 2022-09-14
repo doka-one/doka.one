@@ -42,7 +42,7 @@ fn create_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     let serman_program = format!( "{}/bin/serman/serman.exe", &config.installation_path);
 
     // TODO check if the definition file exists
-    let service_definition_file = format!("{}/bin/serman/{}.xml", &config.installation_path, service_id);
+    let service_definition_file = format!("{}/service-definitions/{}.xml", &config.installation_path, service_id);
 
     //println!("{service_id}, {serman_program}, {service_definition_file}");
 
@@ -74,7 +74,7 @@ pub(crate) fn build_windows_services(config: &Config) -> anyhow::Result<()> {
     let _ = step_println("Creating windows services ...");
 
     create_service(config, "key-manager")?;
-    // create_service(config,  "session-manager")?;
+    create_service(config,  "session-manager")?;
     // create_service(config,  "admin-server")?;
     // create_service(config,  "document-server")?;
     // create_service(config,  "file-server")?;
@@ -88,7 +88,9 @@ pub(crate) fn build_windows_services(config: &Config) -> anyhow::Result<()> {
 ///
 /// This should generate a correct definiton file for the windows service.
 /// Nevertheless, we must generate the doka config files for each services before.
-fn write_service_definition_file(config: &Config, service_id: &str, service_name: &str) -> anyhow::Result<()> {
+fn write_service_definition_file(config: &Config, service_id: &str,  service_name: &str) -> anyhow::Result<()> {
+
+    println!("Write service definition for {service_id}");
 
     // ex : D:\test_install\doka.one\bin\key-manager\key-manager.exe
     let executable = format!("{}/bin/{service_id}/{service_id}.exe", &config.installation_path);
@@ -106,9 +108,11 @@ fn write_service_definition_file(config: &Config, service_id: &str, service_name
     // dbg!(&definition);
 
     let definiton_file = Path::new(config.installation_path.as_str())
-        .join("bin/serman/")
+        .join("service-definitions/")
         .join(format!("{service_id}.xml"));
     let _ = std::fs::write(&definiton_file, &definition);
+
+    println!("Write service definition for {service_id}");
 
     Ok(())
 }
@@ -120,8 +124,8 @@ pub (crate) fn write_all_service_definition(config: &Config) -> anyhow::Result<(
     write_service_definition_file(&config, "key-manager", "Doka Key Manager")
         .map_err(eprint_fwd!("Write definition file failed"))?;
 
-    // write_service_definition_file(&config, "session-manager", "Doka Session Manager")
-    //     .map_err(eprint_fwd!("Write definition file failed"))?;
+    write_service_definition_file(&config, "session-manager", "Doka Session Manager")
+        .map_err(eprint_fwd!("Write definition file failed"))?;
 
 
     Ok(())

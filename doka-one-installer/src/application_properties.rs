@@ -10,7 +10,7 @@ use portpicker::Port;
 use commons_error::*;
 use dkcrypto::dk_crypto::DkEncrypt;
 use crate::{Config, STD_APP_PROPERTIES_TEMPLATE, Ports, step_println};
-use crate::templates::{ADMIN_SERVER_APP_PROPERTIES_TEMPLATE, DOCUMENT_SERVER_APP_PROPERTIES_TEMPLATE, FILE_SERVER_APP_PROPERTIES_TEMPLATE, LOG4RS_TEMPLATE};
+use crate::templates::{ADMIN_SERVER_APP_PROPERTIES_TEMPLATE, DOCUMENT_SERVER_APP_PROPERTIES_TEMPLATE, FILE_SERVER_APP_PROPERTIES_TEMPLATE, LOG4RS_TEMPLATE, TIKA_CONFIG_TEMPLATE, TIKA_LOG4J_TEMPLATE};
 
 type ReplacementProcess = fn(config: &Config, ports: &Ports) -> String;
 
@@ -126,29 +126,82 @@ fn generate_service_app_properties(config: &Config, ports: &Ports, service_name:
 
 
 
-fn generate_log4rs_config(config: &Config, service_name: &str) -> anyhow::Result<()> {
+fn generate_log4rs_config(config: &Config, service_id: &str) -> anyhow::Result<()> {
 
-    println!("Generate log4rs.yaml for {service_name}");
+    println!("Generate log4rs.yaml for {service_id}");
 
     // D:\test_install\doka.one\doka-configs\test_1\admin-server\logs\admin-server.log
-    let log_folder = format!("{}/doka-configs/{}/{service_name}/logs/{service_name}.log", &config.installation_path, &config.instance_name );
+    let log_folder = format!("{}/doka-configs/{}/{service_id}/logs/{service_id}.log", &config.installation_path, &config.instance_name );
 
     let log4rs_file_content = LOG4RS_TEMPLATE.replace("{LOG_FOLDER}", &log_folder);
 
     let log4rs_file = Path::new(config.installation_path.as_str())
         .join("doka-configs")
         .join( &config.instance_name)
-        .join( service_name)
+        .join(service_id)
         .join( "config")
         .join("log4rs.yaml");
 
     fs::write(&log4rs_file, &log4rs_file_content)
-        .map_err(eprint_fwd!("Cannot create the log4rs.yaml file for {service_name}"))?;
+        .map_err(eprint_fwd!("Cannot create the log4rs.yaml file for {service_id}"))?;
 
-    println!("Done. Generate log4rs.yaml for {service_name}");
+    println!("Done. Generate log4rs.yaml for {service_id}");
 
     Ok(())
 }
+
+
+fn generate_log4j_config_for_tika(config: &Config) -> anyhow::Result<()> {
+
+    let service_id : &str = "tika-server";
+    println!("Generate log4j.xml for {service_id}");
+
+    let log4j_file_content = TIKA_LOG4J_TEMPLATE
+                                        .replace("{INSTALL_DIR}", &config.installation_path)
+                                        .replace("{DOKA_INSTANCE}", &config.instance_name)
+                                        .replace("{SERVICE_ID}", service_id );
+
+    let log4j_file = Path::new(config.installation_path.as_str())
+        .join("doka-configs")
+        .join( &config.instance_name)
+        .join( service_id)
+        .join( "config")
+        .join("log4j.xml");
+
+    fs::write(&log4j_file, &log4j_file_content)
+        .map_err(eprint_fwd!("Cannot create the log4j.xml file for {service_id}, log4j_file=[{}]", log4j_file.to_str().unwrap_or("Unknown")))?;
+
+    println!("Done. Generate log4j.xml for {service_id}");
+
+    Ok(())
+}
+
+fn generate_config_for_tika(config: &Config, ports: &Ports) -> anyhow::Result<()> {
+    let service_id : &str = "tika-server";
+    println!("Generate tika-config.xml for {service_id}");
+
+    let log4j_path = format!("{}/doka-configs/{}/{service_id}/config/log4j.xml", &config.installation_path, &config.instance_name );
+
+    let tika_config_file_content = TIKA_CONFIG_TEMPLATE
+        .replace("{TIKA_PORT}", &ports.tika_server.to_string())
+        .replace("{LOG4J_PATH}", &log4j_path);
+
+    let tika_config_file = Path::new(config.installation_path.as_str())
+        .join("doka-configs")
+        .join( &config.instance_name)
+        .join( service_id)
+        .join( "config")
+        .join("tika-config.xml");
+
+    fs::write(&tika_config_file, &tika_config_file_content)
+        .map_err(eprint_fwd!("Cannot create the tika-config.xml file for {service_id}, tika_config_file=[{}]",
+            tika_config_file.to_str().unwrap_or("Unknown")))?;
+
+    println!("Done. Generate tika-config.xml for {service_id}");
+
+    Ok(())
+}
+
 
 lazy_static! {
     static ref CEK : RwLock<Option<String>> = RwLock::new(None);
@@ -216,6 +269,9 @@ pub (crate) fn generate_all_app_properties(config: &Config, ports: &Ports) -> an
     let _ = generate_admin_server_app_properties(config, ports)?;
     let _ = generate_document_server_app_properties(config, ports)?;
     let _ = generate_file_server_app_properties(config, ports)?;
+
+    let _ = generate_log4j_config_for_tika(config)?;
+    let _ = generate_config_for_tika(config, ports)?;
 
     Ok(())
 }

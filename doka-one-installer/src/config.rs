@@ -7,6 +7,7 @@ pub(crate) struct Config {
     pub db_user_name: String,
     pub db_user_password: String,
     pub instance_name: String,
+    pub release_number: String,
 }
 
 

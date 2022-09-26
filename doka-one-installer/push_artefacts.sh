@@ -2,6 +2,7 @@
 
 ## Send the artefacts to the website
 
+read -p "Enter the doka version (ex: 0.1.0) : " VERSION
 read -p "Enter the web server hostname (ex : doka.one) : " SERVER_NAME
 read -p "Enter the user name for the web server machine (ex: root) : " USER_NAME
 read -s -p "Enter the password for the user of the web server machine (ex: iiss...) : " PASS
@@ -9,8 +10,11 @@ read -s -p "Enter the password for the user of the web server machine (ex: iiss.
 clear
 
 DOKA_SERVICE_SOURCE_FOLDER='/mnt/c/Users/denis/.cargo/bin'
-PUBLIC_SOURCE_FOLDER='/mnt/c/Users/denis/Dropbox/public/0.1.0'
-TARGET_FOLDER="$USER_NAME@$SERVER_NAME:/$USER_NAME/doka.one/content/artefacts/0.1.0/"
+PUBLIC_SOURCE_FOLDER='/mnt/c/Users/denis/Dropbox/public/doka_common'
+TARGET_FOLDER="$USER_NAME@$SERVER_NAME:/$USER_NAME/doka.one/content/artefacts/$VERSION/"
+
+echo "Create the remote artefacts folder"
+sshpass -p $PASS ssh $USER_NAME@$SERVER_NAME "mkdir -p /$USER_NAME/doka.one/content/artefacts/$VERSION"
 
 echo "Upload key-manager"
 rm $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip

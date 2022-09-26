@@ -10,6 +10,20 @@ pub(crate) const DEF_FILE_TEMPLATE : &str = r#"
 </service>
 "#;
 
+pub(crate) const DEF_FILE_WITH_ARGS_TEMPLATE : &str = r#"
+<service>
+  <id>{SERVICE_ID}</id>
+  <name>{SERVICE_NAME}</name>
+  <description>{SERVICE_NAME}</description>
+  <executable>{EXECUTABLE}</executable>
+  <arguments>{ARGUMENTS}</arguments>
+  <logmode>rotate</logmode>
+  <persistent_env name="DOKA_ENV" value="{MY_ENV}" />
+</service>
+"#;
+
+
+
 pub(crate) const STD_APP_PROPERTIES_TEMPLATE: &str = r#"
 #Rocket server port
 server.port={SERVICE_PORT}
@@ -152,4 +166,71 @@ loggers:
     appenders:
       - file
     additive: true
+"#;
+
+// TODO This log4j config file might not be optimal for Apache Tika
+pub (crate) const TIKA_LOG4J_TEMPLATE : &str = r#"
+<Configuration status="INFO">
+    <Appenders>
+        <Console name="stdout" target="SYSTEM_OUT">
+            <PatternLayout pattern="[%d %p %c{1.} %C{1}::%M %t] %m %n"/>
+        </Console>
+
+        <RollingFile  name="file"
+                      fileName="{INSTALL_DIR}/doka-configs/{DOKA_INSTANCE}/{SERVICE_ID}/logs/{SERVICE_ID}.log"
+                      filePattern="{INSTALL_DIR}/doka-configs/{DOKA_INSTANCE}/{SERVICE_ID}/logs/$${date:yyyy-MM}/%d{yyyy-MM-dd}-{SERVICE_ID}-%i.log.gz">
+            <PatternLayout>
+                <pattern>[%d %p %c{1.} %C{1}::%M %t] %m %n</pattern>
+            </PatternLayout>
+            <Policies>
+                <OnStartupTriggeringPolicy />
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <SizeBasedTriggeringPolicy size="50 MB"/>
+            </Policies>
+        </RollingFile>
+
+    </Appenders>
+
+    <Loggers>
+        <Root level="INFO">
+            <AppenderRef ref="file" level="INFO"/>
+            <AppenderRef ref="stdout" level="INFO"/>
+        </Root>
+    </Loggers>
+
+</Configuration>
+"#;
+
+pub (crate) const TIKA_CONFIG_TEMPLATE : &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!-- description of the config file at https://cwiki.apache.org/confluence/display/TIKA/TikaServer+in+Tika+2.x -->
+<properties>
+  <server>
+    <params>
+      <port>{TIKA_PORT}</port>
+      <host>localhost</host>
+      <id></id>
+      <cors>NONE</cors>
+      <digest>sha256</digest>
+      <digestMarkLimit>1000000</digestMarkLimit>
+      <!-- request URI log level 'debug' or 'info' -->
+      <logLevel>info</logLevel>
+      <returnStackTrace>false</returnStackTrace>
+      <noFork>false</noFork>
+      <taskTimeoutMillis>300000</taskTimeoutMillis>
+      <maxForkedStartupMillis>120000</maxForkedStartupMillis>
+      <maxRestarts>-1</maxRestarts>
+      <maxFiles>100000</maxFiles>
+      <forkedJvmArgs>
+        <arg>-Xms1g</arg>
+        <arg>-Xmx1g</arg>
+        <arg>-Dlog4j.configurationFile=file:///{LOG4J_PATH}</arg>
+       </forkedJvmArgs>
+      <enableUnsecureFeatures>false</enableUnsecureFeatures>
+      <endpoints>
+        <endpoint>status</endpoint>
+        <endpoint>rmeta</endpoint>
+      </endpoints>
+    </params>
+  </server>
+</properties>
 "#;

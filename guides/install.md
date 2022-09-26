@@ -12,6 +12,18 @@ Download the doka_one_installer.exe (SHA-256 : ........... )
 
 Run the doka_one_installer.exe
 
+
+
+```bash
+doka-one-installer.exe -installation-path "D:/app/doka.one" --db-host "localhost" --db-port "5432" --db-user-name "john" --db-user-password "doo" --instance-name "test_2" --release-number "0.1.0"
+
+doka-one-installer.exe -i "D:/app/doka.one" -H "localhost" -P "5432" -u "john" -p "doo" -I "test_2" -r "0.1.0"
+```
+
+You can also omit the `--db-user-password`, the program will prompt you to enter it manually.
+
+
+
 Phase 1: Enter the basic install information 
 
 > Enter the installation path :  e:\doka.one

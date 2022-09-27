@@ -10,7 +10,7 @@ use portpicker::Port;
 use commons_error::*;
 use dkcrypto::dk_crypto::DkEncrypt;
 use crate::{Config, STD_APP_PROPERTIES_TEMPLATE, Ports, step_println};
-use crate::templates::{ADMIN_SERVER_APP_PROPERTIES_TEMPLATE, DOCUMENT_SERVER_APP_PROPERTIES_TEMPLATE, FILE_SERVER_APP_PROPERTIES_TEMPLATE, LOG4RS_TEMPLATE, TIKA_CONFIG_TEMPLATE, TIKA_LOG4J_TEMPLATE};
+use crate::templates::{ADMIN_SERVER_APP_PROPERTIES_TEMPLATE, DOCUMENT_SERVER_APP_PROPERTIES_TEMPLATE, DOKA_CLI_APP_PROPERTIES_TEMPLATE, FILE_SERVER_APP_PROPERTIES_TEMPLATE, LOG4RS_TEMPLATE, TIKA_CONFIG_TEMPLATE, TIKA_LOG4J_TEMPLATE};
 
 type ReplacementProcess = fn(config: &Config, ports: &Ports) -> String;
 
@@ -30,7 +30,6 @@ fn std_replacement_process(config: &Config, _ports: &Ports, service_name: &str, 
         .replace("{SERVICE_LOG4RS}", &km_log4rs)
 
 }
-
 
 
 fn generate_key_manager_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
@@ -54,7 +53,7 @@ fn generate_session_manager_app_properties(config: &Config, ports: &Ports) -> an
 
 fn generate_admin_server_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
 
-    let admin_server_replacement_process : ReplacementProcess = |config: &Config, ports: &Ports| {
+    let replacement_process: ReplacementProcess = |config: &Config, ports: &Ports| {
         std_replacement_process(config, ports, "admin-server", ports.admin_server, ADMIN_SERVER_APP_PROPERTIES_TEMPLATE)
             .replace("{KM_HOST}", "localhost")
             .replace("{KM_PORT}", & ports.key_manager.to_string())
@@ -62,12 +61,12 @@ fn generate_admin_server_app_properties(config: &Config, ports: &Ports) -> anyho
             .replace("{SM_PORT}", & ports.session_manager.to_string())
     };
 
-    generate_service_app_properties(config, ports, "admin-server", admin_server_replacement_process)
+    generate_service_app_properties(config, ports, "admin-server", replacement_process)
 }
 
 fn generate_document_server_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
 
-    let admin_server_replacement_process : ReplacementProcess = |config: &Config, ports: &Ports| {
+    let replacement_process: ReplacementProcess = |config: &Config, ports: &Ports| {
         std_replacement_process(config, ports, "document-server", ports.document_server, DOCUMENT_SERVER_APP_PROPERTIES_TEMPLATE)
             .replace("{KM_HOST}", "localhost")
             .replace("{KM_PORT}", & ports.key_manager.to_string())
@@ -77,12 +76,12 @@ fn generate_document_server_app_properties(config: &Config, ports: &Ports) -> an
             .replace("{TKS_PORT}", & ports.tika_server.to_string())
     };
 
-    generate_service_app_properties(config, ports, "document-server", admin_server_replacement_process)
+    generate_service_app_properties(config, ports, "document-server", replacement_process)
 }
 
 fn generate_file_server_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
 
-    let admin_server_replacement_process : ReplacementProcess = |config: &Config, ports: &Ports| {
+    let replacement_process: ReplacementProcess = |config: &Config, ports: &Ports| {
         std_replacement_process(config, ports, "file-server", ports.file_server, FILE_SERVER_APP_PROPERTIES_TEMPLATE)
             .replace("{KM_HOST}", "localhost")
             .replace("{KM_PORT}", & ports.key_manager.to_string())
@@ -94,7 +93,20 @@ fn generate_file_server_app_properties(config: &Config, ports: &Ports) -> anyhow
             .replace("{TKS_PORT}", & ports.tika_server.to_string())
     };
 
-    generate_service_app_properties(config, ports, "file-server", admin_server_replacement_process)
+    generate_service_app_properties(config, ports, "file-server", replacement_process)
+}
+
+fn generate_doka_cli_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
+
+    let replacement_process : ReplacementProcess = |config: &Config, ports: &Ports| {
+        std_replacement_process(config, ports, "doka-cli", ports.file_server, DOKA_CLI_APP_PROPERTIES_TEMPLATE)
+            .replace("{HOST}", "localhost")
+            .replace("{AS_PORT}", & ports.admin_server.to_string())
+            .replace("{DS_PORT}", & ports.document_server.to_string())
+            .replace("{FS_PORT}", & ports.file_server.to_string())
+    };
+
+    generate_service_app_properties(config, ports, "doka-cli", replacement_process)
 }
 
 
@@ -217,6 +229,9 @@ fn generate_cek_file(config: &Config, service_name: &str) -> anyhow::Result<()> 
         .join( "keys")
         .join("cek.key");
 
+    println!("The cek file is located at {}", cek_file.to_str().ok_or(anyhow!("Wrong cek file"))?);
+    println!("It can be used in the doka-cli system commands.");
+
     match cek_file.exists() {
         true => {
             println!("cek.key file already exists for {service_name}. Skip the process.");
@@ -235,8 +250,6 @@ fn generate_cek_file(config: &Config, service_name: &str) -> anyhow::Result<()> 
                 if guard_cek.is_none() {
                     guard_cek.replace(DkEncrypt::generate_random_key());
                 }
-
-                dbg!(&guard_cek);
             }
 
             let t = CEK.read().unwrap();
@@ -257,6 +270,23 @@ fn generate_cek_file(config: &Config, service_name: &str) -> anyhow::Result<()> 
         }
     }
 
+    
+    Ok(())
+}
+
+fn generate_doka_cli_env_var(config: &Config) -> anyhow::Result<()> {
+    use winreg::{enums::*, RegKey};
+    let my_env = format!(r#"{}\doka-configs\{}"#, &config.installation_path, &config.instance_name);
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (env, _) = hkcu.create_subkey("Environment")?; // create_subkey opens with write permissions
+    env.set_value("DOKA_CLI_ENV", &my_env)?;
+    println!("Created the DOKA_CLI_ENV with value {}", &my_env);
+    // D:\test_install\doka.one\bin\doka-cli
+
+    let bin_path = format!(r#"{}\bin\doka-cli"#, &config.installation_path);
+
+    println!("You can add `{}` to your Path environment variable", &bin_path);
+
     Ok(())
 }
 
@@ -272,6 +302,9 @@ pub (crate) fn generate_all_app_properties(config: &Config, ports: &Ports) -> an
 
     let _ = generate_log4j_config_for_tika(config)?;
     let _ = generate_config_for_tika(config, ports)?;
+
+    let _ = generate_doka_cli_app_properties(config, ports)?;
+    let _ = generate_doka_cli_env_var(config);
 
     Ok(())
 }

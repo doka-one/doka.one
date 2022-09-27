@@ -20,5 +20,6 @@ lazy_static = "1.4.0"
 mut_static = "5.0.0"
 clap = { version = "3.2.22", features = ["derive"] }
 rpassword = "7.0.0"
+winreg = "0.10.1"
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}

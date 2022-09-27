@@ -1,7 +1,8 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufReader, Read, Write};
 use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
+use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::LoginRequest;
 use doka_cli::request_client::AdminServerClient;
 use crate::{get_target_file, Params};
@@ -67,4 +68,12 @@ fn write_session_id(session_id: &str) -> anyhow::Result<()> {
     file.write_all(&session_id.to_string().into_bytes()[..])?;
     println!("💾 Session id stored");
     Ok(())
+}
+
+pub (crate) fn read_session_id() -> anyhow::Result<String> {
+    let file = File::open(get_target_file("config/session.id")?)?;
+    let mut buf_reader = BufReader::new(file);
+    let mut content: String = "".to_string();
+    let _ = buf_reader.read_to_string(&mut content)?;
+    Ok(content)
 }

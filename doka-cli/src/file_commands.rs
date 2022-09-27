@@ -4,7 +4,8 @@ use std::path::Path;
 use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
 use doka_cli::request_client::FileServerClient;
-use crate::{Params, read_session_id};
+use crate::{Params};
+use crate::session_commands::read_session_id;
 
 ///
 pub (crate) fn file_command(params: &Params) -> anyhow::Result<()> {

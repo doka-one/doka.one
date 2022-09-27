@@ -117,6 +117,7 @@ fn verification(config: &Config) -> anyhow::Result<()> {
     create_std_doka_service_folders(&config,  "file-server")?;
 
     create_std_doka_service_folders(&config,  "tika-server")?;
+    create_std_doka_service_folders(&config,  "doka-cli")?;
 
     Ok(())
 }

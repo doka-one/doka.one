@@ -87,7 +87,7 @@ app.ek={SERVICE_CEK}
 #database source
 db.hostname={DB_HOST}
 db.port={DB_PORT}
-db.name=ad_{DOKA_INSTANCE}
+db.name=cs_{DOKA_INSTANCE}
 db.user={DB_USER}
 db.password={DB_PASSWORD}
 db.pool_size=10
@@ -114,7 +114,7 @@ app.ek={SERVICE_CEK}
 #database source
 db.hostname={DB_HOST}
 db.port={DB_PORT}
-db.name=ad_{DOKA_INSTANCE}
+db.name=fs_{DOKA_INSTANCE}
 db.user={DB_USER}
 db.password={DB_PASSWORD}
 db.pool_size=10
@@ -134,6 +134,19 @@ tks.port={TKS_PORT}
 
 #Normalize log configuration path.
 log4rs.config={SERVICE_LOG4RS}
+"#;
+
+
+pub (crate) const DOKA_CLI_APP_PROPERTIES_TEMPLATE: &str = r#"
+#Server host
+server.host={HOST}
+# Service ports
+#   admin service
+as.port={AS_PORT}
+#   document service
+ds.port={DS_PORT}
+#   file service
+fs.port={FS_PORT}
 "#;
 
 pub (crate) const LOG4RS_TEMPLATE : &str = r#"

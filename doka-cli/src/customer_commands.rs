@@ -2,7 +2,8 @@ use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
 use dkdto::CreateCustomerRequest;
 use doka_cli::request_client::AdminServerClient;
-use crate::{Params, SECURITY_TOKEN};
+use crate::{Params};
+use crate::token_commands::read_security_token;
 
 ///
 ///
@@ -58,8 +59,8 @@ fn create_customer(params: &Params) -> anyhow::Result<()> {
         email: email.ok_or(anyhow!("💣 Missing email"))?,
         admin_password: admin_password.ok_or(anyhow!("💣 Missing admin password"))?
     };
-    let token = SECURITY_TOKEN;
-    let reply = client.create_customer(&create_customer_request, token);
+    let token = read_security_token()?;
+    let reply = client.create_customer(&create_customer_request, &token);
     if reply.status.error_code == 0 {
         println!("😎 Customer successfully created, customer code : {} ", reply.customer_code);
         Ok(())
@@ -67,8 +68,6 @@ fn create_customer(params: &Params) -> anyhow::Result<()> {
         Err(anyhow!("{}", reply.status.err_message))
     }
 }
-
-
 
 // disable customer
 fn disable_customer(params: &Params) -> anyhow::Result<()> {
@@ -92,8 +91,8 @@ fn disable_customer(params: &Params) -> anyhow::Result<()> {
 
     let customer_code = o_customer_code.ok_or(anyhow!("💣 Missing customer code"))?;
 
-    let token = SECURITY_TOKEN;
-    let reply = client.customer_removable(&customer_code, token);
+    let token = read_security_token()?;
+    let reply = client.customer_removable(&customer_code, &token);
     if reply.error_code == 0 {
         println!("😎 Customer successfully disabled, customer code : {} ", &customer_code);
         Ok(())
@@ -125,8 +124,8 @@ fn delete_customer(params: &Params) -> anyhow::Result<()> {
 
     let customer_code = o_customer_code.ok_or(anyhow!("💣 Missing customer code"))?;
 
-    let token = SECURITY_TOKEN;
-    let reply = client.delete_customer(&customer_code, token);
+    let token = read_security_token()?;
+    let reply = client.delete_customer(&customer_code, &token);
     if reply.error_code == 0 {
         println!("😎 Customer successfully deleted, customer code : {} ", &customer_code);
         Ok(())

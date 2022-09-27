@@ -5,7 +5,8 @@ use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
 use dkdto::{AddItemRequest, AddTagValue, EnumTagValue, GetItemReply};
 use doka_cli::request_client::DocumentServerClient;
-use crate::{Params, read_session_id};
+use crate::{Params};
+use crate::session_commands::read_session_id;
 
 ///
 pub (crate) fn item_command(params: &Params) -> anyhow::Result<()> {

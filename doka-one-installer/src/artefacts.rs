@@ -79,7 +79,7 @@ pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
     download_file(&config,  "admin-server")?;
     download_file(&config,  "document-server")?;
     download_file(&config,  "file-server")?;
-    // download_file(&config,  "doka-cli")?;
+    download_file(&config,  "doka-cli")?;
 
     // Download the extra artefacts
     // | serman : https://www.dropbox.com/s/i7gptd0l289250t/serman.zip?dl=0
@@ -96,7 +96,7 @@ pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
     unzip(&config,  "admin-server")?;
     unzip(&config,  "document-server")?;
     unzip(&config,  "file-server")?;
-    // unzip(&config,  "doka-cli")?;
+    unzip(&config,  "doka-cli")?;
     unzip(&config,  "serman")?;
     unzip(&config,  "tika-server")?;
     unzip(&config,  "jdk-17")?;

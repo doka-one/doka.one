@@ -270,7 +270,7 @@ fn generate_cek_file(config: &Config, service_name: &str) -> anyhow::Result<()> 
         }
     }
 
-    
+
     Ok(())
 }
 

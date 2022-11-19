@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use commons_error::*;
 use dkconfig::properties::get_prop_value;
 use dkdto::CreateCustomerRequest;
 use doka_cli::request_client::AdminServerClient;
@@ -59,7 +60,7 @@ fn create_customer(params: &Params) -> anyhow::Result<()> {
         email: email.ok_or(anyhow!("💣 Missing email"))?,
         admin_password: admin_password.ok_or(anyhow!("💣 Missing admin password"))?
     };
-    let token = read_security_token()?;
+    let token = read_security_token().map_err(eprint_fwd!("Cannot read security token"))?;
     let reply = client.create_customer(&create_customer_request, &token);
     if reply.status.error_code == 0 {
         println!("😎 Customer successfully created, customer code : {} ", reply.customer_code);

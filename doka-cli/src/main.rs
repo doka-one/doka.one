@@ -1,4 +1,4 @@
-#![feature(let_else)]
+
 
 mod customer_commands;
 mod session_commands;
@@ -125,8 +125,8 @@ fn main() -> () {
                     exit_code = 0;
                 }
                 Err(e) => {
-                    eprintln!("💣 Error : {}", e);
                     exit_code = 70;
+                    eprintln!("💣 Error {exit_code} : {}", e);
                 }
             }
         }
@@ -136,8 +136,8 @@ fn main() -> () {
                     exit_code = 0;
                 }
                 Err(e) => {
-                    eprintln!("💣 Error : {}", e);
                     exit_code = 80;
+                    eprintln!("💣 Error {exit_code} : {}", e);
                 }
             }
         }
@@ -147,8 +147,9 @@ fn main() -> () {
                     exit_code = 0;
                 }
                 Err(e) => {
-                    eprintln!("💣 Error : {}", e);
+
                     exit_code = 90;
+                    eprintln!("💣 Error {exit_code} : {}", e);
                 }
             }
         }
@@ -158,8 +159,9 @@ fn main() -> () {
                     exit_code = 0;
                 }
                 Err(e) => {
-                    eprintln!("💣 Error : {}", e);
+
                     exit_code = 120;
+                    eprintln!("💣 Error {exit_code} : {}", e);
                 }
             }
         }
@@ -169,8 +171,9 @@ fn main() -> () {
                     exit_code = 0;
                 }
                 Err(e) => {
-                    eprintln!("💣 Error : {}", e);
+
                     exit_code = 140;
+                    eprintln!("💣 Error {exit_code} : {}", e);
                 }
             }
         }

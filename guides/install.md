@@ -10,7 +10,7 @@ Install Postgresql 11 or +
 
 Download the doka_one_installer.exe (SHA-256 : ........... )
 
-Run the doka_one_installer.exe
+Run the doka-one-installer.exe
 
 
 
@@ -21,8 +21,6 @@ doka-one-installer.exe -i "D:/app/doka.one" -H "localhost" -P "5432" -u "john" -
 ```
 
 You can also omit the `--db-user-password`, the program will prompt you to enter it manually.
-
-
 
 Phase 1: Enter the basic install information 
 
@@ -59,12 +57,12 @@ Phase 4: Initialization
 
 Phase 5: Start up services
 
-> Apache Tika Server is running on port : 40'010 (see logs in e:\doka.one\logs\\tika.log)
-> key-manager is running on port 30'040 (see logs in e:\doka.one\logs\key-manager.log)
-> session-manager is running on port 30'050 (see logs in e:\doka.one\logs\admin-server.log)
-> admin-server is running on port 30'060
-> document-server is running on port 30'070
->file-server is running on port 30'080
+> Apache Tika Server is running on port : 40'010 (see logs in e:\doka.one\logs\\tika.log) <br>
+> key-manager is running on port 30'040 (see logs in e:\doka.one\logs\key-manager.log) <br>
+> session-manager is running on port 30'050 (see logs in e:\doka.one\logs\admin-server.log) <br>
+> admin-server is running on port 30'060  <br>
+> document-server is running on port 30'070 <br>
+>file-server is running on port 30'080  <br>
 
 ##### Start doka one
 
@@ -75,6 +73,8 @@ doka-cli doka start
 doka-cli doka shutdown
 
 ##### Create a customer
+
+Open a new windows command line (to enjoy the newly created DOKA_CLI_ENV), environment variable)
 
 doka-cli customer create ...
 

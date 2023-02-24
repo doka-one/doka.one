@@ -1,6 +1,6 @@
-### Install procedure
+## Doka Install procedure
 
-#### Windows
+### Windows
 
 Install Postgresql 11 or +
 
@@ -10,14 +10,12 @@ Install Postgresql 11 or +
 
 Download the doka_one_installer.exe (SHA-256 : ........... )
 
-Run the doka-one-installer.exe
-
-
+Run the doka-one-installer.exe  IN ADMINISTRATOR MODE
 
 ```bash
-doka-one-installer.exe -installation-path "D:/app/doka.one" --db-host "localhost" --db-port "5432" --db-user-name "john" --db-user-password "doo" --instance-name "test_2" --release-number "0.1.0"
+doka-one-installer.exe install --installation-path "D:/app/doka.one" --db-host "localhost" --db-port "5432" --db-user-name "john" --db-user-password "doo" --instance-name "test_2" --release-number "0.1.0"
 
-doka-one-installer.exe -i "D:/app/doka.one" -H "localhost" -P "5432" -u "john" -p "doo" -I "test_2" -r "0.1.0"
+doka-one-installer.exe install -i "D:/app/doka.one" -H "localhost" -P "5432" -u "john" -p "doo" -I "test_2" -r "0.1.0"
 ```
 
 You can also omit the `--db-user-password`, the program will prompt you to enter it manually.
@@ -42,7 +40,7 @@ Phase 3: Download artefacts
 > ....Download session-manager ... ✔ ... Found port 30'050 available
 > ....Download admin-server ... ✔ ... Found port 30'060 available
 > ....Download document-server ... ✔ ... Found port 30'070 available
->....Download file-server ... ✔ ... Found port 30'080 available
+> ....Download file-server ... ✔ ... Found port 30'080 available
 > ....Download doka-cli ... ✔
 
 Phase 4: Initialization
@@ -90,9 +88,14 @@ List all the items
 
 Delete an item
 
+## Uninstall Doka
+
+Run the installer again IN ADMINISTRATOR MODE
+
+````bash
+doka-one-installer.exe uninstall --installation-path "D:/app/doka.one" 
+````
 
 ---
 
-
-
-#### Linux
+### Linux

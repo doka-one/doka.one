@@ -10,13 +10,9 @@ use crate::templates::DEF_FILE_WITH_ARGS_TEMPLATE;
 fn uninstall_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     // serman install key_manager.xml --overwrite
     let serman_program = format!( "{}/bin/serman/serman.exe", &config.installation_path);
-
     let o =  Command::new(serman_program.as_str()).args(&["uninstall", service_id]).output();
-
-
     match o {
         Ok(_) => {
-
         }
         Err(e) => {
             eprint!("Cannot uninstall the service: {service_id}, e=[{}]", e );
@@ -24,11 +20,9 @@ fn uninstall_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     }
 
     println!("Service uninstalled: {service_id}");
-
     sleep(Duration::from_secs(4));
 
     // clear the service by stopping it
-
     let _the_output = Command::new("sc").args(&["stop", service_id]).output()
         .map_err(eprint_fwd!("Cannot stop the service" ))?;
 

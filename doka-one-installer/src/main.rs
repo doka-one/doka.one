@@ -49,7 +49,7 @@ use crate::templates::{DEF_FILE_TEMPLATE, STD_APP_PROPERTIES_TEMPLATE};
 ///                         /keys
 ///                     /session-manager
 ///
-fn read_basic_install_info(args: MyArgs) -> anyhow::Result<Config> {
+fn read_basic_install_info(args: InstallArgs) -> anyhow::Result<Config> {
 
     let _ = step_println("Get the install informations...")?;
 
@@ -72,8 +72,6 @@ fn read_basic_install_info(args: MyArgs) -> anyhow::Result<Config> {
         instance_name : args.instance_name,
         release_number : args.release_number,
     })
-
-
 }
 
 fn create_std_doka_service_folders(config: &Config, service_id: &str) -> anyhow::Result<()> {
@@ -123,50 +121,76 @@ fn verification(config: &Config) -> anyhow::Result<()> {
 }
 
 use clap::Parser;
+use clap::Subcommand;
 
 /// Doka Installer for Windows
+
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// does testing things
+    Install(InstallArgs),
+    Uninstall(UninstallArgs),
+}
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-struct MyArgs {
+struct InstallArgs {
     /// Path to a local folder where to install doka
     /// `Ex : D:\app\doka.one`
-    #[clap(short='i', long, display_order=1, value_parser)]
+    #[arg(short='i', long, display_order=1, value_parser)]
     installation_path: String,
 
     /// Machine name which hosts the database
     /// `Ex : doka.one`
-    #[clap(short='H', long, display_order=2,value_parser)]
+    #[arg(short='H', long, display_order=2,value_parser)]
     db_host: String,
 
     /// Port on which the database runs
     /// `Ex : 5432`
-    #[clap(short='P', long, display_order=3,value_parser)]
+    #[arg(short='P', long, display_order=3,value_parser)]
     db_port: u16,
 
     /// Database user name
     /// `Ex : john`
-    #[clap(short='u', long, display_order=4,value_parser)]
+    #[arg(short='u', long, display_order=4,value_parser)]
     db_user_name: String,
 
     /// Database user password (optional)
     /// `Ex : doo`
-    #[clap(short='p', display_order=5,long, required=false, value_name="[DB_USER_PASSWORD]", value_parser)]
+    #[arg(short='p', display_order=5,long, required=false, value_name="[DB_USER_PASSWORD]", value_parser)]
     db_user_password: Option<String>,
 
     /// Doka instance name
     /// `Ex : prod_1`
-    #[clap(short='I', long, display_order=6,value_parser)]
+    #[arg(short='I', long, display_order=6,value_parser)]
     instance_name: String,
 
     /// Doka release number
-    #[clap(short='r', short, display_order=7,long, possible_values=["0.1.0", "0.2.0"], value_parser)]
+    ///  TODO possible_values=["0.1.0", "0.2.0"],
+    #[arg(short='r', short, display_order=7,long, value_parser)]
     release_number: String,
-
 }
 
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct UninstallArgs {
+    /// Path to a local folder where to install doka
+    /// `Ex : D:\app\doka.one`
+    #[arg(short='i', long, display_order=1, value_parser)]
+    installation_path: String,
+}
 
 /*
   doka-one-installer.exe \
+         install \
          --installation-path "D:/test_install/doka.one" \
          --db-host "localhost" \
          --db-port "5432" \
@@ -174,12 +198,29 @@ struct MyArgs {
          --db-user-password "xxx" \
          --instance-name "test_2" \
          --release-number "0.1.0"
+
+  doka-one-installer.exe \
+           uninstall \
+         --installation-path "D:/test_install/doka.one"
+
 */
 fn main() {
 
-    let args = MyArgs::parse();
+    let cli : Cli = Cli::parse();
 
+    match cli.command {
+        Commands::Install(args) => {
+            install(args)
+        }
+        Commands::Uninstall(args) => {
+            uninstall(args)
+        }
+    }
+}
+
+fn install(args: InstallArgs) {
     let _ = main_println("Installing Doka One...");
+    let _ = main_println("(Make sure you are in Administrator Mode)");
 
     // Phase 1 Enter the install information
 
@@ -250,4 +291,19 @@ fn main() {
     };
 
     let _ = end_println("Doka installed with success");
+}
+
+fn uninstall(args: UninstallArgs) {
+    let config = Config {
+        installation_path: args.installation_path, // the only information we know in case of unsinstall
+        db_host: "".to_string(),
+        db_port: 0,
+        db_user_name: "".to_string(),
+        db_user_password: "".to_string(),
+        instance_name: "".to_string(),
+        release_number: "".to_string()
+    };
+    let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
+        exit(25);
+    };
 }

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
-use dkcrypto::dk_crypto::DkEncrypt;
+
 use dkdto::LoginRequest;
 use doka_cli::request_client::AdminServerClient;
 use crate::{get_target_file, Params};

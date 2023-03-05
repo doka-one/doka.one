@@ -6,20 +6,22 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { version = "0.4.19", features = ["serde"] }
-rocket = "0.4.11"
-serde = "1.0"
-serde_json = "1.0"
-serde_derive = "1.0"
-rs-uuid = "0.3.1"
-log = "0.4"
-log4rs = "0.11.0"
-rocket_okapi = "0.5.1"
-okapi = { version = "0.4", features = ["derive_json_schema"] }
-anyhow = "1.0"
-uuid = "^0.5"
-rustc-serialize = "0.3.24"
-num_cpus = "1.13.1"
+chrono = { workspace = true }
+rocket = { workspace = true }
+rocket_contrib = { workspace = true }
+serde = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+serde_derive = { workspace = true }
+rs-uuid = { workspace = true }
+log = { workspace = true }
+log4rs = { workspace = true }
+rocket_okapi = { workspace = true }
+okapi = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+
+num_cpus = { workspace = true }
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}
@@ -33,7 +35,3 @@ doka-cli = {path="../doka-cli"}
 #reqwest = { version = "0.11", features = ["blocking", "json"] }
 #tokio = { version = "1", features = ["full"] }
 
-[dependencies.rocket_contrib]
-version = "0.4.10"
-default-features = false
-features = ["json","handlebars_templates", "tera_templates"]

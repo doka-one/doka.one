@@ -8,7 +8,7 @@ mod token_commands;
 
 use std::env;
 use std::env::current_exe;
-use std::fs::File;
+
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use anyhow::{anyhow};

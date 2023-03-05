@@ -4,12 +4,12 @@ use std::ops::Add;
 use std::path::Path;
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
-use dkconfig::properties::get_prop_value;
+
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::LoginRequest;
-use doka_cli::request_client::AdminServerClient;
+
+
 use serde::{Serialize, Deserialize};
-use commons_error::*;
+
 use crate::{get_target_file, Params};
 
 ///
@@ -41,7 +41,7 @@ impl ClearSecurityToken {
 }
 
 fn read_cek_from_file(cek_file: &Path) -> anyhow::Result<String> {
-    use std::io::{stdin,stdout,Write};
+
     let cek_path = cek_file.to_str().ok_or(anyhow!("Wrong cek file"))?;
     match std::fs::read_to_string(cek_file) {
         Ok(content) => {Ok(content)}

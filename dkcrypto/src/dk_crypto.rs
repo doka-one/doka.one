@@ -4,10 +4,10 @@ use std::fs::File;
 use std::io::{BufReader};
 use std::io::Read;
 use std::sync::Once;
-use bcrypt::{hash, verify};
 
-use rustc_serialize;
-use rustc_serialize::base64::{ToBase64, FromBase64, URL_SAFE};
+use base64::Engine;
+use base64::engine::general_purpose;
+use bcrypt::{hash, verify};
 
 use crypto;
 use crypto::aes::{self};
@@ -21,9 +21,7 @@ use commons_error::*;
 use log::*;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
-
-// Ensure the constant is obfuscated in the binary code.
-const SALT : obfstr::ObfString<[u8; 100]> = obfstr::obfconst!("vg6E748cXiifSsnErGlXr5KHXN35ANmUoa2VRiebAmllCKCxItIvYZXlqCYGl0BfAzJQ4hIzbrcbISZ07yxA8G9W9x7hbZKVekpX");
+use obfustring::obfustring;
 
 pub struct DkEncrypt {
 
@@ -34,7 +32,8 @@ impl DkEncrypt {
 
     pub fn encrypt_vec(clear_data: &Vec<u8>, key : &str  ) -> anyhow::Result<Vec<u8>>  {
         let iv = get_iv();
-        let vec_key =  key.from_base64()?;
+        let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
+        // let vec_key =  key.from_base64()?;
         let slice_key = &vec_key[..];
         let slice_clear : &[u8] = &clear_data[..];
         let r_encrypted = encrypt(slice_clear, slice_key, &iv)
@@ -47,7 +46,8 @@ impl DkEncrypt {
     //
     pub fn decrypt_vec(encrypted_data : &Vec<u8>, key : &str  ) -> anyhow::Result<Vec<u8>> {
         let iv = get_iv();
-        let vec_key =  key.from_base64()?;
+        let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
+        // let vec_key =  key.from_base64()?;
         let slice_key = &vec_key[..];
         let slice_encrypted : &[u8] = &encrypted_data[..];
         let r_decrypted = decrypt(slice_encrypted, slice_key, &iv)
@@ -63,7 +63,7 @@ impl DkEncrypt {
         let encrypted_data = DkEncrypt::encrypt_vec(&clear_data, key)
             .map_err( err_fwd!("Binary help in prison"))?;
 
-        let str = encrypted_data.to_base64(URL_SAFE);
+        let str = general_purpose::URL_SAFE_NO_PAD.encode(encrypted_data);
 
         Ok(str)
     }
@@ -74,7 +74,8 @@ impl DkEncrypt {
     //  crypted text : 5eftIdP8d4MFUU4KVUn-VQ3Tu_SACE47R01xt9KOhVCxGyVVRSn19yWnbXjOmg-cao6SW4itOM4cRUz33ZgQP_Ae5VtTmk-NsXtg5StaYlGX4QCljpO914xJkocNW_0TZCLvqzaNsTZKGzbPGXJlFMWy8JunbKMR1omkze5-w17Yxr2Gg1SpHU57SeqBCpvbkj5rMyF6skxp4LWMQzEBSj121n7VpXkmndtP-y4n7QOeQjTpW2tmXMhqpTyr-B5mhO7PXsMcNoIcWr7FCpGws14m_I8PNRaCN3nfpviXV5l1TbBa1noeE5HH0AFOs8IxqMLRmikA6bY8Av6IipDYnbZ7d2TO6SjGcE40Yvl3Z_e963Y4GLrbpnwj_9_V4_wNmUFROtj9AO5uRPzwEQdlKcGmiqfluTow-jG4ROJTnaggiCkaTEyFpcjhAye8VNahjo1rKBxecWzC1bp6SrH1-g-jFnMT5yrC7rko3fYvuN2LBpIldDziaJ3ahy3rRWIkelYIHigx6Zu__BZXSAkoKioQ6kvldsVDvFi1_NUISk3b9TOs5pNcopVJKhBEiJHoSUonICPj7UzxauyArh-RzNQQoZV19D03hXFNgXYJvPuXJ3upIpgFMaLC59NcAGZj0Q3H3uztAmkvpICr5Uv05FrmdiLKpN0lhKS0ETr2gVwuY_MRNTmI_V5Ud7SY6tutnLQtjrOFPNckPMQ1Yjyq_2b3FrClJ5fvunvfAEDh0RSKOx62GatWWtiuH7HDhkU_0pRC6QfnIL9W0W6YLnvlTKq_HaaVECuhp-PMRN6PQxkg5TOWOtjQ1IyvIosKfgBXhjyp5AhKlYevoOZqRyo0YxycviyCZUAq4-k5KzTaacDPMx_HYcpg0waPVIsE4DPtgLNQjDl2RaEGUKYntu89bYn47lFj3CP1j0umrWwJuJhznr5NtU7oxZ4Rlznq3lEjqNKkHnvUWD3Z8l68XWicvHWaZ9itH6IznD9GMksQYA-YbumI9wh4BIP1u1T-A9pHWRbWjpJP2sNVKMgLeIZhCy5go8uHDPIwNqTZFQLM59DtTrWCEJHQIP4KMabwHNDTBHvVQtn-EOQZP9kF7kMtYKsnmMlx12mS-fdG4qT_ko5zceYctXwiICT-DpWiRhfI2C29zRZqPLj0s3iuMo1xopL1fDX9b6gG2RywFZwZRtjEhiFi-lfpR-P7Jck61qu2V4sBx_OYNa78epKwelp6gwtSgmzOJjnPULmif9AL9HE
     pub fn decrypt_str(encrypted_text : &str, key : &str  ) -> anyhow::Result<String> {
         log_debug!("Decrypt a string");
-        let encrypted_data = encrypted_text.from_base64()
+
+        let encrypted_data = general_purpose::URL_SAFE_NO_PAD.decode(encrypted_text)
             .map_err( err_fwd!("The text is not base64 encoded") )?;
 
         // SymmetricCipherError is no std error so we cannot use the err_fwd macro
@@ -139,30 +140,13 @@ impl DkEncrypt {
         sha.input_str(&pass_phrase);
         let mut bytes: Vec<u8> = repeat(0u8).take(sha.output_bytes()).collect();
         sha.result(&mut bytes[..]);
-        let key = bytes.to_base64(URL_SAFE);
+
+        let key = general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        // let key = bytes.to_base64(URL_SAFE);
         key
     }
 
 
-    // Hash a password with bcrypt
-    // pub fn hash_password(password: &str) -> String {
-    //
-    //     const DEFAULT_COST: u32 = 10;
-    //     const MAX_SALT_SIZE: usize = 16;
-    //     const OUTPUT_SIZE: usize = 24;
-    //
-    //     let salt = rand::thread_rng().gen::<[u8; MAX_SALT_SIZE]>();
-    //     let mut output = [0u8; OUTPUT_SIZE];
-    //
-    //     bcrypt(DEFAULT_COST,
-    //                    &salt,
-    //                    password.as_bytes(),
-    //                    &mut output);
-    //
-    //     let key = output.to_base64(URL_SAFE);
-    //     println!("base 64 : {}", &key);
-    //     key
-    // }
 
     ///
     /// Hash a password with bcrypt
@@ -272,7 +256,8 @@ fn decrypt(encrypted_data: &[u8], key: &[u8], iv: &[u8]) -> anyhow::Result<Vec<u
 
 
 fn get_salt() -> String {
-    String::from(SALT.deobfuscate(0).as_str())
+    // Ensure the constant is not readable in the binary
+    obfustring!("vg6E748cXiifSsnErGlXr5KHXN35ANmUoa2VRiebAmllCKCxItIvYZXlqCYGl0BfAzJQ4hIzbrcbISZ07yxA8G9W9x7hbZKVekpX")
 }
 
 ///
@@ -302,7 +287,15 @@ pub(crate) fn get_iv() -> [u8;16] {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use obfustring::obfustring;
 
+    fn test_obfstr() {
+        let my_secret = obfustring!("This is my secret string");
+        println!("{}", my_secret);
+    }
+}
 
 
 

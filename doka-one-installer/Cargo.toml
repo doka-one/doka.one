@@ -6,20 +6,22 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0"
-uuid = "^0.5"
-bytes = "1.2.1"
-reqwest = { version = "0.11", features = ["blocking", "json"] }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+bytes = { workspace = true }
+reqwest = { workspace = true }
+# For direct connection to the cs and fs database
+postgres = { workspace = true }
+postgres-types = { workspace = true }
+lazy_static = { workspace = true }
+mut_static = { workspace = true }
+
+clap = { version = "4.0.32", features = ["derive"] }
 zip-extract = "0.1.1"
 portpicker = "0.1.1"
 termcolor = "1.1"
-# For direct connection to the cs and fs database
-postgres = { version = "0.19.1", features = ["with-chrono-0_4"] }
-postgres-types = "0.2.2"
-lazy_static = "1.4.0"
-mut_static = "5.0.0"
-clap = { version = "4.0.32", features = ["derive"] }
 rpassword = "7.0.0"
 winreg = "0.10.1"
+
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}

@@ -110,7 +110,7 @@ fn create_item(params: &Params) -> anyhow::Result<()> {
     println!("👶 Creating the item...");
     let mut o_name = None;
     let mut o_file_ref = None;
-    let mut o_path = None;
+    let mut _o_path = None;
     let mut properties : Vec<AddTagValue>= vec![];
     for (option, option_value) in &params.options {
         match option.as_str() {
@@ -121,7 +121,7 @@ fn create_item(params: &Params) -> anyhow::Result<()> {
                 o_file_ref = Some(option_value.clone());
             }
             "-pt" | "--path"  => {
-                o_path = Some(option_value.clone());
+                _o_path = Some(option_value.clone());
             }
             "-p" | "--property"  => {
                 // name:value , value is optional

@@ -5,12 +5,13 @@ use std::cmp::max;
 
 use std::thread::{JoinHandle};
 use anyhow::anyhow;
+use base64::Engine;
 use rocket::Data;
 use rocket::http::{ContentType, RawStr};
 use rocket::response::Content;
 use rocket_contrib::json::Json;
 use rs_uuid::iso::uuid_v4;
-use rustc_serialize::base64::{FromBase64, ToBase64, URL_SAFE};
+// use rustc_serialize::base64::{FromBase64, ToBase64, URL_SAFE};
 use log::{info, debug, warn, error};
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock};
@@ -328,7 +329,8 @@ impl FileDelegate {
 
             // and store in the DB
 
-            let data = encrypted_block.to_base64(URL_SAFE);
+            let data = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(encrypted_block);
+            // let data = encrypted_block.to_base64(URL_SAFE);
 
             let sql_query = format!(r"
                     INSERT INTO fs_{}.file_parts (file_reference_id, part_number, is_encrypted, part_data)
@@ -846,7 +848,12 @@ impl FileDelegate {
 
                 let mut enc_slides = HashMap::new();
                 for index in offset..offset + pool_size[pool_index] {
-                    let v = enc_parts.get(&index).ok_or(anyhow!("Wrong index")).map_err(tr_fwd!())?.from_base64().map_err(tr_fwd!())?;
+
+                    let v = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .decode(enc_parts.get(&index).ok_or(anyhow!("Wrong index")).map_err(tr_fwd!())?)
+                        .map_err(tr_fwd!())?;
+
+                    // let v = enc_parts.get(&index).ok_or(anyhow!("Wrong index")).map_err(tr_fwd!())?.from_base64().map_err(tr_fwd!())?;
                     enc_slides.insert(index, v);
                 }
 

@@ -1,0 +1,63 @@
+[
+  {
+    "name": "token",
+    "sub": [
+      {
+        "name": "generate",
+        "description": "Generate a token like the login process but require a secret key instead",
+        "options": [{
+          "description": "Master key of the système",
+          "flags": ["-c", "--cekfile"],
+          "required": true,
+          "hasValue": true,
+          "key": "cekfile"
+        }]
+      }
+    ]
+  },
+  {
+    "name": "customer",
+    "sub": [
+      {
+        "name": "create",
+        "description": "Create new customer and it's admin user",
+        "options": [
+          {
+            "description": "Customer name",
+            "flags": ["-n", "--name"],
+            "required": true,
+            "hasValue": true,
+            "key": "name"
+          },
+          {
+            "description": "Customer email",
+            "flags": ["-e", "--email"],
+            "required": true,
+            "hasValue": true,
+            "key": "email"
+          },
+          {
+            "description": "Admin user password",
+            "flags": ["-ap", "--admin-password"],
+            "required": true,
+            "hasValue": true,
+            "key": "admin-password"
+          }
+        ]
+      },
+      {
+        "name": "delete",
+        "description": "delete a customer and all the users",
+        "options": [
+          {
+            "description": "Customer name",
+            "flags": ["-n", "--name"],
+            "required": true,
+            "hasValue": true,
+            "key": "name"
+          }
+        ]
+      }
+    ]
+  }
+]

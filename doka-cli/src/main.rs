@@ -5,6 +5,7 @@ mod session_commands;
 mod item_commands;
 mod file_commands;
 mod token_commands;
+mod command_options;
 
 use std::env;
 use std::env::current_exe;

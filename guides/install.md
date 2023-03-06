@@ -22,45 +22,45 @@ You can also omit the `--db-user-password`, the program will prompt you to enter
 
 Phase 1: Enter the basic install information 
 
-> Enter the installation path :  e:\doka.one
-> Enter Postgresql host name : localhost
-> Enter Postgresql user name : john
-> Enter Postgresql user password : doo
-> Enter Instance name (default: prod_1) :
+> Enter the installation path :  e:\doka.one <br>
+> Enter Postgresql host name : localhost <br>
+> Enter Postgresql user name : john<br>
+> Enter Postgresql user password : doo<br>
+> Enter Instance name (default: prod_1) :<br>
 
 Phase 2: Verification 
 
-> ....Installation path verified ✔
-> ....Postgresql connection verified ✔
+> ....Installation path verified ✔<br>
+> ....Postgresql connection verified ✔<br>
 
 Phase 3: Download artefacts
 
-> ....Download apache Tika server ... ✔ ... Found port 40'010 available
-> ....Download key-manager ... ✔ ... Found port 30'040 available
-> ....Download session-manager ... ✔ ... Found port 30'050 available
-> ....Download admin-server ... ✔ ... Found port 30'060 available
-> ....Download document-server ... ✔ ... Found port 30'070 available
-> ....Download file-server ... ✔ ... Found port 30'080 available
-> ....Download doka-cli ... ✔
+> ....Download apache Tika server ... ✔ ... Found port 40'010 available<br>
+> ....Download key-manager ... ✔ ... Found port 30'040 available<br>
+> ....Download session-manager ... ✔ ... Found port 30'050 available<br>
+> ....Download admin-server ... ✔ ... Found port 30'060 available<br>
+> ....Download document-server ... ✔ ... Found port 30'070 available<br>
+> ....Download file-server ... ✔ ... Found port 30'080 available<br>
+> ....Download doka-cli ... ✔<br>
 
 Phase 4: Initialization
 
-> Initialize administration schema (ad_prod_1) ... ✔
+> Initialize administration schema (ad_prod_1) ... ✔<br>
 > 
-> Generate master key ... ✔
+> Generate master key ... ✔ <br>
 > 
-> Building configuration files for micro-services ... ✔
+> Building configuration files for micro-services ... ✔<br>
 >
-> Building windows services ... ✔
+> Building windows services ... ✔<br>
 
 Phase 5: Start up services
 
-> Apache Tika Server is running on port : 40'010 (see logs in e:\doka.one\logs\\tika.log) <br>
-> key-manager is running on port 30'040 (see logs in e:\doka.one\logs\key-manager.log) <br>
-> session-manager is running on port 30'050 (see logs in e:\doka.one\logs\admin-server.log) <br>
-> admin-server is running on port 30'060  <br>
-> document-server is running on port 30'070 <br>
->file-server is running on port 30'080  <br>
+* Apache Tika Server is running on port : 40'010 (see logs in e:\doka.one\logs\\tika.log) <br>
+* key-manager is running on port 30'040 (see logs in e:\doka.one\logs\key-manager.log) <br>
+* session-manager is running on port 30'050 (see logs in e:\doka.one\logs\admin-server.log) <br>
+* admin-server is running on port 30'060  <br>
+* document-server is running on port 30'070 <br>
+* file-server is running on port 30'080  <br>
 
 ##### Start doka one
 

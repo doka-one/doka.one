@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
 use dkdto::{AddItemRequest, AddTagValue, EnumTagValue, GetItemReply};
 use doka_cli::request_client::DocumentServerClient;
-use crate::{Params};
+use crate::command_options::Params;
 use crate::session_commands::read_session_id;
 
 ///
@@ -35,7 +35,7 @@ fn get_item(params: &Params) -> anyhow::Result<()> {
     for (option, option_value) in &params.options {
         match option.as_str() {
             "-id" => {
-                o_item_id = Some(option_value.clone());
+                o_item_id = option_value.clone();
             }
             opt => {
                 return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
@@ -115,18 +115,19 @@ fn create_item(params: &Params) -> anyhow::Result<()> {
     for (option, option_value) in &params.options {
         match option.as_str() {
             "-n" | "--name"  => {
-                o_name = Some(option_value.clone());
+                o_name = option_value.clone();
             }
             "-r" | "--ref"  => {
-                o_file_ref = Some(option_value.clone());
+                o_file_ref = option_value.clone();
             }
             "-pt" | "--path"  => {
-                _o_path = Some(option_value.clone());
+                _o_path = option_value.clone();
             }
             "-p" | "--property"  => {
                 // name:value , value is optional
-                let separator = option_value.find(":").unwrap_or(option_value.len());
-                let (tag_name, tag_value)  = option_value.split_at(separator);
+                let value : String = option_value.clone().ok_or(anyhow!("`property` is required"))?;
+                let separator = value.find(":").unwrap_or(value.len());
+                let (tag_name, tag_value)  = value.split_at(separator);
 
                 // dbg!((tag_name, tag_value));
                 if tag_value == ":" {

@@ -74,7 +74,9 @@ doka-cli doka shutdown
 
 Open a new windows command line (to enjoy the newly created DOKA_CLI_ENV), environment variable)
 
-doka-cli customer create ...
+doka-cli token generate -c %DOKA_ENV%\document-server\keys\cek.key
+
+doka-cli customer create -n "Denis International Company" -e "denis.4@inc.com" -ap "Myadmin123;"
 
 ##### Login
 

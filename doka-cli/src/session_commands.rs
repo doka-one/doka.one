@@ -5,7 +5,8 @@ use dkconfig::properties::get_prop_value;
 
 use dkdto::LoginRequest;
 use doka_cli::request_client::AdminServerClient;
-use crate::{get_target_file, Params};
+use crate::{get_target_file};
+use crate::command_options::Params;
 
 ///
 ///
@@ -29,10 +30,10 @@ fn session_login(params: &Params) -> anyhow::Result<()> {
     for (option, option_value) in &params.options {
         match option.as_str() {
             "-u" => {
-                user_name = Some(option_value.clone());
+                user_name = option_value.clone();
             }
             "-p" => {
-                user_password = Some(option_value.clone())
+                user_password = option_value.clone();
             }
             opt => {
                 return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))

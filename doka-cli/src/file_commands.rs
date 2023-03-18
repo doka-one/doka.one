@@ -4,7 +4,8 @@ use std::path::Path;
 use anyhow::anyhow;
 use dkconfig::properties::get_prop_value;
 use doka_cli::request_client::FileServerClient;
-use crate::{Params};
+use crate::command_options::Params;
+
 use crate::session_commands::read_session_id;
 
 ///
@@ -30,7 +31,7 @@ fn file_upload(params: &Params) -> anyhow::Result<()> {
     for (option, option_value) in &params.options {
         match option.as_str() {
             "-pt" | "--path" => {
-                o_path = Some(option_value.clone());
+                o_path = option_value.clone();
             }
             opt => {
                 return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt));
@@ -68,10 +69,10 @@ fn file_download(params: &Params) -> anyhow::Result<()> {
     for (option, option_value) in &params.options {
         match option.as_str() {
             "-pt" | "--path" => {
-                o_path = Some(option_value.clone());
+                o_path = option_value.clone();
             }
             "-fr" | "--file_ref" => {
-                o_file_ref = Some(option_value.clone());
+                o_file_ref = option_value.clone();
             }
             opt => {
                 return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt));

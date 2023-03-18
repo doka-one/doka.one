@@ -2,6 +2,8 @@
 
 
 mod file_delegate;
+
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::exit;
 use rocket::config::Environment;
@@ -61,6 +63,18 @@ pub fn file_stats(file_ref: &RawStr, session_token : SessionToken) -> Json<GetFi
 pub fn download(file_ref: &RawStr, session_token : SessionToken) -> Content<Vec<u8>> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.download(file_ref)
+}
+
+// Fonction pour gérer la page d'accueil
+#[get("/index")]
+fn index() -> Template {
+    // Création des données à afficher dans le template
+    let mut context = HashMap::new();
+    context.insert("title", "Page d'accueil");
+    context.insert("message", "Bienvenue sur notre site web!");
+
+    // Rendu du template avec les données
+    Template::render("index", &context)
 }
 
 
@@ -133,6 +147,7 @@ fn main() {
             file_info,
             file_stats,
             download,
+            index,
         ])
         .attach(Template::fairing())
         .launch();

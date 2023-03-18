@@ -10,21 +10,22 @@ use dkcrypto::dk_crypto::DkEncrypt;
 
 use serde::{Serialize, Deserialize};
 
-use crate::{get_target_file, Params};
+use crate::{get_target_file};
+use crate::command_options::Params;
 
 ///
 ///
 ///
-pub (crate) fn token_command(params: &Params) -> anyhow::Result<()> {
-    match params.action.as_str() {
-        "generate" => {
-            token_generate(&params)
-        }
-        action => {
-            Err(anyhow!("💣 Unknown action=[{}]", action))
-        }
-    }
-}
+// pub (crate) fn token_command(params: &Params) -> anyhow::Result<()> {
+//     match params.action.as_str() {
+//         "generate" => {
+//             token_generate(&params)
+//         }
+//         action => {
+//             Err(anyhow!("💣 Unknown action=[{}]", action))
+//         }
+//     }
+// }
 
 /// {"expiry_date":"2022-11-05T14:55:60Z"}
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,22 +53,22 @@ fn read_cek_from_file(cek_file: &Path) -> anyhow::Result<String> {
 }
 
 ///
-fn token_generate(params: &Params) -> anyhow::Result<()> {
+pub(crate) fn token_generate(cek_file : &str) -> anyhow::Result<()> {
     println!("👶 Generate a security token...");
 
-    let mut cek_file = None;
-    for (option, option_value) in &params.options {
-        match option.as_str() {
-            "-c" | "--cek_file" => {
-                cek_file = Some(option_value.clone());
-            }
-            opt => {
-                return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
-            }
-        }
-    }
+    // let mut cek_file = None;
+    // for (option, option_value) in &params.options {
+    //     match option.as_str() {
+    //         "-c" | "--cek_file" => {
+    //             cek_file = option_value.clone();
+    //         }
+    //         opt => {
+    //             return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
+    //         }
+    //     }
+    // }
 
-    let cek  = read_cek_from_file(& Path::new(&cek_file.ok_or(anyhow!("Wrong cek value"))?))?;
+    let cek  = read_cek_from_file(& Path::new(&cek_file))?;
     let clear_token = serde_json::to_string(&ClearSecurityToken::new())?;
     let security_token = DkEncrypt::encrypt_str(&clear_token, &cek)?;
 

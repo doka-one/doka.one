@@ -22,6 +22,7 @@ uuid = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 bytes = { workspace = true }
+colored = "2.0.0"
 
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}

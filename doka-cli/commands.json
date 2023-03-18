@@ -1,12 +1,33 @@
 [
   {
+    "name": "help",
+    "sub": [
+      {
+        "name": "help",
+        "description": "Display help",
+        "options": [
+          {
+            "description": "Display help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "required": false,
+            "hasValue": false,
+            "key": "help"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "name": "token",
     "sub": [
       {
         "name": "generate",
         "description": "Generate a token like the login process but require a secret key instead",
         "options": [{
-          "description": "Master key of the système",
+          "description": "Master key of the system",
           "flags": ["-c", "--cekfile"],
           "required": true,
           "hasValue": true,

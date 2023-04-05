@@ -8,7 +8,6 @@ mod tests {
     use log::*;
     use commons_error::*;
 
-
     static INIT: Once = Once::new();
 
     fn init_log() {
@@ -95,11 +94,6 @@ mod tests {
         let encrypted = DkEncrypt::encrypt_str(clear, &key).unwrap();
 
         dbg!(&encrypted);
-
-        //let new_clear = DkEncrypt::decrypt_str(&encrypted, &key).unwrap();
-        //dbg!(&new_clear);
-
-        //assert_eq!(&clear, &new_clear);
     }
 
 }

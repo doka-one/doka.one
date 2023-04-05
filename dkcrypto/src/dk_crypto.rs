@@ -1,7 +1,7 @@
 
 use std::iter::repeat;
 use std::fs::File;
-use std::io::{BufReader};
+use std::io::{BufReader, Write};
 use std::io::Read;
 use std::sync::Once;
 
@@ -11,17 +11,24 @@ use bcrypt::{hash, verify};
 
 use crypto;
 use crypto::aes::{self};
-use crypto::digest::Digest;
+use crypto::{blockmodes, buffer};
 use crypto::sha2::Sha256;
-use crypto::md5::Md5;
-use crypto::{ buffer, blockmodes };
 use crypto::buffer::{ ReadBuffer, WriteBuffer, BufferResult };
+use crypto::digest::Digest;
 use commons_error::*;
 
 use log::*;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
-use obfustring::obfustring;
+use orion::*;
+use crate::dk_chacha::{decrypt_cc20, encrypt_cc20};
+use crate::dk_crypto::CypherMode::{AES, CC20};
+
+const MODE : CypherMode = CC20; // AES | CC20
+
+enum CypherMode {
+    AES, CC20
+}
 
 pub struct DkEncrypt {
 
@@ -31,29 +38,42 @@ pub struct DkEncrypt {
 impl DkEncrypt {
 
     pub fn encrypt_vec(clear_data: &Vec<u8>, key : &str  ) -> anyhow::Result<Vec<u8>>  {
-        let iv = get_iv();
-        let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
-        // let vec_key =  key.from_base64()?;
-        let slice_key = &vec_key[..];
-        let slice_clear : &[u8] = &clear_data[..];
-        let r_encrypted = encrypt(slice_clear, slice_key, &iv)
-            .map_err(err_fwd!("Cannot encrypt the data"))?;
 
-        Ok(r_encrypted)
+        match MODE {
+            AES => {
+                let iv = get_iv();
+                let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
+                let slice_key = &vec_key[..];
+                let slice_clear : &[u8] = &clear_data[..];
+                let r_encrypted = encrypt(slice_clear, slice_key, &iv)
+                    .map_err(err_fwd!("Cannot encrypt the data"))?;
+                Ok(r_encrypted)}
+            CC20 => {
+                encrypt_cc20(clear_data, key)
+            }
+        }
+
     }
 
     //
     //
     pub fn decrypt_vec(encrypted_data : &Vec<u8>, key : &str  ) -> anyhow::Result<Vec<u8>> {
-        let iv = get_iv();
-        let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
-        // let vec_key =  key.from_base64()?;
-        let slice_key = &vec_key[..];
-        let slice_encrypted : &[u8] = &encrypted_data[..];
-        let r_decrypted = decrypt(slice_encrypted, slice_key, &iv)
-            .map_err(err_fwd!("Cannot decrypt the data"))?;
 
-        Ok(r_decrypted)
+        match MODE {
+            CypherMode::AES => {
+                let iv = get_iv();
+                let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
+                let slice_key = &vec_key[..];
+                let slice_encrypted : &[u8] = &encrypted_data[..];
+                let r_decrypted = decrypt(slice_encrypted, slice_key, &iv)
+                    .map_err(err_fwd!("Cannot decrypt the data"))?;
+                Ok(r_decrypted)
+            }
+            CypherMode::CC20 => {
+                decrypt_cc20(encrypted_data, key)
+            }
+        }
+
     }
 
     //
@@ -91,17 +111,8 @@ impl DkEncrypt {
             .map_err(err_fwd!("Data are not UTF8 compatible"))?;
 
         Ok(clear_string)
-
-
     }
 
-
-    #[deprecated(note="use decrypt_file instead")]
-    pub fn decrypt_customer_file(path : &str, key : &str ) -> anyhow::Result<String> {
-        let bytes = Self::decrypt_file(path,key).map_err(err_fwd!("Decrypt file error"))?;
-        let ret = String::from_utf8(bytes).map_err( err_fwd!("Data are not utf8 compatible"))?;
-        Ok(ret)
-    }
 
     // TODO to be tested
     pub fn decrypt_file(path : &str,  key : &str ) -> anyhow::Result<Vec<u8>> {
@@ -124,29 +135,20 @@ impl DkEncrypt {
         Ok(bin_content)
     }
 
-
     // Generate a random password of 1024 bytes
     // Then compute the SHA256 on it
     // Returned as base64url encoded string
     pub fn generate_random_key() -> String {
-
         let pass_phrase: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(1024)
             .map(char::from)
             .collect();
 
-        let mut sha = Sha256::new();
-        sha.input_str(&pass_phrase);
-        let mut bytes: Vec<u8> = repeat(0u8).take(sha.output_bytes()).collect();
-        sha.result(&mut bytes[..]);
-
+        let bytes = compute_sha(&pass_phrase);
         let key = general_purpose::URL_SAFE_NO_PAD.encode(bytes);
-        // let key = bytes.to_base64(URL_SAFE);
         key
     }
-
-
 
     ///
     /// Hash a password with bcrypt
@@ -178,7 +180,22 @@ impl DkEncrypt {
 
 
 /* Private routines */
+#[deprecated(note="use compute_sha2 instead")]
+fn compute_sha_old(text: &str) -> Vec<u8> {
+    let mut sha = Sha256::new();
+    sha.input_str(&text);
+    let mut bytes: Vec<u8> = repeat(0u8).take(sha.output_bytes()).collect();
+    sha.result(&mut bytes[..]);
+    bytes
+}
 
+fn compute_sha(text: &str) -> Vec<u8> {
+    use sha2::{Digest};
+    let mut hasher = sha2::Sha256::new();
+    hasher.write_all(text.as_bytes()).unwrap();
+    let result = hasher.finalize();
+    (&*result).to_vec()
+}
 
 // Encrypt a buffer with the given key and iv using
 // AES-256/CBC/Pkcs encryption.
@@ -255,23 +272,25 @@ fn decrypt(encrypted_data: &[u8], key: &[u8], iv: &[u8]) -> anyhow::Result<Vec<u
 }
 
 
-fn get_salt() -> String {
-    // Ensure the constant is not readable in the binary
-    obfustring!("vg6E748cXiifSsnErGlXr5KHXN35ANmUoa2VRiebAmllCKCxItIvYZXlqCYGl0BfAzJQ4hIzbrcbISZ07yxA8G9W9x7hbZKVekpX")
-}
+// fn get_salt() -> String {
+//     // Ensure the constant is not readable in the binary
+//     obfustring!("vg6E748cXiifSsnErGlXr5KHXN35ANmUoa2VRiebAmllCKCxItIvYZXlqCYGl0BfAzJQ4hIzbrcbISZ07yxA8G9W9x7hbZKVekpX")
+// }
 
-///
-/// The IV is a simple MD5 on the constant SALT
-/// It's initialzed once and for all.
-/// Can used by calling get_iv()
-///
-fn get_constant_iv() -> [u8;16] {
+
+/// Crypto Init Vector
+/// It's initialized once and for all.
+/// Can be used by calling get_iv()
+fn get_constant_iv() -> [u8; 16] {
     log_info!("Build the IV constant");
-    let mut md5 = Md5::new();
-    md5.input_str(get_salt().as_str());
-    let mut iv :[u8;16] = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-    md5.result(&mut iv);
+    let iv: [u8; 16] = [78, 241, 26, 48, 230, 214, 47, 151, 90, 115, 148, 58, 131, 162, 119, 230, ];
     iv
+
+    // let mut md5 = crypto::md5::Md5::new();
+    // md5.input_str(get_salt().as_str());
+    // let mut iv :[u8;16] = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+    // md5.result(&mut iv);
+    // iv
 }
 
 
@@ -289,11 +308,52 @@ pub(crate) fn get_iv() -> [u8;16] {
 
 #[cfg(test)]
 mod tests {
-    use obfustring::obfustring;
+    use base64::Engine;
+    use base64::engine::general_purpose;
+    use crate::dk_crypto::{compute_sha, compute_sha_old, DkEncrypt, get_constant_iv};
 
-    fn test_obfstr() {
-        let my_secret = obfustring!("This is my secret string");
-        println!("{}", my_secret);
+    #[test]
+    fn test_constant_iv() {
+        let iv = get_constant_iv();
+        println!("{:#?}", &iv);
+        let str = general_purpose::URL_SAFE_NO_PAD.encode(iv);
+        println!("{}", str);
+    }
+
+
+    #[test]
+    fn test_sha() {
+        let enc_data = compute_sha("This is my secret string");
+        let enc_data2 = compute_sha_old("This is my secret string");
+        // dbg!(&enc_data);
+        println!("{:#?}", enc_data);
+        println!("{:#?}", enc_data2);
+    }
+
+
+    #[test]
+    fn test_decrypt_token() {
+        let token = "p60XDuOC6PKDcADcay4U-cLuEKgvp3eTLmj_unGDquYb-LQCappgwIZ-yc8NL-c1";
+        let cek = "qYEV-MKSeQb6lSuXjqeqKH8QH7khmi0kuczzLC6j8eA";
+
+        let clear = DkEncrypt::decrypt_str(token, cek).unwrap();
+
+        println!("{:#?}", clear);
+    }
+
+
+    #[test]
+    fn test_encrypt_token() {
+        let clear_token = "{\"datetime\"}";
+        let cek = "qYEV-MKSeQb6lSuXjqeqKH8QH7khmi0kuczzLC6j8eA";
+
+        let enc_token = DkEncrypt::encrypt_str(clear_token, cek).unwrap();
+
+        println!("Enc Token : {}", &enc_token);
+
+        let clear = DkEncrypt::decrypt_str(&enc_token, cek).unwrap();
+
+        println!("{:#?}", clear);
     }
 }
 

@@ -78,9 +78,15 @@ doka-cli token generate -c %DOKA_ENV%\document-server\keys\cek.key
 
 doka-cli customer create -n "Denis International Company" -e "denis.4@inc.com" -ap "Myadmin123;"
 
+doka-cli item create -n item3 -p "(my_email:t@t.com)(tag2:blabla)"
+
+doka-cli file upload -pt "C:\Users\denis\Dropbox\Upload\38M.m4v" -ii "item_name_sldjfhls"
+
+doka-cli item create -fr d2043bbb-f75e-45b8-7fcc-61c29649c74b -n rapport_activité -p "(private)(level:6)"
+
 ##### Login
 
-doka-cli session login -u ... -p ...
+doka-cli session login -u denis.2@inc.com  -p "Myadmin123;"
 
 ##### Create an item
 

@@ -786,10 +786,10 @@ impl FileServerClient {
         }
     }
 
-    pub fn upload(&self, request: &Vec<u8>, sid: &str) -> UploadReply {
-        // let url = format!("http://{}:{}/file-server/tag", &self.server.server_name, self.server.port);
-        let url = self.server.build_url("upload");
-
+    pub fn upload(&self, item_info: &str, request: &Vec<u8>, sid: &str) -> UploadReply {
+        // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("upload2", item_info);
+        // let url = self.server.build_url("upload2/1ABH234");
         let reply : UploadReply = match self.server.post_bytes_retry(&url, request, &Sid(sid.to_string())) {
             Ok(x) => x,
             Err(e) => {
@@ -805,13 +805,10 @@ impl FileServerClient {
         reply
     }
 
-
     pub fn download(&self, file_reference: &str, sid: &str ) -> ( String, bytes::Bytes, StatusCode ) {
         // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
         let url = self.server.build_url_with_refcode("download", file_reference);
-
         let r_reply : anyhow::Result<(String, bytes::Bytes, StatusCode)> = self.server.get_binary_data_retry(&url, &Sid(sid.to_string()));
-
         let reply = match r_reply {
             Ok(x) => {
                 x
@@ -825,7 +822,6 @@ impl FileServerClient {
 
         reply
     }
-
 }
 
 #[cfg(test)]
@@ -876,7 +872,6 @@ mod test
         let _ = dbg!(s);
         Ok(())
     }
-
 
     #[test]
     fn test_put_big_from_client() -> anyhow::Result<()> {

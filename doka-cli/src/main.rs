@@ -14,15 +14,15 @@ use std::env::current_exe;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use anyhow::{anyhow};
-use rocket_okapi::util::add_media_type;
+
 use commons_error::*;
 use dkconfig::conf_reader::{read_config_from_path};
 use dkconfig::properties::{get_prop_value, set_prop_values};
 use crate::command_options::{Command, display_commands, load_commands, Params, parse_args};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
-use crate::file_commands::file_command;
-use crate::item_commands::item_command;
-use crate::session_commands::session_command;
+use crate::file_commands::{file_download, file_upload};
+use crate::item_commands::{create_item, get_item, search_item};
+use crate::session_commands::{session_login};
 use crate::token_commands::token_generate;
 
 
@@ -59,6 +59,16 @@ fn extract_mandatory_option(options: &HashMap<String, Option<String>>, key: &str
     Ok(value.to_owned())
 }
 
+fn extract_option(options: &HashMap<String, Option<String>>, key: &str) -> anyhow::Result<Option<String>> {
+    let opt_value = options.get(key);
+    match opt_value {
+        None => {Ok(None)}
+        Some(o_value) => {
+            Ok(o_value.to_owned())
+
+        }
+    }
+}
 
 fn dispatch( params : &Params, commands : &[Command]) -> u16 {
     match (params.object.as_str(), params.action.as_str()) {
@@ -96,6 +106,64 @@ fn dispatch( params : &Params, commands : &[Command]) -> u16 {
                 return 70;
             };
             let _err = delete_customer(&customer_code);
+            0
+        }
+        ("session", "login") => {
+            let Ok((user_name, user_password)) = (|| -> anyhow::Result<(String, String)> {
+                Ok((extract_mandatory_option( &params.options, "-u")?,
+                    extract_mandatory_option( &params.options, "-p")?))
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return 80;
+            };
+            let _err = session_login(&user_name, &user_password);
+            0
+        }
+        ("item", "create") => {
+            let Ok((item_name, o_file_ref, o_path, o_properties))
+                = (|| -> anyhow::Result<(String, Option<String>, Option<String>, Option<String>)> {
+                Ok((extract_mandatory_option( &params.options, "-n")?,
+                    extract_option( &params.options, "-r")?,
+                   extract_option( &params.options, "-pt")?,
+                extract_option( &params.options, "-p")?)
+                )
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return 90;
+            };
+            let _err = create_item(&item_name, o_file_ref.as_deref(), o_path.as_deref(), o_properties.as_deref());
+            0
+        }
+        ("item", "search") => {
+            let _err = search_item();
+            0
+        }
+        ("item", "get") => {
+            let Ok(id) = extract_mandatory_option( &params.options, "-id").map_err(eprint_fwd!("Error")) else {
+                return 100;
+            };
+            let _err = get_item(&id);
+            0
+        }
+        ("file", "upload") => {
+            let Ok((item_info, path)) = (|| -> anyhow::Result<(String, String)> {
+                Ok((extract_mandatory_option( &params.options, "-ii")?,
+                    extract_mandatory_option( &params.options, "-pt")?))
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return 110;
+            };
+            // let Ok(path) = extract_mandatory_option( &params.options, "-pt").map_err(eprint_fwd!("Error")) else {
+            //     return 110;
+            // };
+            let _err = file_upload(&item_info, &path);
+            0
+        }
+        ("file", "download") => {
+            let Ok((path, file_ref)) = (|| -> anyhow::Result<(String, String)> {
+                Ok((extract_mandatory_option( &params.options, "-pt")?,
+                    extract_mandatory_option( &params.options, "-fr")?))
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return 120;
+            };
+            let _err = file_download(&path, &file_ref);
             0
         }
         (_, _) => {

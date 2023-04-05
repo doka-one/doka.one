@@ -80,5 +80,89 @@
         ]
       }
     ]
+  },
+  {
+    "name": "item",
+    "sub" : [
+      {
+        "name" : "create",
+        "description" : "Create a new item",
+        "options": [
+          {
+            "flags": ["-n", "--name"],
+            "description": "item name",
+            "required": true,
+            "hasValue": true,
+            "key": "name"
+          },
+          {
+            "flags": ["-r", "--file-ref"],
+            "description": "File reference",
+            "required": false,
+            "hasValue": true,
+            "key": "_"
+          },
+          {
+            "flags": ["-p", "--properties"],
+            "description": "List of properties",
+            "required": false,
+            "hasValue": true,
+            "key": "name"
+          }
+        ]
+      },
+      {
+        "name" : "search",
+        "description" : "Search items",
+        "options": [
+        ]
+      },
+      {
+        "name" : "get",
+        "description" : "Get items info",
+        "options": [
+          {
+            "flags": ["-id"],
+            "description": "item identifier",
+            "required": true,
+            "hasValue": true,
+            "key": "id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "file",
+    "sub": [
+      {
+        "name": "upload",
+        "description": "Upload a file",
+        "options": [
+          {
+            "flags": [
+              "-ii",
+              "--item-info"
+            ],
+            "description": "Information related to the possible item",
+            "required": true,
+            "hasValue": true,
+            "key": "_"
+          },
+          {
+            "flags": [
+              "-pt",
+              "--path"
+            ],
+            "description": "path to the file to upload",
+            "required": true,
+            "hasValue": true,
+            "key": "_"
+          }
+        ]
+      }
+    ]
   }
 ]
+
+

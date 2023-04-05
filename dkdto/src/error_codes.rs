@@ -43,5 +43,7 @@ pub const CUSTOMER_NAME_ALREADY_TAKEN: ErrorSet = ErrorSet { error_code : 600, e
 pub const USER_NAME_ALREADY_TAKEN: ErrorSet = ErrorSet { error_code : 610, err_message : "User name already taken", http_error_code : 200};
 pub const CUSTOMER_NOT_REMOVABLE: ErrorSet = ErrorSet { error_code : 610, err_message : "Customer not removable", http_error_code : 200};
 
+/// Upload
+pub const UPLOAD_WRONG_ITEM_INFO: ErrorSet = ErrorSet { error_code : 700, err_message : "Item info is not a correct string", http_error_code : 200};
 
 pub const HTTP_CLIENT_ERROR : ErrorSet = ErrorSet { error_code : 999, err_message : "Http Client Error", http_error_code : 200};

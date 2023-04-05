@@ -21,7 +21,7 @@ rocket_okapi = { workspace = true }
 schemars = { workspace = true }
 okapi = { workspace = true }
 java-properties = { workspace = true }
-obfustring = { workspace = true }
+#obfustring = { workspace = true }
 anyhow = { workspace = true }
 
 uuid = { workspace = true }

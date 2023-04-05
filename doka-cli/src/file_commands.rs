@@ -8,50 +8,24 @@ use crate::command_options::Params;
 
 use crate::session_commands::read_session_id;
 
-///
-pub (crate) fn file_command(params: &Params) -> anyhow::Result<()> {
-
-    match params.action.as_str() {
-        "upload" => {
-            file_upload(&params)
-        }
-        "download" => {
-            file_download(&params)
-        }
-        action => {
-            Err(anyhow!("💣 Unknown action=[{}]", action))
-        }
-    }
-}
 
 ///
-fn file_upload(params: &Params) -> anyhow::Result<()> {
+pub(crate) fn file_upload(item_info: &str, path :&str) -> anyhow::Result<()> {
     println!("👶 Uploading the file...");
-    let mut o_path = None;
-    for (option, option_value) in &params.options {
-        match option.as_str() {
-            "-pt" | "--path" => {
-                o_path = option_value.clone();
-            }
-            opt => {
-                return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt));
-            }
-        }
-    }
 
     let server_host = get_prop_value("server.host")?;
     let file_server_port: u16 = get_prop_value("fs.port")?.parse()?;
     println!("File server port : {}", file_server_port);
     let client = FileServerClient::new(&server_host, file_server_port);
 
-    let path =  o_path.ok_or(anyhow!("💣 Missing path"))?;
+    //let path =  o_path.ok_or(anyhow!("💣 Missing path"))?;
     let sid = read_session_id()?;
 
     let file = File::open(Path::new(&path))?;
     let mut buf_reader = BufReader::new(file);
     let mut binary : Vec<u8> = vec![];
     let _n = buf_reader.read_to_end(&mut binary)?;
-    let reply = client.upload(&binary, &sid);
+    let reply = client.upload(&item_info, &binary, &sid);
     if reply.status.error_code == 0 {
         println!("😎 File successfully uploaded, reference : {}, number of blocks : {} ", reply.file_ref, reply.block_count);
         Ok(())
@@ -61,34 +35,20 @@ fn file_upload(params: &Params) -> anyhow::Result<()> {
 }
 
 ///
-fn file_download(params: &Params) -> anyhow::Result<()> {
+/// Download the content behind the reference into the file at the path
+///
+pub(crate) fn file_download(path : &str, file_ref: &str) -> anyhow::Result<()> {
     println!("👶 Downloading the file...");
-
-    let mut o_path = None;
-    let mut o_file_ref = None;
-    for (option, option_value) in &params.options {
-        match option.as_str() {
-            "-pt" | "--path" => {
-                o_path = option_value.clone();
-            }
-            "-fr" | "--file_ref" => {
-                o_file_ref = option_value.clone();
-            }
-            opt => {
-                return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt));
-            }
-        }
-    }
 
     let server_host = get_prop_value("server.host")?;
     let file_server_port: u16 = get_prop_value("fs.port")?.parse()?;
     println!("File server port: {}", file_server_port);
     let client = FileServerClient::new(&server_host, file_server_port);
-    let path = o_path.ok_or(anyhow!("💣 Missing path"))?;
-    let file_reference = o_file_ref.ok_or(anyhow!("💣 Missing file reference"))?;
+    //let path = o_path.ok_or(anyhow!("💣 Missing path"))?;
+    //let file_reference = o_file_ref.ok_or(anyhow!("💣 Missing file reference"))?;
     let sid = read_session_id()?;
 
-    let reply = client.download(&file_reference, &sid);
+    let reply = client.download(&file_ref, &sid);
     // TODO REF_TAG : HTTP_ERROR_CODE   For now the StatusCode is always 200
     println!("Status Code: {}", reply.2);
 

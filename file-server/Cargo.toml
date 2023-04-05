@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 chrono = { workspace = true }
 rocket = { workspace = true }
+rocket_cors = { workspace = true }
 rocket_contrib = { workspace = true }
 serde = { workspace = true }
 base64 = { workspace = true }

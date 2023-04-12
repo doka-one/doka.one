@@ -13,7 +13,7 @@ use commons_services::token_lib::{SessionToken};
 use commons_services::session_lib::{fetch_entry_session};
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::error_codes::{BAD_TAG_FOR_ITEM, MISSING_TAG_FOR_ITEM, SUCCESS};
-use dkdto::{AddItemReply, AddItemRequest, EnumTagValue, GetItemReply, ItemElement, JsonErrorSet, AddTagValue, TagValueElement, AddTagRequest, TAG_TYPE_STRING, TAG_TYPE_BOOL, TAG_TYPE_INT, TAG_TYPE_DOUBLE, TAG_TYPE_DATE, TAG_TYPE_DATETIME};
+use dkdto::{AddItemReply, AddItemRequest, EnumTagValue, GetItemReply, ItemElement, JsonErrorSet, AddTagValue, TagValueElement, AddTagRequest, TAG_TYPE_STRING, TAG_TYPE_BOOL, TAG_TYPE_INT, TAG_TYPE_DOUBLE, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_LINK};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
 use crate::TagDelegate;
@@ -510,6 +510,9 @@ impl ItemDelegate {
             EnumTagValue::DateTime(_) => {
                 TAG_TYPE_DATETIME
             }
+            EnumTagValue::Link(_) => {
+                TAG_TYPE_LINK
+            }
         }.to_string()
 
     }
@@ -567,6 +570,9 @@ impl ItemDelegate {
                     Some(SystemTime::from(dt))
                 })();
                 params.insert("p_value_datetime".to_string(), CellValue::SystemTime(opt_st));
+            }
+            EnumTagValue::Link(tv) => {
+                params.insert("p_value_string".to_string(), CellValue::String(tv.clone()));
             }
         }
 

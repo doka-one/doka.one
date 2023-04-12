@@ -104,7 +104,7 @@ fn show_items(items: &GetItemReply) -> anyhow::Result<()>{
 }
 
 ///
-/// The input must be of "age:24"  or "flag1"
+/// The input must be of "age:24:integer" "age:24"  or "flag1"
 ///
 fn build_item_tag(param_value: &str) -> anyhow::Result<AddTagValue> {
 

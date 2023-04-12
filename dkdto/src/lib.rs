@@ -232,6 +232,7 @@ pub enum EnumTagValue {
     Double(Option<f64>),
     SimpleDate(Option<String>),
     DateTime(Option<String>), // "1970-03-23T23:04:10.236Z"
+    Link(Option<String>),
 }
 
 impl EnumTagValue {
@@ -253,6 +254,9 @@ impl EnumTagValue {
                 v.clone().unwrap_or("".to_string()).to_string()
             }
             EnumTagValue::DateTime(v) => {
+                v.clone().unwrap_or("".to_string()).to_string()
+            }
+            EnumTagValue::Link(v) => {
                 v.clone().unwrap_or("".to_string()).to_string()
             }
         }
@@ -359,6 +363,7 @@ pub const TAG_TYPE_INT : &str = "integer";
 pub const TAG_TYPE_DOUBLE : &str = "double";
 pub const TAG_TYPE_DATE : &str = "date";
 pub const TAG_TYPE_DATETIME : &str = "datetime";
+pub const TAG_TYPE_LINK : &str = "link";
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagRequest {

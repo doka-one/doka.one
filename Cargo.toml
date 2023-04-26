@@ -38,7 +38,7 @@ java-properties = "^1.2"
 anyhow = "^1.0"
 uuid = "^1.2"
 #Find another crypto crates
-rust-crypto = "^0.2"
+# rust-crypto = "^0.2"
 rand = "^0.8"
 csv = "^1.1"
 

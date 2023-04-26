@@ -4,17 +4,18 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::io::Read;
 use std::sync::Once;
+use anyhow::anyhow;
 
 use base64::Engine;
 use base64::engine::general_purpose;
 use bcrypt::{hash, verify};
 
-use crypto;
-use crypto::aes::{self};
-use crypto::{blockmodes, buffer};
-use crypto::sha2::Sha256;
-use crypto::buffer::{ ReadBuffer, WriteBuffer, BufferResult };
-use crypto::digest::Digest;
+// use crypto;
+// use crypto::aes::{self};
+// use crypto::{blockmodes, buffer};
+// use crypto::sha2::Sha256;
+// use crypto::buffer::{ ReadBuffer, WriteBuffer, BufferResult };
+// use crypto::digest::Digest;
 use commons_error::*;
 
 use log::*;
@@ -41,13 +42,15 @@ impl DkEncrypt {
 
         match MODE {
             AES => {
-                let iv = get_iv();
-                let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
-                let slice_key = &vec_key[..];
-                let slice_clear : &[u8] = &clear_data[..];
-                let r_encrypted = encrypt(slice_clear, slice_key, &iv)
-                    .map_err(err_fwd!("Cannot encrypt the data"))?;
-                Ok(r_encrypted)}
+                // let iv = get_iv();
+                // let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
+                // let slice_key = &vec_key[..];
+                // let slice_clear : &[u8] = &clear_data[..];
+                // let r_encrypted = encrypt(slice_clear, slice_key, &iv)
+                //     .map_err(err_fwd!("Cannot encrypt the data"))?;
+                // Ok(r_encrypted)}
+                Err(anyhow::anyhow!("AES not supported"))
+            }
             CC20 => {
                 encrypt_cc20(clear_data, key)
             }
@@ -61,13 +64,14 @@ impl DkEncrypt {
 
         match MODE {
             CypherMode::AES => {
-                let iv = get_iv();
-                let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
-                let slice_key = &vec_key[..];
-                let slice_encrypted : &[u8] = &encrypted_data[..];
-                let r_decrypted = decrypt(slice_encrypted, slice_key, &iv)
-                    .map_err(err_fwd!("Cannot decrypt the data"))?;
-                Ok(r_decrypted)
+                // let iv = get_iv();
+                // let vec_key = general_purpose::URL_SAFE_NO_PAD.decode(key)?;
+                // let slice_key = &vec_key[..];
+                // let slice_encrypted : &[u8] = &encrypted_data[..];
+                // let r_decrypted = decrypt(slice_encrypted, slice_key, &iv)
+                //     .map_err(err_fwd!("Cannot decrypt the data"))?;
+                // Ok(r_decrypted)
+                Err(anyhow::anyhow!("AES not supported"))
             }
             CypherMode::CC20 => {
                 decrypt_cc20(encrypted_data, key)
@@ -180,14 +184,14 @@ impl DkEncrypt {
 
 
 /* Private routines */
-#[deprecated(note="use compute_sha2 instead")]
-fn compute_sha_old(text: &str) -> Vec<u8> {
-    let mut sha = Sha256::new();
-    sha.input_str(&text);
-    let mut bytes: Vec<u8> = repeat(0u8).take(sha.output_bytes()).collect();
-    sha.result(&mut bytes[..]);
-    bytes
-}
+// #[deprecated(note="use compute_sha2 instead")]
+// fn compute_sha_old(text: &str) -> Vec<u8> {
+//     let mut sha = Sha256::new();
+//     sha.input_str(&text);
+//     let mut bytes: Vec<u8> = repeat(0u8).take(sha.output_bytes()).collect();
+//     sha.result(&mut bytes[..]);
+//     bytes
+// }
 
 fn compute_sha(text: &str) -> Vec<u8> {
     use sha2::{Digest};
@@ -197,79 +201,79 @@ fn compute_sha(text: &str) -> Vec<u8> {
     (&*result).to_vec()
 }
 
-// Encrypt a buffer with the given key and iv using
-// AES-256/CBC/Pkcs encryption.
-fn encrypt(data: &[u8], key: &[u8], iv: &[u8]) -> anyhow::Result<Vec<u8>> {
-
-    // Create an encryptor instance of the best performing
-    let mut encryptor = aes::cbc_encryptor(
-        aes::KeySize::KeySize256,
-        key,
-        iv,
-        blockmodes::PkcsPadding);
-
-    let mut final_result = Vec::<u8>::new();
-    let mut read_buffer = buffer::RefReadBuffer::new(data);
-    let mut buffer = [0; 4096];
-    let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
-
-    loop {
-        let result = match encryptor.encrypt(&mut read_buffer, &mut write_buffer, true) {
-            Ok(r) => {r}
-            Err(e) => {
-                log_error!("Error {:?}", e);
-                return Err(anyhow::anyhow!("Decrypt vec error"));
-            }
-        };
-
-        final_result.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
-        match result {
-            BufferResult::BufferUnderflow => break,
-            BufferResult::BufferOverflow => { }
-        }
-    }
-
-    Ok(final_result)
-}
-
+// // Encrypt a buffer with the given key and iv using
+// // AES-256/CBC/Pkcs encryption.
+// fn encrypt(data: &[u8], key: &[u8], iv: &[u8]) -> anyhow::Result<Vec<u8>> {
 //
-// Decrypt a byte array of data with the provided key and iv
+//     // Create an encryptor instance of the best performing
+//     let mut encryptor = aes::cbc_encryptor(
+//         aes::KeySize::KeySize256,
+//         key,
+//         iv,
+//         blockmodes::PkcsPadding);
 //
-fn decrypt(encrypted_data: &[u8], key: &[u8], iv: &[u8]) -> anyhow::Result<Vec<u8>> {
+//     let mut final_result = Vec::<u8>::new();
+//     let mut read_buffer = buffer::RefReadBuffer::new(data);
+//     let mut buffer = [0; 4096];
+//     let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+//
+//     loop {
+//         let result = match encryptor.encrypt(&mut read_buffer, &mut write_buffer, true) {
+//             Ok(r) => {r}
+//             Err(e) => {
+//                 log_error!("Error {:?}", e);
+//                 return Err(anyhow::anyhow!("Decrypt vec error"));
+//             }
+//         };
+//
+//         final_result.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
+//         match result {
+//             BufferResult::BufferUnderflow => break,
+//             BufferResult::BufferOverflow => { }
+//         }
+//     }
+//
+//     Ok(final_result)
+// }
 
-    let mut decryptor = aes::cbc_decryptor(
-        aes::KeySize::KeySize256,
-        key,
-        iv,
-        blockmodes::PkcsPadding
-        /*blockmodes::NoPadding */);
-
-    let mut final_result = Vec::<u8>::new();
-    let mut read_buffer = buffer::RefReadBuffer::new(encrypted_data);
-    let mut buffer = [0; 4096];
-    let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
-
-    loop {
-
-        let result = match decryptor.decrypt(&mut read_buffer, &mut write_buffer, true) {
-            Ok(r) => { r},
-            Err(e) => {
-                log_error!("Error {:?}", e);
-                return Err(anyhow::anyhow!("Decrypt error"));
-            }
-        };
-
-
-        final_result.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
-
-        match result {
-            BufferResult::BufferUnderflow => break,
-            BufferResult::BufferOverflow => { }
-        }
-    }
-
-    Ok(final_result)
-}
+// //
+// // Decrypt a byte array of data with the provided key and iv
+// //
+// fn decrypt(encrypted_data: &[u8], key: &[u8], iv: &[u8]) -> anyhow::Result<Vec<u8>> {
+//
+//     let mut decryptor = aes::cbc_decryptor(
+//         aes::KeySize::KeySize256,
+//         key,
+//         iv,
+//         blockmodes::PkcsPadding
+//         /*blockmodes::NoPadding */);
+//
+//     let mut final_result = Vec::<u8>::new();
+//     let mut read_buffer = buffer::RefReadBuffer::new(encrypted_data);
+//     let mut buffer = [0; 4096];
+//     let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+//
+//     loop {
+//
+//         let result = match decryptor.decrypt(&mut read_buffer, &mut write_buffer, true) {
+//             Ok(r) => { r},
+//             Err(e) => {
+//                 log_error!("Error {:?}", e);
+//                 return Err(anyhow::anyhow!("Decrypt error"));
+//             }
+//         };
+//
+//
+//         final_result.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
+//
+//         match result {
+//             BufferResult::BufferUnderflow => break,
+//             BufferResult::BufferOverflow => { }
+//         }
+//     }
+//
+//     Ok(final_result)
+// }
 
 
 // fn get_salt() -> String {
@@ -310,7 +314,7 @@ pub(crate) fn get_iv() -> [u8;16] {
 mod tests {
     use base64::Engine;
     use base64::engine::general_purpose;
-    use crate::dk_crypto::{compute_sha, compute_sha_old, DkEncrypt, get_constant_iv};
+    use crate::dk_crypto::{compute_sha, DkEncrypt, get_constant_iv};
 
     #[test]
     fn test_constant_iv() {
@@ -321,14 +325,14 @@ mod tests {
     }
 
 
-    #[test]
-    fn test_sha() {
-        let enc_data = compute_sha("This is my secret string");
-        let enc_data2 = compute_sha_old("This is my secret string");
-        // dbg!(&enc_data);
-        println!("{:#?}", enc_data);
-        println!("{:#?}", enc_data2);
-    }
+    // #[test]
+    // fn test_sha() {
+    //     let enc_data = compute_sha("This is my secret string");
+    //     let enc_data2 = compute_sha_old("This is my secret string");
+    //     // dbg!(&enc_data);
+    //     println!("{:#?}", enc_data);
+    //     println!("{:#?}", enc_data2);
+    // }
 
 
     #[test]

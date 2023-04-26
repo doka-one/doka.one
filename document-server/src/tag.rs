@@ -9,9 +9,8 @@ use commons_pg::{CellValue, iso_to_date, iso_to_datetime, SQLChange, SQLConnecti
 use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME,
-                         INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
-use dkdto::{AddTagReply, AddTagRequest, GetTagReply, JsonErrorSet, TagElement};
+use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
+use dkdto::{AddTagReply, AddTagRequest, GetTagReply, JsonErrorSet, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagElement};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
 
@@ -402,9 +401,14 @@ impl TagDelegate {
             })
         }
 
+
+
+
+
+
         // Check the input values ( ie tag_type, length limit, default_value type, etc )
         match add_tag_request.tag_type.to_lowercase().as_str() {
-            "string" => {
+            TAG_TYPE_STRING => {
                 // The string_length between 0 and 10_000_000
                 const MAX_STRING_LENGTH : usize = 2000;
                 if let Some(default_string) = &add_tag_request.default_value {
@@ -416,7 +420,19 @@ impl TagDelegate {
                     }
                 }
             },
-            "bool" => {
+            TAG_TYPE_LINK => {
+                // A Link is like a string
+                const MAX_LINK_LENGTH: usize = 400;
+                if let Some(default_string) = &add_tag_request.default_value {
+                    if default_string.len() > MAX_LINK_LENGTH as usize {
+                        return Some(AddTagReply {
+                            tag_id: 0,
+                            status:  JsonErrorSet::from(INCORRECT_DEFAULT_LINK_LENGTH),
+                        })
+                    }
+                }
+            },
+            TAG_TYPE_BOOL => {
                 if let Some(v) = &add_tag_request.default_value {
                     if v != "true" && v != "false" {
                         return Some(AddTagReply {
@@ -426,7 +442,7 @@ impl TagDelegate {
                     }
                 }
             },
-            "integer" => {
+            TAG_TYPE_INT => {
                 if let Some(v) = &add_tag_request.default_value {
                     if v.parse::<i64>().is_err() {
                         return Some(AddTagReply {
@@ -436,7 +452,7 @@ impl TagDelegate {
                     }
                 }
             },
-            "double" => {
+            TAG_TYPE_DOUBLE => {
                 if let Some(d) = &add_tag_request.default_value {
                     if d.parse::<f64>().is_err() {
                         return Some(AddTagReply {
@@ -446,7 +462,7 @@ impl TagDelegate {
                     }
                 }
             },
-            "date" => {
+            TAG_TYPE_DATE => {
                 if let Some(d_str) = &add_tag_request.default_value {
                     // Check if the default is a valid date  ISO8601 1977-04-22
                     if iso_to_date(d_str).is_err() {
@@ -457,7 +473,7 @@ impl TagDelegate {
                     }
                 }
             },
-            "datetime" => {
+            TAG_TYPE_DATETIME => {
                 if let Some(dt_str) = &add_tag_request.default_value {
                     // Check if the default is a valid datetime ISO8601 "1977-04-22T06:00:00Z"
                     if iso_to_datetime(dt_str).is_err() {

@@ -23,7 +23,7 @@ use commons_error::*;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkdto::{AddItemReply, AddItemRequest, AddTagReply, AddTagRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet};
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
 use crate::tag::{TagDelegate};
@@ -50,7 +50,8 @@ pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> Json<GetIt
 }
 
 ///
-/// ✨ Create an item
+/// ✨ Create an item and all its tags
+///     A tag can be existing or not
 /// **NORM
 ///
 #[post("/item", format = "application/json", data = "<add_item_request>")]
@@ -59,6 +60,16 @@ pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: S
     delegate.add_item(add_item_request)
 }
 
+///
+/// ✨ Add tags on an existing item
+///     Tags can be already existing in the system.
+///
+///
+#[post("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
+pub (crate) fn add_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> Json<AddItemTagReply> {
+    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.add_item_tag(add_item_tag_request)
+}
 
 ///
 /// ✨ Find all the existing tags by pages
@@ -173,6 +184,7 @@ fn main() {
             get_all_item,
             get_item,
             add_item,
+            add_item_tag,
             get_all_tag,
             add_tag,
             delete_tag,

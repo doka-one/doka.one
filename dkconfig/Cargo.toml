@@ -14,7 +14,7 @@ serde_derive = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
 schemars = { workspace = true }
-rust-crypto = { workspace = true }
+#rust-crypto = { workspace = true }
 rand = { workspace = true }
 
 java-properties = { workspace = true }

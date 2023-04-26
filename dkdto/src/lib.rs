@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fmt::format;
+use std::str::{FromStr, ParseBoolError};
+use chrono::{Date, DateTime, Local, LocalResult, NaiveDate, ParseResult, TimeZone, Utc};
 
 use rocket_okapi::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
@@ -261,14 +264,86 @@ impl EnumTagValue {
             }
         }
     }
-}
 
+
+    pub fn from_string(tag_value: &str, tag_type: &str) -> Result<Self, String> {
+        match tag_type.to_lowercase().as_str() {
+            TAG_TYPE_STRING => {
+                Ok(Self::String(Some(tag_value.to_owned())))
+            }
+            TAG_TYPE_BOOL => {
+                match bool::from_str(tag_value) {
+                    Ok(b) => {
+                        Ok(Self::Boolean(Some(b)))
+                    }
+                    Err(e) => {
+                        Err(format!("Bad boolean value: {}", e.to_string()))
+                    }
+                }
+            }
+            TAG_TYPE_INT => {
+                match tag_value.parse::<i64>() {
+                    Ok(i) => {
+                        Ok(Self::Integer(Some(i)))
+                    }
+                    Err(e) => {
+                        Err(format!("Bad integer value: {}", e.to_string()))
+                    }
+                }
+            }
+            TAG_TYPE_DOUBLE => {
+                match tag_value.parse::<f64>() {
+                    Ok(i) => {
+                        Ok(Self::Double(Some(i)))
+                    }
+                    Err(e) => {
+                        Err(format!("Bad double value: {}", e.to_string()))
+                    }
+                }
+            }
+            TAG_TYPE_DATE => {
+                match NaiveDate::parse_from_str(tag_value, "%Y-%m-%d") {
+                    Ok(nd) => {
+                        Ok(Self::SimpleDate(Some(tag_value.to_owned())))
+                    }
+                    Err(e) => {
+                        Err(format!("Bad date value: {}", e.to_string()))
+                    }
+                }
+            }
+            TAG_TYPE_DATETIME => {
+                match DateTime::parse_from_rfc3339(tag_value) {
+                    Ok(_) => {
+                        Ok(Self::DateTime(Some(tag_value.to_owned())))
+                    }
+                    Err(e) => {
+                        Err(format!("Bad datetime value: {}", e.to_string()))
+                    }
+                }
+
+            }
+            TAG_TYPE_LINK => {
+                Ok(Self::Link(Some(tag_value.to_owned())))
+            }
+            _ => {
+                Err(format!("Bad type: {}", tag_type))
+            }
+        }
+    }
+
+}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemRequest {
     pub name : String,
     pub file_ref : Option<String>, // file reference to be associated to the item
     pub properties: Option<Vec<AddTagValue>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct AddItemTagRequest {
+    pub item_id : i64,
+    pub properties: Vec<AddTagValue>,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -290,12 +365,26 @@ pub struct AddItemReply {
 impl ErrorReply for AddItemReply {
     type T = Self;
     fn from_error(error_set: ErrorSet) -> Self::T {
-        AddItemReply {
+        Self {
             item_id: 0,
             name: "".to_string(),
             created: "".to_string(),
             status: JsonErrorSet::from(error_set),
             last_modified: None
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct AddItemTagReply {
+    pub status : JsonErrorSet,
+}
+
+impl ErrorReply for AddItemTagReply {
+    type T = Self;
+    fn from_error(error_set: ErrorSet) -> Self::T {
+        Self {
+            status: JsonErrorSet::from(error_set),
         }
     }
 }
@@ -357,10 +446,10 @@ pub struct TagValueElement {
 
 // Tag
 
-pub const TAG_TYPE_STRING : &str = "string";
+pub const TAG_TYPE_STRING : &str = "text";
 pub const TAG_TYPE_BOOL : &str = "bool";
-pub const TAG_TYPE_INT : &str = "integer";
-pub const TAG_TYPE_DOUBLE : &str = "double";
+pub const TAG_TYPE_INT : &str = "int";
+pub const TAG_TYPE_DOUBLE : &str = "decimal";
 pub const TAG_TYPE_DATE : &str = "date";
 pub const TAG_TYPE_DATETIME : &str = "datetime";
 pub const TAG_TYPE_LINK : &str = "link";

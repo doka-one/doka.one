@@ -23,8 +23,9 @@ pub const SESSION_CANNOT_BE_CLOSED : ErrorSet = ErrorSet { error_code : 250, err
 pub const SESSION_LOGIN_DENIED: ErrorSet = ErrorSet { error_code : 300, err_message : "Login denied", http_error_code : 200};
 
 /// Tags
-pub const INCORRECT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
+// pub const INCORRECT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
 pub const INCORRECT_DEFAULT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
+pub const INCORRECT_DEFAULT_LINK_LENGTH : ErrorSet = ErrorSet { error_code : 405, err_message : "Incorrect link length", http_error_code : 200};
 pub const INCORRECT_DEFAULT_BOOLEAN_VALUE : ErrorSet = ErrorSet { error_code : 410, err_message : "Incorrect default boolean value", http_error_code : 200};
 pub const INCORRECT_DEFAULT_DOUBLE_VALUE : ErrorSet = ErrorSet { error_code : 420, err_message : "Incorrect default double value", http_error_code : 200};
 pub const INCORRECT_DEFAULT_INTEGER_VALUE : ErrorSet = ErrorSet { error_code : 420, err_message : "Incorrect default integer value", http_error_code : 200};

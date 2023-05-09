@@ -1,12 +1,14 @@
 #![feature(proc_macro_hygiene, decl_macro)]
-#![feature(let_else)]
+
 
 mod file_delegate;
+
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::exit;
 use rocket::config::Environment;
 use rocket_contrib::templates::Template;
-use rocket::{Config, Data, routes};
+use rocket::{Config, Data, Request, Response, routes};
 use commons_pg::{init_db_pool, };
 use commons_services::read_cek_and_store;
 use dkconfig::conf_reader::read_config;
@@ -14,7 +16,8 @@ use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_
 use log::*;
 use commons_error::*;
 use rocket::{post,get};
-use rocket::http::{ RawStr};
+use rocket::fairing::{Fairing, Info, Kind};
+use rocket::http::{ContentType, Method, RawStr, Status};
 use rocket::response::{Content};
 use rocket_contrib::json::Json;
 
@@ -34,6 +37,17 @@ pub fn upload(file_data: Data, session_token : SessionToken) -> Json<UploadReply
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.upload(file_data)
 }
+
+///
+/// ✨  Upload the binary content of a file v2
+/// item_info : Base64Url encoded information representing a value from the possible target item (for instance, its filename)
+///
+#[post("/upload2/<item_info>", data = "<file_data>")]
+pub fn upload2(item_info: &RawStr, file_data: Data, session_token : SessionToken) -> Json<UploadReply> {
+    let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.upload2(item_info, file_data)
+}
+
 
 ///
 /// ✨ Get the information about the composition of a file [file_ref]
@@ -63,6 +77,35 @@ pub fn download(file_ref: &RawStr, session_token : SessionToken) -> Content<Vec<
     delegate.download(file_ref)
 }
 
+#[derive(Debug)]
+pub struct CORS;
+
+impl Fairing for CORS {
+    fn info(&self) -> Info {
+        Info {
+            name: "Add CORS headers to responses",
+            kind: Kind::Response
+        }
+    }
+
+    fn on_response(&self, request: &Request, response: &mut Response) {
+        info!("On Response [{}]", &request );
+        info!("On Response [{}]", &response.status() );
+
+        let _ = response.status();
+        // dbg!(&s);
+
+        if request.method() == Method::Options {
+            response.set_status(Status::Ok);
+        }
+
+        response.adjoin_header(ContentType::JSON );
+        response.adjoin_raw_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PATCH, DELETE");
+        response.adjoin_raw_header("Access-Control-Allow-Origin", "*");
+        response.adjoin_raw_header("Access-Control-Allow-Credentials", "true");
+        response.adjoin_raw_header("Access-Control-Allow-Headers", "*");
+    }
+}
 
 fn main() {
 
@@ -127,13 +170,17 @@ fn main() {
 
     let base_url = format!("/{}", PROJECT_CODE);
 
+
+
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
             upload,
+            upload2,
             file_info,
             file_stats,
             download,
         ])
+        .attach(CORS)
         .attach(Template::fairing())
         .launch();
 

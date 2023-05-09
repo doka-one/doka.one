@@ -6,7 +6,7 @@ mod tests {
     use std::sync::Once;
     use dkcrypto::dk_crypto::*;
     use log::*;
-
+    use commons_error::*;
 
     static INIT: Once = Once::new();
 
@@ -81,6 +81,19 @@ mod tests {
         dbg!(&hash);
         let check = DkEncrypt::verify_password("my_super_password", &hash);
         assert_eq!(true, check);
+    }
+
+    // fqYVyce-Nh0HwpPQ7ZGZLog5s7PBLnwFMAW2OMnNPUs
+    #[test]
+    pub fn c10_security_token() {
+        if LOG_ENABLE {init_log()};
+
+        let clear = r#"{"expiration_date":"2022-11-01T12:00Z"}"#;
+
+        let key = "fqYVyce-Nh0HwpPQ7ZGZLog5s7PBLnwFMAW2OMnNPUs".to_string();
+        let encrypted = DkEncrypt::encrypt_str(clear, &key).unwrap();
+
+        dbg!(&encrypted);
     }
 
 }

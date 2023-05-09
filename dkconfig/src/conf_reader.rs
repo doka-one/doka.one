@@ -52,7 +52,7 @@ pub fn read_config_from_path( config_path: &PathBuf ) -> anyhow::Result<HashMap<
         Ok(o) => o,
         Err(e) => {
             eprintln!("💣 Cannot open the configuration file, e={}", e);
-            return Err(anyhow!("Cannot open the configuration file"));
+            return Err(anyhow!("Cannot open the configuration file: [{:#?}]", &config_path));
         }
     };
 

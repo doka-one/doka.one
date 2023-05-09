@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use portpicker::{is_free, Port};
-use termcolor::Color;
-use crate::{color_println, step_println};
+
+use crate::{step_println};
 
 #[derive(Debug)]
 pub(crate) struct Ports {

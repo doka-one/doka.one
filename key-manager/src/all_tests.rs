@@ -6,8 +6,9 @@ mod test {
     use serde::{Deserialize};
     use std::fs::File;
     use std::io::{BufReader, Read, Write};
-    use crate::dk_crypto::DkEncrypt;
+    //use crate::dk_crypto::DkEncrypt;
     use rocket::local::Client;
+    use dkcrypto::dk_crypto::DkEncrypt;
 
 
     // #[test]

@@ -358,8 +358,6 @@ impl CellValue {
         }
     }
 
-
-
     pub fn from_raw_int(i: i64) -> Self {
         CellValue::Int(Some(i))
     }
@@ -411,6 +409,10 @@ impl CellValue {
     //     //     }
     //     // }
     // }
+
+    pub fn from_raw_str(text: &str) -> Self {
+        CellValue::from_raw_string(text.to_owned())
+    }
 
     pub fn from_raw_string(text: String) -> Self {
         CellValue::String(Some(text))
@@ -652,6 +654,10 @@ impl SQLChange {
         Ok(pk)
     }
 
+    pub fn insert_no_pk(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<()> {
+        let _ = self.execute(sql_transaction)?;
+        Ok(())
+    }
 
     pub fn update(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<u64> {
         let update_info = self.execute(sql_transaction)?;

@@ -23,8 +23,9 @@ pub const SESSION_CANNOT_BE_CLOSED : ErrorSet = ErrorSet { error_code : 250, err
 pub const SESSION_LOGIN_DENIED: ErrorSet = ErrorSet { error_code : 300, err_message : "Login denied", http_error_code : 200};
 
 /// Tags
-pub const INCORRECT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
+// pub const INCORRECT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
 pub const INCORRECT_DEFAULT_STRING_LENGTH : ErrorSet = ErrorSet { error_code : 400, err_message : "Incorrect string length", http_error_code : 200};
+pub const INCORRECT_DEFAULT_LINK_LENGTH : ErrorSet = ErrorSet { error_code : 405, err_message : "Incorrect link length", http_error_code : 200};
 pub const INCORRECT_DEFAULT_BOOLEAN_VALUE : ErrorSet = ErrorSet { error_code : 410, err_message : "Incorrect default boolean value", http_error_code : 200};
 pub const INCORRECT_DEFAULT_DOUBLE_VALUE : ErrorSet = ErrorSet { error_code : 420, err_message : "Incorrect default double value", http_error_code : 200};
 pub const INCORRECT_DEFAULT_INTEGER_VALUE : ErrorSet = ErrorSet { error_code : 420, err_message : "Incorrect default integer value", http_error_code : 200};
@@ -43,5 +44,7 @@ pub const CUSTOMER_NAME_ALREADY_TAKEN: ErrorSet = ErrorSet { error_code : 600, e
 pub const USER_NAME_ALREADY_TAKEN: ErrorSet = ErrorSet { error_code : 610, err_message : "User name already taken", http_error_code : 200};
 pub const CUSTOMER_NOT_REMOVABLE: ErrorSet = ErrorSet { error_code : 610, err_message : "Customer not removable", http_error_code : 200};
 
+/// Upload
+pub const UPLOAD_WRONG_ITEM_INFO: ErrorSet = ErrorSet { error_code : 700, err_message : "Item info is not a correct string", http_error_code : 200};
 
 pub const HTTP_CLIENT_ERROR : ErrorSet = ErrorSet { error_code : 999, err_message : "Http Client Error", http_error_code : 200};

@@ -3,7 +3,7 @@ CREATE EXTENSION pg_trgm;
 
 ALTER TEXT SEARCH DICTIONARY unaccent (RULES='unaccent_default');
 
-CREATE OR REPLACE FUNCTION unaccent_lower(text)
+CREATE OR REPLACE FUNCTION public.unaccent_lower(text)
 RETURNS text AS
 $$
  SELECT CASE

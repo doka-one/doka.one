@@ -7,17 +7,17 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "0.4"
-postgres = { version = "0.19.1", features = ["with-chrono-0_4"] }
-postgres-types = "0.2.2"
-r2d2_postgres = "0.18.0"
-chrono = "0.4"
-anyhow = "1.0"
-lazy_static = "1.4.0"
-mut_static = "5.0.0"
+log = { workspace = true }
+postgres = { workspace = true }
+postgres-types = { workspace = true }
+r2d2_postgres = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+lazy_static = { workspace = true }
+mut_static = { workspace = true }
+
 commons-error = {path="../commons-error"}
 
 [dev-dependencies]
-log4rs = "0.11.0"
-
+log4rs = { workspace = true }
 

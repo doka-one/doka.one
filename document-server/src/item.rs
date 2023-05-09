@@ -12,16 +12,25 @@ use commons_services::database_lib::open_transaction;
 use commons_services::token_lib::{SessionToken};
 use commons_services::session_lib::{fetch_entry_session};
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::error_codes::{BAD_TAG_FOR_ITEM, MISSING_TAG_FOR_ITEM, SUCCESS};
-use dkdto::{AddItemReply, AddItemRequest, EnumTagValue, GetItemReply, ItemElement, JsonErrorSet, AddTagValue, TagValueElement, AddTagRequest, TAG_TYPE_STRING, TAG_TYPE_BOOL, TAG_TYPE_INT, TAG_TYPE_DOUBLE, TAG_TYPE_DATE, TAG_TYPE_DATETIME};
+use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, MISSING_TAG_FOR_ITEM, SUCCESS};
+use dkdto::{AddItemReply, AddItemRequest, EnumTagValue, GetItemReply, ItemElement, JsonErrorSet, AddTagValue, TagValueElement, AddTagRequest, TAG_TYPE_STRING, TAG_TYPE_BOOL, TAG_TYPE_INT, TAG_TYPE_DOUBLE, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_LINK, AddItemTagRequest, AddItemTagReply, ErrorSet};
 use dkdto::error_replies::ErrorReply;
 use doka_cli::request_client::TokenType;
 use crate::TagDelegate;
+
+
+enum OpeningError<'a> {
+    OEDatabase(ErrorSet<'a>),
+    OEInvalidToken(ErrorSet<'a>),
+    OETechnicalError(ErrorSet<'a>),
+}
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
     pub follower: Follower,
 }
+
+
 
 impl ItemDelegate {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
@@ -185,28 +194,32 @@ impl ItemDelegate {
 
 
             let r_value = match tag_type.to_lowercase().as_str() {
-                "string" => {
+                TAG_TYPE_STRING => {
                     let value_string = sql_result.get_string("value_string");
                     Ok(EnumTagValue::String(value_string))
                 }
-                "bool" => {
+                TAG_TYPE_LINK => {
+                    let value_string = sql_result.get_string("value_string");
+                    Ok(EnumTagValue::Link(value_string))
+                }
+                TAG_TYPE_BOOL => {
                     let value_boolean  = sql_result.get_bool("value_boolean");
                     Ok(EnumTagValue::Boolean(value_boolean))
                 }
-                "integer" => {
+                TAG_TYPE_INT => {
                     let value_integer = sql_result.get_int("value_integer");
                     Ok(EnumTagValue::Integer(value_integer))
                 }
-                "double" => {
+                TAG_TYPE_DOUBLE => {
                     let value_double = sql_result.get_double("value_double");
                     Ok(EnumTagValue::Double(value_double))
                 }
-                "date" => {
+                TAG_TYPE_DATE => {
                     let value_date = sql_result.get_naivedate_as_date("value_date");
                     let opt_iso_d_str = value_date.as_ref().map(|x| date_to_iso(x));
                     Ok(EnumTagValue::SimpleDate(opt_iso_d_str))
                 }
-                "datetime" => {
+                TAG_TYPE_DATETIME => {
                     let value_datetime = sql_result.get_timestamp_as_datetime("value_datetime");
                     let opt_iso_dt_str = value_datetime.as_ref().map(|x| date_time_to_iso(x));
                     Ok(EnumTagValue::DateTime(opt_iso_dt_str))
@@ -287,6 +300,65 @@ impl ItemDelegate {
         })
     }
 
+    ///
+    /// ✨ Delegate for add_item_tag
+    ///
+    pub fn add_item_tag(mut self, add_item_tag_request: Json<AddItemTagRequest>) -> Json<AddItemTagReply> {
+        log_info!("🚀 Start add_item_tag api, add_item_tag_request=[{:?}], follower=[{}]", &add_item_tag_request, &self.follower);
+
+        let customer_code = & match self.valid_sid_get_session() {
+            Ok(cc) => { cc }
+            Err(e) => {
+                return Json(AddItemTagReply::from_error(e));
+            }
+        };
+
+        log_info!("😎 We read the session information, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+
+        // Open the transaction
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return Json(AddItemTagReply::internal_database_error_reply());
+        };
+
+        // Verify the item exists
+
+
+        // Add the tags
+        let err_set = self.add_tags_on_item(&mut trans, add_item_tag_request.item_id, customer_code, &add_item_tag_request.properties);
+        if err_set.error_code != 0 {
+            return Json(AddItemTagReply::from_error(err_set));
+        }
+
+        log_info!("🏁 End add_item_tag, follower=[{}]", &self.follower);
+
+        Json(AddItemTagReply {
+            status: JsonErrorSet::from(SUCCESS),
+        })
+    }
+
+
+    //
+    fn valid_sid_get_session(&mut self) -> Result<String, ErrorSet<'static>> {
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+            return Err(INVALID_TOKEN);
+            // return Json(AddItemReply::invalid_token_error_reply());
+        }
+
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
+            return Err(INTERNAL_TECHNICAL_ERROR);
+            // return Json(AddItemReply::internal_technical_error_reply())
+        };
+        let customer_code = entry_session.customer_code.as_str();
+        Ok(customer_code.to_owned())
+    }
+
 
     ///
     /// ✨ Create an item
@@ -295,25 +367,18 @@ impl ItemDelegate {
 
         log_info!("🚀 Start add_item api, add_item_request=[{:?}], follower=[{}]", &add_item_request, &self.follower);
 
-        // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return Json(AddItemReply::invalid_token_error_reply());
-        }
-
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        let internal_database_error_reply: Json<AddItemReply> = Json(AddItemReply::internal_database_error_reply());
-
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            return Json(AddItemReply::internal_technical_error_reply())
+        let customer_code = & match self.valid_sid_get_session() {
+            Ok(cc) => { cc }
+            Err(e) => {
+                return Json(AddItemReply::from_error(e));
+            }
         };
-        let customer_code = entry_session.customer_code.as_str();
 
         log_info!("😎 We read the session information, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
         // Open the transaction
+        let internal_database_error_reply: Json<AddItemReply> = Json(AddItemReply::internal_database_error_reply());
+
         let mut r_cnx = SQLConnection::new();
         let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
@@ -330,48 +395,9 @@ impl ItemDelegate {
 
         // | Insert all the properties
         if let Some(properties) = &add_item_request.properties {
-            for prop in properties {
-                // Check / Define the property
-                let id = match (prop.tag_id, &prop.tag_name) {
-                    (None, None) => {
-                        // Impossible case, return an error.
-                        log_error!("💣 A property must have a tag_id or a tag_name, follower=[{}]", &self.follower);
-                        return internal_database_error_reply;
-                    }
-                    (Some(tag_id), None) => {
-                        // Tag id only, verify if the tag exists, return the tag_id
-                        // Any case with a teg_name provided, check / create , return the tag_id
-                        let Ok(id) = self.check_tag_id_validity(&mut trans, tag_id, prop, customer_code)
-                            .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
-                            let message = format!("tag_id: [{}]", &tag_id);
-                            return Json(AddItemReply::from_error_with_text(MISSING_TAG_FOR_ITEM, &message));
-                        };
-                        id
-                    }
-                    (_, Some(tag_name)) => {
-                        // Any case with a tag_name provided, check / create , return the tag_id
-                        let Ok(id) = self.define_tag_if_needed(&mut trans, prop, customer_code)
-                                .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
-                            let message = format!("tag_name: [{}]", &tag_name);
-                            return Json(AddItemReply::from_error_with_text(BAD_TAG_FOR_ITEM, &message));
-                        };
-                        id
-                    }
-                };
-
-                log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
-
-                // Create the tag values for the item
-                let add_tag_value  = AddTagValue {
-                    tag_id: Some(id),
-                    tag_name: prop.tag_name.clone(),
-                    value: prop.value.clone(),
-                };
-                if self.create_item_property(&mut trans, &add_tag_value, item_id, customer_code)
-                    .map_err(err_fwd!("💣 Insertion of a new tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
-                    return internal_database_error_reply;
-                }
-                log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
+            let err_set = self.add_tags_on_item(&mut trans, item_id, customer_code, properties);
+            if err_set.error_code != 0 {
+                return Json(AddItemReply::from_error(err_set));
             }
         }
 
@@ -397,6 +423,56 @@ impl ItemDelegate {
     }
 
 
+    /// Add tags on an item
+    fn add_tags_on_item(&self, mut trans : &mut SQLTransaction, item_id: i64, customer_code : &str, properties: &Vec<AddTagValue>) -> ErrorSet {
+
+        for prop in properties {
+            // Check / Define the property
+            let id = match (prop.tag_id, &prop.tag_name) {
+                (None, None) => {
+                    // Impossible case, return an error.
+                    log_error!("💣 A property must have a tag_id or a tag_name, follower=[{}]", &self.follower);
+                    return INTERNAL_DATABASE_ERROR;
+                }
+                (Some(tag_id), None) => {
+                    // Tag id only, verify if the tag exists, return the tag_id
+                    // Any case with a tag_name provided, check / create, return the tag_id
+                    let Ok(id) = self.check_tag_id_validity(&mut trans, tag_id, prop, customer_code)
+                        .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
+                        //let message = format!("tag_id: [{}]", &tag_id);
+                        return MISSING_TAG_FOR_ITEM;// Json(AddItemReply::from_error_with_text(MISSING_TAG_FOR_ITEM, &message));
+                    };
+                    id
+                }
+                (_, Some(tag_name)) => {
+                    // Any case with a tag_name provided, check / create , return the tag_id
+                    let Ok(id) = self.define_tag_if_needed(&mut trans, prop, customer_code)
+                        .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
+                        //let message = format!("tag_name: [{}]", &tag_name);
+                        return BAD_TAG_FOR_ITEM; //Json(AddItemReply::from_error_with_text(BAD_TAG_FOR_ITEM, &message));
+                    };
+                    id
+                }
+            };
+
+            log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
+
+            // Create the tag values for the item
+            let add_tag_value  = AddTagValue {
+                tag_id: Some(id),
+                tag_name: prop.tag_name.clone(),
+                value: prop.value.clone(),
+            };
+            if self.create_item_property(&mut trans, &add_tag_value, item_id, customer_code)
+                .map_err(err_fwd!("💣 Insertion of a new tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
+                return INTERNAL_DATABASE_ERROR;
+            }
+            log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
+        }
+        SUCCESS
+    }
+
+    ///
     fn create_item(&self, trans : &mut SQLTransaction, item_name: &str, customer_code : &str, file_ref: Option<String>) -> anyhow::Result<i64> {
         let sql_query = format!( r"INSERT INTO cs_{}.item(name, created_gmt, last_modified_gmt, file_ref)
                                         VALUES (:p_name, :p_created, :p_last_modified, :p_file_ref)", customer_code );
@@ -510,6 +586,9 @@ impl ItemDelegate {
             EnumTagValue::DateTime(_) => {
                 TAG_TYPE_DATETIME
             }
+            EnumTagValue::Link(_) => {
+                TAG_TYPE_LINK
+            }
         }.to_string()
 
     }
@@ -567,6 +646,9 @@ impl ItemDelegate {
                     Some(SystemTime::from(dt))
                 })();
                 params.insert("p_value_datetime".to_string(), CellValue::SystemTime(opt_st));
+            }
+            EnumTagValue::Link(tv) => {
+                params.insert("p_value_string".to_string(), CellValue::String(tv.clone()));
             }
         }
 

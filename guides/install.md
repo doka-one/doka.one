@@ -5,6 +5,7 @@
 Install Postgresql 11 or +
 
 * Get a PG user with admin privileges (Ex : user: john, password : doo)
+   CREATE USER john SUPERUSER CREATEDB CREATEROLE LOGIN PASSWORD 'doo';
 * Download the unaccent_default.rules file : https://doka.one/artefacts/....
 * Copy the  unaccent_default.rules  into the  <pg_install_folder>\share\tsearch_data
 
@@ -13,6 +14,7 @@ Download the doka_one_installer.exe (SHA-256 : ........... )
 Run the doka-one-installer.exe  IN ADMINISTRATOR MODE
 
 ```bash
+
 doka-one-installer.exe install --installation-path "D:/app/doka.one" --db-host "localhost" --db-port "5432" --db-user-name "john" --db-user-password "doo" --instance-name "test_2" --release-number "0.1.0"
 
 doka-one-installer.exe install -i "D:/app/doka.one" -H "localhost" -P "5432" -u "john" -p "doo" -I "test_2" -r "0.1.0"

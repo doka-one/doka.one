@@ -14,7 +14,7 @@ use rocket_contrib::templates::Template;
 use rocket::{Config, routes};
 use commons_pg::init_db_pool;
 use commons_services::read_cek_and_store;
-use dkconfig::conf_reader::read_config;
+use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use log::{error,info};
 use rocket_contrib::json::Json;
@@ -125,7 +125,7 @@ fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
 
     set_prop_values(props);
 

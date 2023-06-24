@@ -1,9 +1,10 @@
 #![feature(proc_macro_hygiene, decl_macro)]
-
+#![feature(let_else)]
 
 mod key;
 mod all_tests;
 
+use std::env;
 use std::path::Path;
 use std::process::exit;
 use log::{info, error};
@@ -13,7 +14,7 @@ use rocket::http::RawStr;
 use rocket_contrib::templates::Template;
 use rocket::config::Environment;
 
-use dkconfig::conf_reader::{read_config};
+use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 
 use commons_error::*;
@@ -71,10 +72,12 @@ fn main() {
     const PROJECT_CODE: &str = "key-manager";
     const VAR_NAME: &str = "DOKA_ENV";
 
+    let doka_env = read_doka_env(&VAR_NAME);
+
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &doka_env);
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
@@ -104,6 +107,7 @@ fn main() {
     read_cek_and_store();
 
     // Init DB pool
+    log_info!("😎 Init DB pool");
     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
         .map_err(err_fwd!("Cannot read the database connection information")) {
         Ok(x) => x,

@@ -23,7 +23,7 @@ use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FIL
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
-use dkconfig::conf_reader::read_config;
+use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkdto::{CreateCustomerReply, CreateCustomerRequest, JsonErrorSet, LoginReply, LoginRequest};
 use crate::customer::{CustomerDelegate};
@@ -95,7 +95,7 @@ fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
 
     set_prop_values(props);
 

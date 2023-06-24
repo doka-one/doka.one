@@ -8,7 +8,7 @@ use std::process::exit;
 use log::*;
 use rocket::*;
 use rocket_contrib::json::Json;
-use dkconfig::conf_reader::{read_config};
+use dkconfig::conf_reader::{read_config, read_doka_env};
 
 
 use rocket::http::RawStr;
@@ -61,7 +61,7 @@ fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
 
     set_prop_values(props);
 

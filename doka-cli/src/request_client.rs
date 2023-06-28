@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 use std::time::Duration;
 use anyhow::anyhow;
-use dkdto::{AddItemReply, AddItemRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet, LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, SessionReply, TikaMeta, TikaParsing, UploadReply};
+use dkdto::{AddItemReply, AddItemRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetFileInfoReply, GetItemReply, GetTagReply, JsonErrorSet, LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, SessionReply, TikaMeta, TikaParsing, UploadReply};
 use log::{error, warn};
 use reqwest::StatusCode;
 
@@ -822,6 +822,26 @@ impl FileServerClient {
 
         reply
     }
+
+    pub fn info(&self, file_ref: &str, sid: &str) -> GetFileInfoReply {
+        // let url = format!("http://{}:{}/file-server/info/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("info", &file_ref);
+        // let url = self.server.build_url("info/1ABH234");
+        let reply : GetFileInfoReply = match self.server.get_data_retry(&url, &Sid(sid.to_string())) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("Technical error, [{}]", e);
+                return GetFileInfoReply {
+                    file_ref: file_ref.to_owned(),
+                    status : JsonErrorSet::from(HTTP_CLIENT_ERROR),
+                    block_count: 0,
+                    block_status: vec![],
+                };
+            },
+        };
+        reply
+    }
+
 }
 
 #[cfg(test)]

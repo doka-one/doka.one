@@ -1,3 +1,4 @@
+#![feature(let_else)]
 
 
 mod customer_commands;
@@ -25,6 +26,17 @@ use crate::item_commands::{create_item, get_item, search_item};
 use crate::session_commands::{session_login};
 use crate::token_commands::token_generate;
 
+const PARAMETER_ERROR: u16 = 10;
+const LOGIN_SESSION_FAILED: u16 = 30;
+const DELETE_CUSTOMER_FAILED: u16 = 40;
+const DISABLE_CUSTOMER_FAILED: u16 = 50;
+const CREATE_CUSTOMER_FAILED: u16 = 60;
+const GENERATE_TOKEN_FAILED: u16 = 80;
+const CREATE_ITEM_FAILED: u16 = 90;
+const GET_ITEM_FAILED: u16 = 100;
+const FILE_UPLOAD_FAILED : u16 = 110;
+const FILE_DOWNLOAD_FAILED: u16 = 120;
+const SUCCESS: u16 = 0;
 
 fn read_configuration_file() -> anyhow::Result<()> {
     let config_path = get_target_file("config/application.properties")?;
@@ -65,23 +77,22 @@ fn extract_option(options: &HashMap<String, Option<String>>, key: &str) -> anyho
         None => {Ok(None)}
         Some(o_value) => {
             Ok(o_value.to_owned())
-
         }
     }
 }
 
-fn dispatch( params : &Params, commands : &[Command]) -> u16 {
+fn dispatch(params : &Params, commands : &[Command]) -> u16 {
     match (params.object.as_str(), params.action.as_str()) {
         ("help", "help") => {
             display_commands(commands);
-            0
+            SUCCESS
         }
         ("token", "generate") => {
             let Ok(cek_file) = extract_mandatory_option( &params.options, "-c").map_err(eprint_fwd!("Error")) else {
-                return 70;
+                return PARAMETER_ERROR;
             };
-            let _err = token_generate(&cek_file);
-            0
+            let err = token_generate(&cek_file);
+            success_or_err(err, GENERATE_TOKEN_FAILED)
         }
         ("customer", "create") => {
             let Ok((customer_name, email, admin_password)) = (|| -> anyhow::Result<(String, String, String)> {
@@ -89,48 +100,48 @@ fn dispatch( params : &Params, commands : &[Command]) -> u16 {
                     extract_mandatory_option( &params.options, "-e")?,
                     extract_mandatory_option( &params.options, "-ap")?))
             }) ().map_err(eprint_fwd!("Error")) else {
-                return 70;
+                return PARAMETER_ERROR;
             };
             let err = create_customer(&customer_name, &email, &admin_password);
-            0
+            success_or_err(err, CREATE_CUSTOMER_FAILED)
         }
         ("customer", "disable") => {
             let Ok(customer_code) = extract_mandatory_option( &params.options, "-cc").map_err(eprint_fwd!("Error")) else {
-                return 70;
+                return PARAMETER_ERROR;
             };
-            let _err = disable_customer(&customer_code);
-            0
+            let err = disable_customer(&customer_code);
+            success_or_err(err, DISABLE_CUSTOMER_FAILED)
         }
         ("customer", "delete") => {
             let Ok(customer_code) = extract_mandatory_option( &params.options, "-cc").map_err(eprint_fwd!("Error")) else {
-                return 70;
+                return PARAMETER_ERROR;
             };
-            let _err = delete_customer(&customer_code);
-            0
+            let err = delete_customer(&customer_code);
+            success_or_err(err, DELETE_CUSTOMER_FAILED)
         }
         ("session", "login") => {
             let Ok((user_name, user_password)) = (|| -> anyhow::Result<(String, String)> {
                 Ok((extract_mandatory_option( &params.options, "-u")?,
                     extract_mandatory_option( &params.options, "-p")?))
             }) ().map_err(eprint_fwd!("Error")) else {
-                return 80;
+                return PARAMETER_ERROR;
             };
-            let _err = session_login(&user_name, &user_password);
-            0
+            let err = session_login(&user_name, &user_password);
+            success_or_err(err, LOGIN_SESSION_FAILED)
         }
         ("item", "create") => {
             let Ok((item_name, o_file_ref, o_path, o_properties))
                 = (|| -> anyhow::Result<(String, Option<String>, Option<String>, Option<String>)> {
                 Ok((extract_mandatory_option( &params.options, "-n")?,
-                    extract_option( &params.options, "-r")?,
-                   extract_option( &params.options, "-pt")?,
-                extract_option( &params.options, "-p")?)
+                    extract_option( &params.options, "-fr")?,
+                    extract_option( &params.options, "-pt")?,
+                    extract_option( &params.options, "-p")?)
                 )
             }) ().map_err(eprint_fwd!("Error")) else {
-                return 90;
+                return CREATE_ITEM_FAILED;
             };
-            let _err = create_item(&item_name, o_file_ref.as_deref(), o_path.as_deref(), o_properties.as_deref());
-            0
+            let err = create_item(&item_name, o_file_ref.as_deref(), o_path.as_deref(), o_properties.as_deref());
+            success_or_err(err, CREATE_ITEM_FAILED)
         }
         ("item", "search") => {
             let _err = search_item();
@@ -138,37 +149,42 @@ fn dispatch( params : &Params, commands : &[Command]) -> u16 {
         }
         ("item", "get") => {
             let Ok(id) = extract_mandatory_option( &params.options, "-id").map_err(eprint_fwd!("Error")) else {
-                return 100;
+                return PARAMETER_ERROR;
             };
-            let _err = get_item(&id);
-            0
+            let err = get_item(&id);
+            success_or_err(err, GET_ITEM_FAILED)
         }
         ("file", "upload") => {
             let Ok((item_info, path)) = (|| -> anyhow::Result<(String, String)> {
                 Ok((extract_mandatory_option( &params.options, "-ii")?,
                     extract_mandatory_option( &params.options, "-pt")?))
             }) ().map_err(eprint_fwd!("Error")) else {
-                return 110;
+                return PARAMETER_ERROR;
             };
-            // let Ok(path) = extract_mandatory_option( &params.options, "-pt").map_err(eprint_fwd!("Error")) else {
-            //     return 110;
-            // };
-            let _err = file_upload(&item_info, &path);
-            0
+            let err = file_upload(&item_info, &path);
+            success_or_err(err, FILE_UPLOAD_FAILED)
         }
         ("file", "download") => {
             let Ok((path, file_ref)) = (|| -> anyhow::Result<(String, String)> {
                 Ok((extract_mandatory_option( &params.options, "-pt")?,
                     extract_mandatory_option( &params.options, "-fr")?))
             }) ().map_err(eprint_fwd!("Error")) else {
-                return 120;
+                return PARAMETER_ERROR;
             };
-            let _err = file_download(&path, &file_ref);
-            0
+            let err = file_download(&path, &file_ref);
+            success_or_err(err, FILE_DOWNLOAD_FAILED)
         }
         (_, _) => {
-            0
+            SUCCESS
         }
+    }
+}
+
+fn success_or_err(err: anyhow::Result<()>, err_code: u16) -> u16 {
+    if err.is_err() {
+        err_code
+    } else {
+        SUCCESS
     }
 }
 
@@ -192,6 +208,8 @@ fn main() -> () {
             exit_program(80);
         }
     };
+
+    dbg!(&params);
 
     match read_configuration_file() {
         Ok(_) => {}

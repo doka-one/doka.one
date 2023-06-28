@@ -814,6 +814,11 @@ let media_type = String::from("");
     ///
     pub fn file_info(&mut self, file_ref: &RawStr) -> Json<GetFileInfoReply> {
 
+        // TODO Change the information in GetFileInfoReply to match the exact block information
+        //      Ex : file size, number of blocks
+        //      Change the is_preview_generated NOT NULL DEFAULT false in the DB
+        //      Get rid of the file_parts table in the request, the value returned will be only 1 row then !!!
+
         log_info!("🚀 Start upload api, follower=[{}]", &self.follower);
 
         // Check if the token is valid
@@ -869,23 +874,26 @@ let media_type = String::from("");
             return Json(GetFileInfoReply::internal_database_error_reply());
         };
 
-        // inner function
+        // inner function, TODO, to be modified to match the new information if file_reference table ! (no more file_parts)
         fn build_block_info(data_set: &mut SQLDataSet) -> anyhow::Result<BlockStatus> {
+
             let block_number = data_set.get_int_32("part_number").ok_or(anyhow!("Wrong part_number col"))? as u32;
             let is_encrypted = data_set.get_bool("is_encrypted").ok_or(anyhow!("Wrong is_encrypted col"))?;
-            let is_fulltext_indexed = data_set.get_bool("is_fulltext_indexed").ok_or(anyhow!("Wrong is_fulltext_indexed col"))?;
-            let is_preview_generated = data_set.get_bool("is_preview_generated").ok_or(anyhow!("Wrong is_preview_generated col"))?;
+            let is_fulltext_parsed = data_set.get_bool("is_fulltext_parsed").ok_or(anyhow!("Wrong is_fulltext_parsed col"))?;
+            // let is_preview_generated = data_set.get_bool("is_preview_generated").ok_or(anyhow!("Wrong is_preview_generated col"))?;
+            let is_preview_generated = false;
             //let part_length = data_set.get_int_32("part_length").unwrap_or(-1) as u32;
 
             Ok(BlockStatus {
                 original_size: 0,
                 block_number,
                 is_encrypted,
-                is_fulltext_indexed,
+                is_fulltext_indexed: is_fulltext_parsed,
                 is_preview_generated
             })
         }
 
+        // Should be only 1 row
         while data_set.next() {
             match build_block_info(&mut data_set) {
                 Ok(block_info) => {

@@ -88,7 +88,7 @@ doka-cli customer create -n "Denis International Company" -e "denis.4@inc.com" -
 doka-cli item create -n item3 -p "(my_email:t@t.com)(tag2:blabla)"
 ````
 
-// TODO  
+**TODO**  
 ````bash
 doka-cli item create -n item4 -p "(to:x78978-546-6546:link)(birthdate:2019-10-01:date)"
 ````

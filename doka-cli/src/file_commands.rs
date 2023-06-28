@@ -18,7 +18,6 @@ pub(crate) fn file_upload(item_info: &str, path :&str) -> anyhow::Result<()> {
     println!("File server port : {}", file_server_port);
     let client = FileServerClient::new(&server_host, file_server_port);
 
-    //let path =  o_path.ok_or(anyhow!("💣 Missing path"))?;
     let sid = read_session_id()?;
 
     let file = File::open(Path::new(&path))?;

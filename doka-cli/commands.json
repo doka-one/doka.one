@@ -96,8 +96,15 @@
             "key": "name"
           },
           {
-            "flags": ["-r", "--file-ref"],
+            "flags": ["-fr", "--file-ref"],
             "description": "File reference",
+            "required": false,
+            "hasValue": true,
+            "key": "_"
+          },
+          {
+            "flags": ["-pt", "--path"],
+            "description": "File path",
             "required": false,
             "hasValue": true,
             "key": "_"

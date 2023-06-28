@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::Path;
 use anyhow::anyhow;
 use regex::{Match, Regex};
 use serde_json::Value::Bool;
@@ -6,44 +9,14 @@ use commons_error::*;
 use dkconfig::properties::get_prop_value;
 use dkdto::{AddItemRequest, AddTagValue, EnumTagValue, GetItemReply};
 use dkdto::EnumTagValue::Boolean;
-use doka_cli::request_client::DocumentServerClient;
+use doka_cli::request_client::{DocumentServerClient, FileServerClient};
 use crate::command_options::{Command, Params};
 use crate::session_commands::read_session_id;
-
-///
-// pub (crate) fn item_command(params: &Params) -> anyhow::Result<()> {
-//
-//     match params.action.as_str() {
-//         "get" => {
-//             get_item(&params)
-//         }
-//         // "search" => {
-//         //     search_item(&params)
-//         // }
-//         // "create" => {
-//         //     create_item(&params)
-//         // }
-//         action => {
-//             Err(anyhow!("💣 Unknown action=[{}]", action))
-//         }
-//     }
-// }
 
 
 ///
 pub(crate) fn get_item(id: &str) -> anyhow::Result<()> {
     println!("👶 Getting the item...");
-    // let mut o_item_id = None;
-    // for (option, option_value) in &params.options {
-    //     match option.as_str() {
-    //         "-id" => {
-    //             o_item_id = option_value.clone();
-    //         }
-    //         opt => {
-    //             return Err(anyhow!("💣 Unknown parameter, option=[{}]", opt))
-    //         }
-    //     }
-    // }
 
     let server_host = get_prop_value("server.host")?;
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
@@ -221,25 +194,65 @@ pub(crate) fn create_item(item_name: &str, o_file_ref: Option<&str>, o_path: Opt
         vec![]
     };
 
+    let sid = read_session_id()?;
+
     let server_host = get_prop_value("server.host")?;
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
-    println!("Document server port : {}", document_server_port);
-    let client = DocumentServerClient::new(&server_host, document_server_port);
+    let file_server_port: u16 = get_prop_value("fs.port")?.parse()?;
+    let file_server_client = FileServerClient::new(&server_host, file_server_port);
+
+    let new_file_ref = match o_path {
+        None => {None}
+        Some(path) => {
+            println!("Uploading the file...");
+            let file = File::open(Path::new(path))?;
+            let mut buf_reader = BufReader::new(file);
+            let mut binary : Vec<u8> = vec![];
+            let _n = buf_reader.read_to_end(&mut binary)?;
+            let fs_reply = file_server_client.upload(&item_name, &binary, &sid);
+
+            if fs_reply.status.error_code != 0 {
+                eprintln!("File upload failed, {}", &fs_reply.status.err_message);
+                return Err(anyhow!("{}", fs_reply.status.err_message));
+            }
+            Some(fs_reply.file_ref)
+        }
+    };
+
+    // println!("Document server port : {}", document_server_port);
+    let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
 
     // dbg!(&properties);
 
+    let file_ref = if let Some(ref new_file_ref) = new_file_ref {
+        println!("New file reference: {}", new_file_ref);
+        Some(new_file_ref.clone())
+    } else {
+        // Ensure the file_ref exists
+        if let Some(fr) = o_file_ref {
+            let get_file_info_reply = file_server_client.info(fr, &sid);
+            if get_file_info_reply.status.error_code != 0 {
+                eprintln!("Error, cannot find the file reference, {}", fr);
+                None
+            } else {
+                println!("File reference found, {}", fr);
+                Some(fr.to_owned())
+            }
+        } else {
+            eprintln!("No file to link");
+            None
+        }
+    };
+
     let add_item_request = AddItemRequest {
         name: item_name.to_owned(),
-        file_ref: o_file_ref.map(|s| { s.to_string() }),
+        file_ref,
         properties: Some(properties),
     };
 
     // dbg!(&add_item_request);
 
-    let sid = read_session_id()?;
-
-    // TODO The web service must ensure the file_ref exists and is not taken.
-    let reply = client.create_item(&add_item_request, &sid);
+    let reply = document_server_client.create_item(&add_item_request, &sid);
     if reply.status.error_code == 0 {
         println!("😎 Item successfully created, id : {} ", reply.item_id);
         Ok(())

@@ -559,8 +559,14 @@ impl ErrorReply for UploadReply {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GetFileInfoReply {
     pub file_ref : String,
-    pub block_count : u32,
-    pub block_status : Vec<Option<BlockStatus>>,
+    pub media_type: Option<String>,
+    pub checksum: Option<String>,
+    pub original_file_size: Option<i64>,
+    pub encrypted_file_size: Option<i64>,
+    pub block_count : Option<i32>,
+    pub is_encrypted: bool,
+    pub is_fulltext_parsed: Option<bool>,
+    pub is_preview_generated: Option<bool>,
     pub status : JsonErrorSet,
 }
 
@@ -569,20 +575,17 @@ impl ErrorReply for GetFileInfoReply {
     fn from_error(error_set: ErrorSet) -> Self::T {
         GetFileInfoReply {
             file_ref : "".to_string(),
-            block_count: 0u32,
-            block_status: vec![],
+            media_type: None,
+            checksum: None,
+            original_file_size: None,
+            encrypted_file_size: None,
+            block_count: None,
+            is_encrypted: false,
+            is_fulltext_parsed: None,
+            is_preview_generated: None,
             status: JsonErrorSet::from(error_set),
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct BlockStatus {
-    pub original_size : usize,
-    pub block_number : u32,
-    pub is_encrypted : bool,
-    pub is_fulltext_indexed : bool,
-    pub is_preview_generated : bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]

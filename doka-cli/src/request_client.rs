@@ -14,6 +14,7 @@ use serde::{de, Serialize};
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use crate::request_client::TokenType::{Sid, Token};
 use commons_error::*;
+use dkdto::error_replies::ErrorReply;
 
 const TIMEOUT : Duration = Duration::from_secs(60 * 60);
 const MAX_HTTP_RETRY: i32 = 5;
@@ -831,12 +832,7 @@ impl FileServerClient {
             Ok(x) => x,
             Err(e) => {
                 log_error!("Technical error, [{}]", e);
-                return GetFileInfoReply {
-                    file_ref: file_ref.to_owned(),
-                    status : JsonErrorSet::from(HTTP_CLIENT_ERROR),
-                    block_count: 0,
-                    block_status: vec![],
-                };
+                return GetFileInfoReply::from_error(HTTP_CLIENT_ERROR);
             },
         };
         reply

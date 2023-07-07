@@ -46,5 +46,6 @@ pub const CUSTOMER_NOT_REMOVABLE: ErrorSet = ErrorSet { error_code : 610, err_me
 
 /// Upload
 pub const UPLOAD_WRONG_ITEM_INFO: ErrorSet = ErrorSet { error_code : 700, err_message : "Item info is not a correct string", http_error_code : 200};
+pub const FILE_INFO_NOT_FOUND: ErrorSet = ErrorSet { error_code : 720, err_message : "Information about the file is not found", http_error_code : 200};
 
 pub const HTTP_CLIENT_ERROR : ErrorSet = ErrorSet { error_code : 999, err_message : "Http Client Error", http_error_code : 200};

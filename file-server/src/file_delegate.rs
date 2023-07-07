@@ -25,8 +25,8 @@ use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_replies::ErrorReply;
-use dkdto::{BlockStatus, EntrySession, GetFileInfoReply, GetFileInfoShortReply, JsonErrorSet, UploadReply};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, SUCCESS, UPLOAD_WRONG_ITEM_INFO};
+use dkdto::{EntrySession, GetFileInfoReply, GetFileInfoShortReply, JsonErrorSet, UploadReply};
+use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, SUCCESS, UPLOAD_WRONG_ITEM_INFO};
 use doka_cli::request_client::{DocumentServerClient, TikaServerClient, TokenType};
 
 type IndexedParts = HashMap<u32, Vec<u8>>;
@@ -813,14 +813,7 @@ let media_type = String::from("");
     /// ✨ Get the information about the composition of a file [file_ref]
     ///
     pub fn file_info(&mut self, file_ref: &RawStr) -> Json<GetFileInfoReply> {
-
-        // TODO Change the information in GetFileInfoReply to match the exact block information
-        //      Ex : file size, number of blocks
-        //      Change the is_preview_generated NOT NULL DEFAULT false in the DB
-        //      Get rid of the file_parts table in the request, the value returned will be only 1 row then !!!
-
         log_info!("🚀 Start upload api, follower=[{}]", &self.follower);
-
         // Check if the token is valid
         if !self.session_token.is_valid() {
             log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
@@ -829,91 +822,85 @@ let media_type = String::from("");
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
         // Read the session information
-
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
                                     .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
             return Json(GetFileInfoReply::internal_technical_error_reply());
         };
-
         let customer_code = entry_session.customer_code.as_str();
-        let mut block_status = vec![];
-
-        let sql_query = format!(r"SELECT fp.id, fr.file_ref, fp.part_number,
+        let sql_query = format!(r"SELECT
+            fr.file_ref,
+            fr.mime_type,
+            fr.checksum,
+            fr.total_part,
+            fr.original_file_size,
+            fr.encrypted_file_size,
             fr.is_encrypted,
             fr.is_fulltext_parsed,
             fr.is_preview_generated
-        FROM  fs_{}.file_reference fr, fs_{}.file_parts fp
+        FROM  fs_{0}.file_reference fr
         WHERE
-            fp.file_reference_id = fr.id AND
-            fr.file_ref = :p_file_reference
-        ORDER BY fr.file_ref, fp.part_number", customer_code, customer_code);
+            fr.file_ref = :p_file_reference", customer_code);
 
         let r_data_set : anyhow::Result<SQLDataSet> = (|| {
             let mut r_cnx = SQLConnection::new();
             let mut trans = open_transaction(&mut r_cnx)?;
-
             let mut params = HashMap::new();
             params.insert("p_file_reference".to_string(), CellValue::from_raw_string(file_ref.to_string()));
-
             let query = SQLQueryBlock {
                 sql_query,
                 start: 0,
                 length: None,
                 params,
             };
-
             let dataset = query.execute(&mut trans)?;
-
             trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-
             Ok(dataset)
-
         })();
-
         let Ok(mut data_set) = r_data_set else {
             return Json(GetFileInfoReply::internal_database_error_reply());
         };
 
-        // inner function, TODO, to be modified to match the new information if file_reference table ! (no more file_parts)
-        fn build_block_info(data_set: &mut SQLDataSet) -> anyhow::Result<BlockStatus> {
-
-            let block_number = data_set.get_int_32("part_number").ok_or(anyhow!("Wrong part_number col"))? as u32;
+        fn build_block_info(data_set: &mut SQLDataSet) -> anyhow::Result<GetFileInfoReply> {
+            let file_ref = data_set.get_string("file_ref").ok_or(anyhow!("Wrong file_ref"))?;
+            let media_type = data_set.get_string("mime_type");
+            let checksum = data_set.get_string("checksum");
+            let original_file_size = data_set.get_int("original_file_size");
+            let encrypted_file_size = data_set.get_int("encrypted_file_size");
+            let total_part = data_set.get_int_32("total_part");
+            // let total_part = None;
             let is_encrypted = data_set.get_bool("is_encrypted").ok_or(anyhow!("Wrong is_encrypted col"))?;
-            let is_fulltext_parsed = data_set.get_bool("is_fulltext_parsed").ok_or(anyhow!("Wrong is_fulltext_parsed col"))?;
-            // let is_preview_generated = data_set.get_bool("is_preview_generated").ok_or(anyhow!("Wrong is_preview_generated col"))?;
-            let is_preview_generated = false;
-            //let part_length = data_set.get_int_32("part_length").unwrap_or(-1) as u32;
+            let is_fulltext_parsed = data_set.get_bool("is_fulltext_parsed");
+            let is_preview_generated = data_set.get_bool("is_preview_generated");
 
-            Ok(BlockStatus {
-                original_size: 0,
-                block_number,
+            Ok(GetFileInfoReply {
+                file_ref,
+                media_type,
+                checksum,
+                original_file_size,
+                encrypted_file_size,
+                block_count : total_part,
                 is_encrypted,
-                is_fulltext_indexed: is_fulltext_parsed,
-                is_preview_generated
+                is_fulltext_parsed,
+                is_preview_generated,
+                status: JsonErrorSet::from(SUCCESS),
             })
         }
-
         // Should be only 1 row
-        while data_set.next() {
+       let file_info_reply  =  if data_set.next() {
             match build_block_info(&mut data_set) {
                 Ok(block_info) => {
-                    block_status.push(Some(block_info));
+                    block_info
                 }
                 Err(e) => {
-                    log_warn!("⛔ Warning while building block info, e=[{}], follower=[{}]", e, &self.follower)
+                    log_warn!("⛔ Warning while building file info, e=[{}], follower=[{}]", e, &self.follower);
+                    GetFileInfoReply::from_error(INTERNAL_DATABASE_ERROR)
                 }
             }
-
-        }
-
+        } else {
+           GetFileInfoReply::from_error(FILE_INFO_NOT_FOUND)
+       };
         log_info!("🏁 End file_info api, follower=[{}]", &self.follower);
-
-        Json(GetFileInfoReply {
-            file_ref : file_ref.to_string(),
-            block_count: block_status.len() as u32,
-            block_status,
-            status: JsonErrorSet::from(SUCCESS),
-        })
+        Json(file_info_reply)
     }
 
 
@@ -1425,28 +1412,40 @@ mod file_server_tests {
 
     #[test]
     fn test_1() {
-
         init_log();
-
         const N_PARTS: u32 = 100;
-
         let delegate = FileDelegate::new(SessionToken("MY SESSION".to_owned()), XRequestID::from_value(Option::None));
         let mut enc_parts = HashMap::new();
-
         for index in 0..N_PARTS {
             let v = "0000".to_string();
             enc_parts.insert(index, v);
         }
-
         // dbg!(&enc_parts);
-
         let r = delegate.parallel_decrypt(enc_parts, "MY_CUSTOMER_KEY").unwrap();
-
         for i in 0..N_PARTS {
             println!("{} -> {:?}", i, r.get(&i).unwrap());
         }
-
     }
 
+
+    #[test]
+    fn test_2() {
+
+        fn calculate_code(text: &str) -> String {
+            let mut code_bytes: Vec<u8> = Vec::new();
+
+            for byte in text.bytes() {
+                let item = (byte % 26) + b'a';
+                code_bytes.push(item);
+            }
+
+            String::from_utf8_lossy(&code_bytes).into_owned()
+        }
+
+        let input_text = "111-snow image bright.jpg";
+        let code = calculate_code(input_text);
+        println!("{}", code);
+
+    }
 
 }

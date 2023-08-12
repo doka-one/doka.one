@@ -1,14 +1,16 @@
 use std::collections::HashMap;
-use std::fmt::format;
-use std::str::{FromStr, ParseBoolError};
-use chrono::{Date, DateTime, Local, LocalResult, NaiveDate, ParseResult, TimeZone, Utc};
+use std::str::FromStr;
 
+use chrono::{DateTime, NaiveDate};
+use rocket::http::{ContentType, Status};
+use rocket::response::status::Custom;
+use rocket_contrib::json::Json;
 use rocket_okapi::JsonSchema;
+use rocket::response::Content;
+use serde::de;
 use serde_derive::{Deserialize, Serialize};
-use crate::error_replies::ErrorReply;
 
 pub mod error_codes;
-pub mod error_replies;
 
 ///
 /// Commons DTO
@@ -16,23 +18,85 @@ pub mod error_replies;
 
 #[derive(Debug)]
 pub struct ErrorSet<'a> {
-    pub error_code : u32,
+    pub http_error_code : u16,
     pub err_message : &'a str,
-    pub http_error_code : u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct JsonErrorSet {
-    pub error_code : u32,
-    pub err_message : String,
+pub struct ErrorMessage {
+    pub http_error_code : u16,
+    pub message : String,
 }
 
-impl JsonErrorSet {
-    pub fn from(error : ErrorSet<'_>) -> Self {
-        let err_message = String::from(error.err_message);
-        JsonErrorSet { error_code : error.error_code, err_message }
+impl From<anyhow::Error> for ErrorMessage {
+    fn from(error: anyhow::Error) -> Self {
+        ErrorMessage {
+            http_error_code: 500,
+            message: error.to_string(),
+        }
     }
 }
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct SimpleMessage {
+    pub message : String,
+}
+
+pub type DType = (String, u64); // For test only
+
+pub type WebType<T> = Custom<Result<Json<T>, Json<SimpleMessage>>>;
+
+pub trait WebTypeBuilder<T> {
+    fn from_simple(code: u16, simple: SimpleMessage) -> Self;
+    fn from_item(code: u16, item : T) -> Self;
+    fn from_errorset(error: ErrorSet<'static>) -> Self;
+}
+
+impl <T> WebTypeBuilder<T> for WebType<T> where T : de::DeserializeOwned {
+    fn from_simple(code: u16, simple: SimpleMessage) -> Self {
+        let status = Status::from_code(code).unwrap();
+        Custom(status, Err(Json(simple)))
+    }
+
+    fn from_item(code: u16, item: T) -> Self {
+        Custom(Status::from_code(code).unwrap(), Ok(Json(item)))
+    }
+
+    fn from_errorset(error: ErrorSet<'static>) -> Self {
+        let s = Status::raw(error.http_error_code);
+        Custom(s, Err(Json(SimpleMessage { message : error.err_message.to_string() })))
+    }
+}
+
+// Need for the ? operator
+impl <T> From<ErrorMessage> for WebType<T> {
+    fn from(error: ErrorMessage) -> Self {
+        let s = Status::raw(error.http_error_code);
+        Custom(s, Err(Json(SimpleMessage { message : error.message })))
+    }
+}
+
+pub type WebResponse<T> = Result<T, ErrorMessage>;
+
+impl <T> WebTypeBuilder<T> for WebResponse<T> /*where T : de::DeserializeOwned*/ {
+    fn from_simple(code: u16, simple: SimpleMessage) -> Self {
+        Err(ErrorMessage { http_error_code: code, message : simple.message.to_owned() })
+    }
+    fn from_item(_code: u16, item: T) -> Self {
+        Ok(item)
+    }
+    fn from_errorset(error: ErrorSet<'static>) -> Self {
+        Err(ErrorMessage { http_error_code: error.http_error_code, message : error.err_message.to_owned() })
+    }
+}
+
+#[derive(Debug)]
+pub struct MediaBytes {
+    pub media_type : String,
+    pub data : bytes::Bytes,
+}
+
+pub type MyResult<T> = Result<T, ErrorMessage>;
 
 ///
 /// Key DTO
@@ -48,17 +112,6 @@ pub struct AddKeyRequest {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct CustomerKeyReply {
     pub keys: HashMap<String, EntryReply>,
-    pub status: JsonErrorSet,
-}
-
-impl ErrorReply for CustomerKeyReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        CustomerKeyReply {
-            keys: Default::default(),
-            status: JsonErrorSet::from(error_set),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -71,19 +124,9 @@ pub struct EntryReply {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddKeyReply {
-    pub success: bool,
-    pub status: JsonErrorSet,
+    pub status: String,
 }
 
-impl ErrorReply for AddKeyReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        AddKeyReply {
-            success: false,
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct ClearTextReply {
@@ -97,18 +140,8 @@ pub struct ClearTextReply {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct SessionReply {
     pub sessions : Vec<EntrySession>,
-    pub status: JsonErrorSet,
 }
 
-impl ErrorReply for SessionReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        SessionReply {
-            sessions: vec![],
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct EntrySession {
@@ -136,18 +169,8 @@ pub struct OpenSessionRequest {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct OpenSessionReply {
     pub session_id : String,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for OpenSessionReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        OpenSessionReply {
-            session_id: "".to_string(),
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
 ///
 /// Admin Server
@@ -165,20 +188,9 @@ pub struct CreateCustomerReply {
     pub customer_id: i64,
     pub customer_code : String, // ex : 2fa6a8d8
     pub admin_user_id : i64,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for CreateCustomerReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        CreateCustomerReply {
-            customer_id: 0,
-            customer_code: "".to_string(),
-            admin_user_id: 0,
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
+
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct DeleteCustomerRequest {
@@ -187,17 +199,10 @@ pub struct DeleteCustomerRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct DeleteCustomerReply {
-    pub status : JsonErrorSet,
+    pub status : String,
 }
 
-impl ErrorReply for DeleteCustomerReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        DeleteCustomerReply {
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
+
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct LoginRequest {
@@ -209,18 +214,6 @@ pub struct LoginRequest {
 pub struct LoginReply {
     pub session_id: String,
     pub customer_code : String,
-    pub status : JsonErrorSet,
-}
-
-impl ErrorReply for LoginReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        LoginReply {
-            session_id: "".to_string(),
-            customer_code: "".to_string(),
-            status: JsonErrorSet::from(error_set),
-        }
-    }
 }
 
 ///
@@ -303,7 +296,7 @@ impl EnumTagValue {
             }
             TAG_TYPE_DATE => {
                 match NaiveDate::parse_from_str(tag_value, "%Y-%m-%d") {
-                    Ok(nd) => {
+                    Ok(_nd) => {
                         Ok(Self::SimpleDate(Some(tag_value.to_owned())))
                     }
                     Err(e) => {
@@ -348,7 +341,7 @@ pub struct AddItemTagRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagValue {
-    pub tag_id : Option<i64>,
+    pub tag_id : Option<i64>, // TODO, not used for now, check if it's usefull or not
     pub tag_name: Option<String>,
     pub value : EnumTagValue,
 }
@@ -359,70 +352,21 @@ pub struct AddItemReply {
     pub name : String,
     pub created : String,
     pub last_modified : Option<String>,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for AddItemReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        Self {
-            item_id: 0,
-            name: "".to_string(),
-            created: "".to_string(),
-            status: JsonErrorSet::from(error_set),
-            last_modified: None
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemTagReply {
-    pub status : JsonErrorSet,
+    pub status : String,
 }
 
-impl ErrorReply for AddItemTagReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        Self {
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
-impl AddItemReply {
-    pub fn from_error_with_text(error_set : ErrorSet, text : &str) -> Self {
-        let message = format!("{} - {}", &error_set.err_message, text);
-        let extended_error_set = ErrorSet {
-            error_code: error_set.error_code,
-            err_message: message.as_str(),
-            http_error_code: error_set.http_error_code,
-        };
-
-        Self {
-            item_id: 0,
-            name: "".to_string(),
-            created: "".to_string(),
-            last_modified: None,
-            status: JsonErrorSet::from(extended_error_set),
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GetItemReply {
     pub items :  Vec<ItemElement>,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for GetItemReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        GetItemReply {
-            items: vec![],
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct ItemElement {
@@ -465,41 +409,19 @@ pub struct AddTagRequest {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddTagReply {
     pub tag_id : i64,
-    pub status : JsonErrorSet,
-}
-
-impl ErrorReply for AddTagReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        AddTagReply {
-            tag_id: 0,
-            status: JsonErrorSet::from(error_set),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GetTagReply {
     pub tags :  Vec<TagElement>,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for GetTagReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        GetTagReply {
-            tags: vec![],
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct TagElement {
     pub tag_id : i64,
     pub name : String,
     pub tag_type : String, // string, bool, integer, double, date, datetime
-
     pub default_value : Option<String>,
 }
 
@@ -516,44 +438,34 @@ pub struct FullTextRequest {
 pub struct FullTextReply {
     //pub item_id : i64,
     pub part_count : u32,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for FullTextReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        FullTextReply {
-            // item_id: 0,
-            part_count: 0,
-            status: JsonErrorSet::from(error_set),
-        }
-    }
-}
 
-// File Server
-// #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-// pub struct UploadRequest {
-//     file_name : String,
-// }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct UploadReply {
     pub file_ref : String,
     pub size : usize,
     pub block_count : u32,
-    pub status : JsonErrorSet,
 }
 
-impl ErrorReply for UploadReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        UploadReply {
-            file_ref: "".to_string(),
-            size : 0,
-            block_count: 0,
-            status: JsonErrorSet::from(error_set),
-        }
+pub type DownloadReply = Custom<Content<Vec<u8>>>;
+
+impl WebTypeBuilder<Vec<u8>> for DownloadReply {
+    fn from_simple(code: u16, _simple: SimpleMessage) -> Self {
+        let status = Status::from_code(code).unwrap();
+        Custom(status, Content(ContentType::HTML, vec![]))
     }
+
+    fn from_item(code: u16, item: Vec<u8>) -> Self {
+        Custom(Status::from_code(code).unwrap(), Content(ContentType::HTML, item))
+    }
+
+    fn from_errorset(error: ErrorSet<'static>) -> Self {
+        let s = Status::raw(error.http_error_code);
+        Custom(s, Content(ContentType::HTML, vec![]))
+    }
+
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -567,25 +479,6 @@ pub struct GetFileInfoReply {
     pub is_encrypted: bool,
     pub is_fulltext_parsed: Option<bool>,
     pub is_preview_generated: Option<bool>,
-    pub status : JsonErrorSet,
-}
-
-impl ErrorReply for GetFileInfoReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        GetFileInfoReply {
-            file_ref : "".to_string(),
-            media_type: None,
-            checksum: None,
-            original_file_size: None,
-            encrypted_file_size: None,
-            block_count: None,
-            is_encrypted: false,
-            is_fulltext_parsed: None,
-            is_preview_generated: None,
-            status: JsonErrorSet::from(error_set),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -596,22 +489,6 @@ pub struct GetFileInfoShortReply {
     pub encrypted_count : i64,
     pub fulltext_indexed_count : i64,
     pub preview_generated_count : i64,
-    pub status : JsonErrorSet,
-}
-
-impl ErrorReply for GetFileInfoShortReply {
-    type T = Self;
-    fn from_error(error_set: ErrorSet) -> Self::T {
-        GetFileInfoShortReply {
-            file_ref: "".to_string(),
-            original_file_size: 0,
-            block_count: 0,
-            encrypted_count: 0,
-            fulltext_indexed_count: 0,
-            preview_generated_count: 0,
-            status: JsonErrorSet::from(error_set),
-        }
-    }
 }
 
 /// Tika

@@ -774,7 +774,7 @@ mod tests {
         let mut data_set = query.execute(&mut trans).unwrap();
 
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         while data_set.next() {
@@ -815,7 +815,7 @@ mod tests {
 
         let id = query.insert(&mut trans).unwrap();
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         assert!(id > 10)
@@ -851,7 +851,7 @@ mod tests {
         }
 
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
     }
 

@@ -1,17 +1,18 @@
-use log::*;
 use std::collections::HashMap;
 use std::time::SystemTime;
+
 use anyhow::anyhow;
 use chrono::Utc;
-use rocket::http::RawStr;
+use log::*;
+use rocket::http::{RawStr, Status};
 use rocket_contrib::json::Json;
+
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{EntrySession, JsonErrorSet, OpenSessionReply, OpenSessionRequest, SessionReply};
-use dkdto::error_codes::{INVALID_REQUEST, SESSION_CANNOT_BE_RENEWED, SESSION_NOT_FOUND, SESSION_TIMED_OUT, SUCCESS};
-use dkdto::error_replies::ErrorReply;
+use dkdto::{EntrySession, OpenSessionReply, OpenSessionRequest, SessionReply, WebType, WebTypeBuilder};
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INVALID_REQUEST, INVALID_TOKEN, SESSION_CANNOT_BE_RENEWED, SESSION_NOT_FOUND, SESSION_TIMED_OUT};
 use doka_cli::request_client::TokenType;
 
 pub(crate) struct SessionDelegate {
@@ -36,7 +37,7 @@ impl SessionDelegate {
     ///
     /// It's usually called by the Login end point using the session_id as a security_token
     ///
-    pub fn open_session(&mut self, session_request: Json<OpenSessionRequest>) -> Json<OpenSessionReply> {
+    pub fn open_session(&mut self, session_request: Json<OpenSessionRequest>) -> WebType<OpenSessionReply> {
 
         log_info!("🚀 Start open_session api, follower=[{}]", &self.follower);
         log_debug!("session_request=[{:?}], follower=[{}]", &session_request, &self.follower);
@@ -44,20 +45,18 @@ impl SessionDelegate {
         // Check if the token is valid
         if !self.security_token.is_valid() {
             log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
-            return Json(OpenSessionReply::invalid_token_error_reply());
+            return WebType::from_errorset(INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        let internal_database_error_reply = Json(OpenSessionReply::internal_database_error_reply());
-
         let Ok(mut cnx) = SQLConnection::new().map_err(err_fwd!("💣 Connection issue, follower=[{}]", &self.follower)) else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         let r_trans = cnx.sql_transaction().map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         let sql_insert = r#"INSERT INTO dokasys.SESSIONS
@@ -83,81 +82,78 @@ impl SessionDelegate {
 
         let Ok(session_db_id) = query.insert(&mut trans)
                             .map_err( err_fwd!("💣 Cannot insert the session, follower=[{}]", &self.follower)) else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Session was opened with success, session_db_id=[{}], follower=[{}]", session_db_id, &self.follower);
 
         let ret = OpenSessionReply {
             session_id,
-            status : JsonErrorSet::from(SUCCESS),
         };
         log_info!("🏁 End open_session, follower=[{}]", &self.follower);
-        Json(ret)
+        WebType::from_item(Status::Accepted.code, ret)
     }
 
 
     ///
     /// 🔑 Find a session from its session id
     ///
-    pub fn read_session(&mut self, session_id: &RawStr) -> Json<SessionReply> {
+    pub fn read_session(&mut self, session_id: &RawStr) -> WebType<SessionReply> {
 
         log_info!("🚀 Start read_session api, follower=[{}]", &self.follower);
 
         // Check if the token is valid
         if ! self.security_token.is_valid() {
             log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
-            return Json(SessionReply::invalid_token_error_reply());
+            return WebType::from_errorset(INVALID_TOKEN);
         }
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         let Ok(session_id) =  session_id.percent_decode().map_err(err_fwd!("💣 Invalid input parameter, [{}]", session_id) ) else {
-            return Json(SessionReply::from_error(INVALID_REQUEST) );
+            return WebType::from_errorset(INVALID_REQUEST);
         };
 
         // Open Db connection
-        let internal_database_error_reply = Json(SessionReply::internal_database_error_reply());
-
         let Ok(mut cnx) = SQLConnection::new().map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower)) else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         let r_trans = cnx.sql_transaction().map_err(err_fwd!("💣 Error transaction, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         // Query the sessions to find the right one
         let Ok(sessions) =  self.search_session_by_sid(&mut trans, Some(&session_id))
                 .map_err(err_fwd!("💣 Session search failed for session id=[{}], follower=[{}]", session_id, &self.follower)) else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         log_info!("😎 Found the session information, number of sessions=[{}], follower=[{}]", sessions.len(), &self.follower);
 
         // Customer key to return
-        let mut session_reply = SessionReply{ sessions, status: JsonErrorSet::from(SUCCESS) };
+        let mut session_reply = SessionReply{ sessions };
 
         // Check if the session was found
         if session_reply.sessions.is_empty() {
             log_warn!("⛔ The session was not found, follower=[{}]", &self.follower);
-            return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_NOT_FOUND) } )
+            return  WebType::from_errorset(SESSION_NOT_FOUND);
         }
 
         let Ok(session) = session_reply.sessions.get_mut(0)
                     .ok_or(anyhow!("Wrong index 0"))
                     .map_err(err_fwd!("💣 Cannot find the session in the list of sessions, follower=[{}]", &self.follower)) else {
-            return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_NOT_FOUND) } );
+            return  WebType::from_errorset(SESSION_NOT_FOUND);
         };
 
         // If the termination time exists, it means the session is closed
         if session.termination_time_gmt.is_some() {
             log_warn!("⛔ The session is closed. Closing time =[{}], follower=[{}]", &session.termination_time_gmt.as_ref().unwrap(), &self.follower);
-            return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_TIMED_OUT) } )
+            return  WebType::from_errorset(SESSION_TIMED_OUT)
         }
 
         // Update the session renew_time_gmt
@@ -166,22 +162,20 @@ impl SessionDelegate {
         if r_update.is_err() {
             trans.rollback();
             log_warn!("💣 Rollback. Cannot update the renew time of the session, follower=[{}]", &self.follower);
-            return Json(SessionReply { sessions : vec![], status: JsonErrorSet::from(SESSION_CANNOT_BE_RENEWED) } )
+            return  WebType::from_errorset(SESSION_CANNOT_BE_RENEWED)
         }
 
         session.renew_time_gmt = Some(Utc::now().to_string());
 
         // End the transaction
         if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Updated the session renew timestamp, session id=[{}], follower=[{}]", &session_id, &self.follower);
-
         log_info!("🏁 End read_session api, follower=[{}]", &self.follower);
 
-        Json(session_reply)
-
+        WebType::from_item(Status::Ok.code, session_reply)
     }
 
 

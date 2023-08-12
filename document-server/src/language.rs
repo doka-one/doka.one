@@ -87,7 +87,7 @@ mod test {
     // use lingua::Language::{English, French, German, Spanish};
     use crate::language::{lang_name_from_code_2, map_code};
 
-    // #[test]
+// #[test]
     // fn test_search_code2() {
     //     let code = lang_code_2_from("french");
     //     assert_eq!("fr", code);

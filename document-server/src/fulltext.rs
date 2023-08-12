@@ -1,23 +1,25 @@
 use std::collections::HashMap;
+
+use log::*;
+use rocket::http::Status;
 use rocket_contrib::json::Json;
+
+use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
+use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
-use dkconfig::properties::get_prop_value;
-use dkdto::{FullTextReply, FullTextRequest, JsonErrorSet};
-use dkdto::error_codes::{SUCCESS};
-use doka_cli::request_client::{TikaServerClient, TokenType};
-use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
-use log::*;
-use commons_error::*;
-use commons_services::key_lib::fetch_customer_key;
 use commons_services::x_request_id::{Follower, XRequestID};
+use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::error_replies::ErrorReply;
-use crate::language::{lang_name_from_code_2, map_code};
+use dkdto::{FullTextReply, FullTextRequest, WebType, WebTypeBuilder};
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
+use doka_cli::request_client::{TikaServerClient, TokenType};
 
+use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
+use crate::language::{lang_name_from_code_2, map_code};
 
 pub(crate) struct FullTextDelegate {
     pub session_token: SessionToken,
@@ -38,24 +40,21 @@ impl FullTextDelegate {
 
     /// ✨ Parse the raw text data and create the document parts
     /// Service called from the file-server
-    pub fn fulltext_indexing(mut self, raw_text_request: Json<FullTextRequest>) -> Json<FullTextReply> {
+    pub fn fulltext_indexing(mut self, raw_text_request: Json<FullTextRequest>) -> WebType<FullTextReply> {
 
         log_info!("🚀 Start fulltext_indexing api, follower=[{}]", &self.follower);
 
         // Check if the token is valid
         if !self.session_token.is_valid() {
             log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return Json(FullTextReply::invalid_token_error_reply());
+            return WebType::from_errorset(INVALID_TOKEN);
         }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        let internal_database_error_reply = Json(FullTextReply::internal_database_error_reply());
-        let internal_technical_error = Json(FullTextReply::internal_technical_error_reply());
 
         // Read the session information
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
                                                     .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            return internal_technical_error;
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
 
         let customer_code = entry_session.customer_code.as_str();
@@ -64,31 +63,29 @@ impl FullTextDelegate {
 
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
                                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
-            return internal_technical_error;
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
 
         let mut r_cnx = SQLConnection::new();
         let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
-             return internal_database_error_reply;
+             return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         // Generate the FT index and create an entry in the "document" table
         let Ok(part_count)  = self.indexing(&mut trans, &raw_text_request, customer_code, &customer_key)
                             .map_err(err_fwd!("💣 Indexing process failed, follower=[{}]", &self.follower)) else {
-            return internal_technical_error;
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
 
-        let _r = trans.commit();
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        }
 
         log_info!("😎 Generated the indexes and the document part entries, number of parts=[{}], follower=[{}]", part_count, &self.follower);
-
         log_info!("🏁 End fulltext_indexing api, follower=[{}]", &self.follower);
 
-        Json(FullTextReply {
-            part_count,
-            status: JsonErrorSet::from(SUCCESS),
-        })
+        WebType::from_item(Status::Ok.code,FullTextReply { part_count  })
     }
 
 

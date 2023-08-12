@@ -1,7 +1,6 @@
-use anyhow::{Result, Context, bail, ensure};
+use anyhow::{bail, Context, ensure, Result};
 use base64::Engine;
 use base64::engine::general_purpose;
-
 use orion::aead::SecretKey;
 use rand::{RngCore, thread_rng};
 
@@ -50,7 +49,7 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
 /// The ciphertext
 pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>/*, nonce: impl AsRef<[u8]>*/) -> Result<Vec<u8>> {
     use orion::hazardous::{
-        aead::xchacha20poly1305::{seal, Nonce, SecretKey as XSecretKey},
+        aead::xchacha20poly1305::{Nonce, seal, SecretKey as XSecretKey},
         mac::poly1305::POLY1305_OUTSIZE,
         stream::xchacha20::XCHACHA_NONCESIZE,
     };
@@ -116,8 +115,8 @@ pub fn decrypt_cc20(ciphertext: impl AsRef<[u8]>, password: impl AsRef<str>) -> 
 mod tests {
     use base64::Engine;
     use base64::engine::general_purpose;
-    use crate::dk_chacha::{decrypt_cc20, encrypt_cc20, nonce};
 
+    use crate::dk_chacha::{decrypt_cc20, encrypt_cc20};
 
     #[test]
     fn test_encrypt_cc20() {

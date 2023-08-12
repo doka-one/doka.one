@@ -1,5 +1,32 @@
 #![feature(proc_macro_hygiene, decl_macro)]
+#![feature(try_trait_v2)]
 
+
+use std::path::Path;
+use std::process::exit;
+
+use anyhow::anyhow;
+use log::{error, info};
+use rocket::{Config, routes};
+use rocket::{delete, get, post};
+use rocket::config::Environment;
+use rocket_contrib::json::Json;
+use rocket_contrib::templates::Template;
+
+use commons_error::*;
+use commons_pg::init_db_pool;
+use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
+use commons_services::read_cek_and_store;
+use commons_services::token_lib::SessionToken;
+use commons_services::x_request_id::XRequestID;
+use dkconfig::conf_reader::{read_config, read_doka_env};
+use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DType, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INVALID_CEK};
+
+use crate::fulltext::FullTextDelegate;
+use crate::item::ItemDelegate;
+use crate::tag::TagDelegate;
 
 mod item;
 mod tag;
@@ -7,33 +34,34 @@ mod fulltext;
 mod ft_tokenizer;
 mod language;
 
-use std::path::Path;
-use std::process::exit;
-use rocket::config::Environment;
-use rocket_contrib::templates::Template;
-use rocket::{Config, routes};
-use commons_pg::init_db_pool;
-use commons_services::read_cek_and_store;
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use log::{error,info};
-use rocket_contrib::json::Json;
-use rocket::{get, post, delete};
-use commons_error::*;
-use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
-use commons_services::token_lib::SessionToken;
-use commons_services::x_request_id::XRequestID;
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, JsonErrorSet};
-use crate::fulltext::FullTextDelegate;
-use crate::item::ItemDelegate;
-use crate::tag::{TagDelegate};
+///
+/// ✨ Test Http Erreur Code
+/// **NORM
+///
+#[get("/get_bonj")]
+pub fn get_bonj() -> WebType<DType> {
+    let res = process_bonj();
+    res
+}
+
+fn process_bonj() -> WebType<DType> {
+    let Ok(_r) = dummy_sub_routine().map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", "kkk".to_string())) else {
+        return WebType::from_errorset(INVALID_CEK)
+    };
+    WebType::from_errorset(INCORRECT_CHAR_TAG_NAME)
+}
+
+fn dummy_sub_routine() -> anyhow::Result<()> {
+    Err(anyhow!("Sub routine erreur"))
+}
+/////////////////////////////////////////////
 
 ///
 /// ✨ Find all the items at page [start_page]
 /// **NORM
 ///
 #[get("/item?<start_page>&<page_size>")]
-pub fn get_all_item(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> Json<GetItemReply> {
+pub fn get_all_item(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> WebType<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_item(start_page, page_size)
 }
@@ -44,7 +72,7 @@ pub fn get_all_item(start_page : Option<u32>, page_size : Option<u32>, session_t
 /// **NORM
 ///
 #[get("/item/<item_id>")]
-pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> Json<GetItemReply> {
+pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> WebType<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_item(item_id)
 }
@@ -55,7 +83,7 @@ pub (crate) fn get_item(item_id: i64, session_token: SessionToken) -> Json<GetIt
 /// **NORM
 ///
 #[post("/item", format = "application/json", data = "<add_item_request>")]
-pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: SessionToken) -> Json<AddItemReply> {
+pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: SessionToken) -> WebType<AddItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.add_item(add_item_request)
 }
@@ -66,7 +94,7 @@ pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: S
 ///
 ///
 #[post("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
-pub (crate) fn add_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> Json<AddItemTagReply> {
+pub (crate) fn add_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.add_item_tag(add_item_tag_request)
 }
@@ -76,7 +104,7 @@ pub (crate) fn add_item_tag(add_item_tag_request: Json<AddItemTagRequest>, sessi
 /// **NORM
 ///
 #[get("/tag?<start_page>&<page_size>")]
-pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> Json<GetTagReply> {
+pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> WebType<GetTagReply> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_tag(start_page, page_size)
 }
@@ -87,7 +115,7 @@ pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, se
 /// **NORM
 ///
 #[delete("/tag/<tag_id>")]
-pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<JsonErrorSet> {
+pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> WebType<SimpleMessage> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.delete_tag(tag_id)
 }
@@ -97,7 +125,7 @@ pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<Json
 /// **NORM
 ///
 #[post("/tag", format = "application/json", data = "<add_tag_request>")]
-pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> Json<AddTagReply> {
+pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> WebType<AddTagReply> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.add_tag(add_tag_request)
 }
@@ -108,7 +136,7 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
 /// **NORM
 ///
 #[post("/fulltext_indexing", format = "application/json", data = "<raw_text_request>")]
-pub (crate) fn fulltext_indexing(raw_text_request: Json<FullTextRequest>, session_token: SessionToken, x_request_id: XRequestID) -> Json<FullTextReply> {
+pub (crate) fn fulltext_indexing(raw_text_request: Json<FullTextRequest>, session_token: SessionToken, x_request_id: XRequestID) -> WebType<FullTextReply> {
     let delegate = FullTextDelegate::new(session_token, x_request_id);
     delegate.fulltext_indexing(raw_text_request)
 }
@@ -181,6 +209,7 @@ fn main() {
 
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
+            get_bonj,
             get_all_item,
             get_item,
             add_item,

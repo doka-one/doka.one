@@ -1,7 +1,8 @@
+use log::{debug, warn};
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
-use dkcrypto::dk_crypto::DkEncrypt;
-use log::{warn, debug};
+
 use commons_error::*;
+use dkcrypto::dk_crypto::DkEncrypt;
 
 enum CharType {
     SEPARATOR,
@@ -312,9 +313,8 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
 
 #[cfg(test)]
 mod file_server_test {
-    use std::char::decode_utf16;
-    use rocket::logger::warn;
     use unicode_segmentation::UnicodeSegmentation;
+
     use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
 
     #[test]
@@ -543,7 +543,7 @@ mod file_server_test {
     }
 
     fn has_not_printable_char(tag_name: &str) -> bool {
-        use unicode_segmentation::{Graphemes, UnicodeSegmentation};
+        use unicode_segmentation::UnicodeSegmentation;
 
         // let my_str = "denis 😎 papin\n";
         let mut g_str = tag_name.graphemes(true);

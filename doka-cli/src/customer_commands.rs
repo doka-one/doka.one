@@ -1,31 +1,10 @@
 use anyhow::anyhow;
+
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
-use dkdto::CreateCustomerRequest;
+use dkdto::{CreateCustomerRequest};
 use doka_cli::request_client::AdminServerClient;
-use crate::command_options::Params;
 use crate::token_commands::read_security_token;
-
-///
-///
-///
-// pub (crate) fn customer_command(params: &Params) -> anyhow::Result<()> {
-//
-//     match params.action.as_str() {
-//         "create" => {
-//             create_customer(&params)
-//         }
-//         "disable" => {
-//             disable_customer(&params)
-//         }
-//         "delete" => {
-//             delete_customer(&params)
-//         }
-//         action => {
-//             Err(anyhow!("💣 Unknown action=[{}]", action))
-//         }
-//     }
-// }
 
 
 ///
@@ -43,11 +22,15 @@ pub (crate) fn create_customer(customer_name: &str, email : &str, admin_password
     };
     let token = read_security_token().map_err(eprint_fwd!("Cannot read security token"))?;
     let reply = client.create_customer(&create_customer_request, &token);
-    if reply.status.error_code == 0 {
-        println!("😎 Customer successfully created, customer code : {} ", reply.customer_code);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.status.err_message))
+
+    match reply {
+        Ok(create_customer_reply) => {
+            println!("😎 Customer successfully created, customer code : {} ", create_customer_reply.customer_code);
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow!("{}", e.message))
+        }
     }
 }
 
@@ -61,13 +44,18 @@ pub (crate) fn disable_customer(customer_code: &str) -> anyhow::Result<()> {
     let client = AdminServerClient::new(&server_host, admin_server_port);
 
     let token = read_security_token()?;
-    let reply = client.customer_removable(&customer_code, &token);
-    if reply.error_code == 0 {
-        println!("😎 Customer successfully disabled, customer code : {} ", &customer_code);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.err_message))
+    let wr_reply = client.customer_removable(&customer_code, &token);
+
+    match wr_reply {
+        Ok(_reply) => {
+            println!("😎 Customer successfully disabled, customer code : {} ", &customer_code);
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow!("{}", e.message))
+        }
     }
+
 }
 
 
@@ -81,11 +69,16 @@ pub (crate) fn delete_customer(customer_code: &str) -> anyhow::Result<()> {
     let client = AdminServerClient::new(&server_host, admin_server_port);
 
     let token = read_security_token()?;
-    let reply = client.delete_customer(&customer_code, &token);
-    if reply.error_code == 0 {
-        println!("😎 Customer successfully deleted, customer code : {} ", &customer_code);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.err_message))
+    let wr_reply = client.delete_customer(&customer_code, &token);
+
+    match wr_reply {
+        Ok(message) => {
+            println!("😎 Customer successfully deleted, customer code : [{}], message : [{:?}] ", &customer_code, &message);
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow!("{}", e.message))
+        }
     }
+
 }

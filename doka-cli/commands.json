@@ -136,6 +136,33 @@
             "key": "id"
           }
         ]
+      },
+      {
+        "name" : "prop",
+        "description" : "Manage the item properties",
+        "options": [
+          {
+            "flags": ["-id"],
+            "description": "item identifier",
+            "required": true,
+            "hasValue": true,
+            "key": "id"
+          },
+          {
+            "flags": ["-d", "--delete"],
+            "description": "delete the properties",
+            "required": false,
+            "hasValue": true,
+            "key": "d"
+          },
+          {
+            "flags": ["-a", "-add"],
+            "description": "add the properties",
+            "required": true,
+            "hasValue": true,
+            "key": "a"
+          }
+        ]
       }
     ]
   },
@@ -161,7 +188,33 @@
               "-pt",
               "--path"
             ],
-            "description": "path to the file to upload",
+            "description": "Path to the file to upload",
+            "required": true,
+            "hasValue": true,
+            "key": "_"
+          }
+        ]
+      },
+      {
+        "name": "download",
+        "description": "Download a file",
+        "options": [
+          {
+            "flags": [
+              "-fr",
+              "--file-reference"
+            ],
+            "description": "File reference",
+            "required": true,
+            "hasValue": true,
+            "key": "_"
+          },
+          {
+            "flags": [
+              "-pt",
+              "--path"
+            ],
+            "description": "Path to the file where the content will be downloaded",
             "required": true,
             "hasValue": true,
             "key": "_"

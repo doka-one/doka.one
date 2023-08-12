@@ -110,6 +110,7 @@ CREATE INDEX tag_value_integer_idx ON tag_value USING btree (value_integer);
 CREATE INDEX tag_value_str_like_gin_idx ON tag_value USING gin (public.unaccent_lower((value_string)::text) public.gin_trgm_ops);
 CREATE INDEX tag_value_str_sort_btree_idx ON tag_value USING btree (public.unaccent_lower((value_string)::text) COLLATE "C");
 
+CREATE UNIQUE INDEX tag_value_tag_item_udx ON tag_value  USING btree (tag_id, item_id);
 
 
 CREATE OR REPLACE PROCEDURE insert_document(file_ref character varying, part_no integer, doc_text character varying, tsv character varying, lang character varying)

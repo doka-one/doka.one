@@ -1,5 +1,20 @@
-#![feature(let_else)]
 
+use std::collections::HashMap;
+use std::env;
+use std::process::exit;
+
+use anyhow::anyhow;
+
+use commons_error::*;
+use dkconfig::conf_reader::read_config_from_path;
+use dkconfig::properties::{get_prop_value, set_prop_values};
+
+use crate::command_options::{Command, display_commands, load_commands, Params, parse_args};
+use crate::customer_commands::{create_customer, delete_customer, disable_customer};
+use crate::file_commands::{file_download, file_upload};
+use crate::item_commands::{create_item, get_item, prop_item, search_item};
+use crate::session_commands::session_login;
+use crate::token_commands::{get_target_file, token_generate};
 
 mod customer_commands;
 mod session_commands;
@@ -7,24 +22,6 @@ mod item_commands;
 mod file_commands;
 mod token_commands;
 mod command_options;
-
-use std::collections::HashMap;
-use std::env;
-use std::env::current_exe;
-
-use std::path::{Path, PathBuf};
-use std::process::exit;
-use anyhow::{anyhow};
-
-use commons_error::*;
-use dkconfig::conf_reader::{read_config_from_path};
-use dkconfig::properties::{get_prop_value, set_prop_values};
-use crate::command_options::{Command, display_commands, load_commands, Params, parse_args};
-use crate::customer_commands::{create_customer, delete_customer, disable_customer};
-use crate::file_commands::{file_download, file_upload};
-use crate::item_commands::{create_item, get_item, search_item};
-use crate::session_commands::{session_login};
-use crate::token_commands::token_generate;
 
 const PARAMETER_ERROR: u16 = 10;
 const LOGIN_SESSION_FAILED: u16 = 30;
@@ -34,6 +31,7 @@ const CREATE_CUSTOMER_FAILED: u16 = 60;
 const GENERATE_TOKEN_FAILED: u16 = 80;
 const CREATE_ITEM_FAILED: u16 = 90;
 const GET_ITEM_FAILED: u16 = 100;
+const PROP_ITEM_FAILED: u16 = 101;
 const FILE_UPLOAD_FAILED : u16 = 110;
 const FILE_DOWNLOAD_FAILED: u16 = 120;
 const SUCCESS: u16 = 0;
@@ -49,19 +47,6 @@ fn read_configuration_file() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Get the location of a file into the working folder
-fn get_target_file(termnination_path: &str) -> anyhow::Result<PathBuf> {
-
-    let doka_cli_env = env::var("DOKA_CLI_ENV").unwrap_or("".to_string());
-
-    if ! doka_cli_env.is_empty() {
-        Ok(Path::new(&doka_cli_env).join("doka-cli").join(termnination_path).to_path_buf())
-    } else {
-        let path = current_exe()?; //
-        let parent_path = path.parent().ok_or(anyhow!("Problem to identify parent's binary folder"))?;
-        Ok(parent_path.join(termnination_path))
-    }
-}
 
 fn extract_mandatory_option(options: &HashMap<String, Option<String>>, key: &str) -> anyhow::Result<String> {
     let opt_value = options
@@ -153,6 +138,19 @@ fn dispatch(params : &Params, commands : &[Command]) -> u16 {
             };
             let err = get_item(&id);
             success_or_err(err, GET_ITEM_FAILED)
+        }
+        ("item", "prop") => {
+            let Ok((id, o_delete_prop, o_add_props))
+                = (|| -> anyhow::Result<(String, Option<String>, Option<String>)> {
+                Ok((extract_mandatory_option( &params.options, "-id")?,
+                    extract_option( &params.options, "-d")?,
+                    extract_option( &params.options, "-a")?)
+                )
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return CREATE_ITEM_FAILED;
+            };
+            let err = prop_item(&id, o_delete_prop.as_deref(), o_add_props.as_deref());
+            success_or_err(err, PROP_ITEM_FAILED)
         }
         ("file", "upload") => {
             let Ok((item_info, path)) = (|| -> anyhow::Result<(String, String)> {

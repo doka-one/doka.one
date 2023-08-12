@@ -2,12 +2,12 @@ use std::fs::File;
 use std::io::{BufReader, Cursor, Read};
 use std::path::Path;
 use anyhow::anyhow;
+
 use dkconfig::properties::get_prop_value;
+
 use doka_cli::request_client::FileServerClient;
-use crate::command_options::Params;
 
 use crate::session_commands::read_session_id;
-
 
 ///
 pub(crate) fn file_upload(item_info: &str, path :&str) -> anyhow::Result<()> {
@@ -24,12 +24,16 @@ pub(crate) fn file_upload(item_info: &str, path :&str) -> anyhow::Result<()> {
     let mut buf_reader = BufReader::new(file);
     let mut binary : Vec<u8> = vec![];
     let _n = buf_reader.read_to_end(&mut binary)?;
-    let reply = client.upload(&item_info, &binary, &sid);
-    if reply.status.error_code == 0 {
-        println!("😎 File successfully uploaded, reference : {}, number of blocks : {} ", reply.file_ref, reply.block_count);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.status.err_message))
+    let wr_reply = client.upload(&item_info, &binary, &sid);
+
+    match wr_reply {
+        Ok(reply) => {
+            println!("😎 File successfully uploaded, reference : {}, number of blocks : {} ", reply.file_ref, reply.block_count);
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow!("{}", e.message))
+        }
     }
 }
 
@@ -47,22 +51,26 @@ pub(crate) fn file_download(path : &str, file_ref: &str) -> anyhow::Result<()> {
     //let file_reference = o_file_ref.ok_or(anyhow!("💣 Missing file reference"))?;
     let sid = read_session_id()?;
 
-    let reply = client.download(&file_ref, &sid);
-    // TODO REF_TAG : HTTP_ERROR_CODE   For now the StatusCode is always 200
-    println!("Status Code: {}", reply.2);
+    let wr_reply = client.download(&file_ref, &sid);
 
-    // Store the result in a file
-    let size = reply.1.len();
-    if size > 0 {
-        let mut file = std::fs::File::create(&path)?;
-        let mut content = Cursor::new(reply.1);
-        std::io::copy(&mut content, &mut file)?;
-        println!("Document stored at: {}", &path);
-        println!("Document type: {}", reply.0);
-        println!("Document size: {}", size);
-    } else {
-        println!("Document not stored because it's empty");
+    match wr_reply {
+        Ok(reply) => {
+            // Store the result in a file
+            let size = reply.data.len();
+            if size > 0 {
+                let mut file = std::fs::File::create(&path)?;
+                let mut content = Cursor::new(reply.data);
+                std::io::copy(&mut content, &mut file)?;
+                println!("Document stored at: {}", &path);
+                println!("Document type: {}", reply.media_type);
+                println!("Document size: {}", size);
+            } else {
+                println!("Document not stored because it's empty");
+            }
+        }
+        Err(e) => {
+            println!("Status Code: {}", e.message);
+        }
     }
-
     Ok(())
 }

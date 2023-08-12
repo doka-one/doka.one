@@ -1,7 +1,9 @@
-use commons_error::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
 use colored::*;
+use serde::{Deserialize, Serialize};
+
+use commons_error::*;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ParamOption {
@@ -155,7 +157,7 @@ pub(crate) fn load_commands() -> Vec<Command> {
     serde_json::from_str(json_str).map_err(eprint_fwd!("💣 Problem while loading the list of commands")).unwrap()
 }
 
-fn find_option<'a> (commands: &'a[Command], command_name: &str, subcommand_name: &str, option_flag: &str) -> Result<&'a ParamOption, String> {
+fn _find_option<'a> (commands: &'a[Command], command_name: &str, subcommand_name: &str, option_flag: &str) -> Result<&'a ParamOption, String> {
     let command = commands.iter()
         .find(|cmd| cmd.name == command_name)
         .ok_or(format!("Command {} not found", command_name))?;
@@ -171,7 +173,7 @@ fn find_option<'a> (commands: &'a[Command], command_name: &str, subcommand_name:
     Ok(option)
 }
 
-fn validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a ParamOption, String> {
+fn _validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a ParamOption, String> {
     match parse_args(args) {
         Ok(split_command) => {
             // let (command, subcommand, param_options) = split_command;
@@ -180,7 +182,7 @@ fn validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a Par
             let param_options = split_command.options;
 
             for (option_name, option_value) in param_options {
-                match find_option(commands, &command, &subcommand, &option_name ) {
+                match _find_option(commands, &command, &subcommand, &option_name ) {
                     Ok(p_option) => {
                         if p_option.has_value && option_value.is_none() {
                             // Err

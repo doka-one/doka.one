@@ -1,25 +1,26 @@
 //
 
 use std::collections::HashMap;
+
 use anyhow::anyhow;
+use log::*;
 use postgres::{Client, NoTls};
+use rocket::http::{RawStr, Status};
 use rocket_contrib::json::Json;
 use rs_uuid::iso::uuid_v4;
-use commons_services::token_lib::SecurityToken;
-use dkdto::{AddKeyRequest, CreateCustomerReply, CreateCustomerRequest, JsonErrorSet};
-use dkdto::error_codes::{CUSTOMER_NAME_ALREADY_TAKEN, CUSTOMER_NOT_REMOVABLE, INTERNAL_DATABASE_ERROR, INVALID_PASSWORD, INVALID_REQUEST, INVALID_TOKEN, SUCCESS, USER_NAME_ALREADY_TAKEN};
+
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
+use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
+use commons_services::token_lib::SecurityToken;
+use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
+use dkdto::{AddKeyRequest, CreateCustomerReply, CreateCustomerRequest, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::error_codes::{CUSTOMER_NAME_ALREADY_TAKEN, CUSTOMER_NOT_REMOVABLE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_PASSWORD, INVALID_REQUEST, INVALID_TOKEN, USER_NAME_ALREADY_TAKEN};
 use doka_cli::request_client::{KeyManagerClient, TokenType};
 
-use log::*;
-use rocket::http::RawStr;
-use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
-use commons_services::x_request_id::{XRequestID, Follower};
-use dkdto::error_replies::ErrorReply;
 use crate::dk_password::valid_password;
 use crate::schema_cs::CS_SCHEMA;
 use crate::schema_fs::FS_SCHEMA;
@@ -121,29 +122,24 @@ impl CustomerDelegate {
     }
 
     /// Delegate routine for create customer
-    pub fn create_customer(mut self, customer_request: Json<CreateCustomerRequest>) -> Json<CreateCustomerReply> {
+    pub fn create_customer(mut self, customer_request: Json<CreateCustomerRequest>) -> WebType<CreateCustomerReply> {
         log_info!("🚀 Start create_customer api, customer name=[{}], follower=[{}]", &customer_request.customer_name, &self.follower);
-        // Done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
-
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
             log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
-            return Json(CreateCustomerReply::invalid_token_error_reply());
+            return WebType::from_errorset(INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         log_info!("😎 Security token is valid, follower=[{}]", &self.follower);
-        let internal_database_error_reply = Json(CreateCustomerReply::internal_database_error_reply());
-        let internal_technical_error = Json(CreateCustomerReply::internal_technical_error_reply());
-
         // Check password validity
 
         // | length >= 8  + 1 symbol + 1 digit + 1 capital letter
         // | All chars are symbol OR [0-9, a-z, A-Z]
         if !valid_password(&customer_request.admin_password) {
-            return Json(CreateCustomerReply::from_error(INVALID_PASSWORD));
+            return WebType::from_errorset(INVALID_PASSWORD);
         };
 
         log_info!("😎 User password is compliant, follower=[{}]", &self.follower);
@@ -153,13 +149,13 @@ impl CustomerDelegate {
         let r_trans = open_transaction(&mut r_cnx)
             .map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         // Verify if the customer name is not taken
         if self.check_customer_name_not_taken(&mut trans, &customer_request.customer_name).is_err() {
             log_error!("The customer name is already taken, follower=[{}]", &self.follower);
-            return Json(CreateCustomerReply::from_error(CUSTOMER_NAME_ALREADY_TAKEN));
+            return WebType::from_errorset(CUSTOMER_NAME_ALREADY_TAKEN);
         };
 
         log_info!("😎 Customer name is available, customer name=[{}], follower=[{}]", &customer_request.customer_name, &self.follower);
@@ -167,7 +163,7 @@ impl CustomerDelegate {
         // Verify if the customer's admin user is not taken
         if self.check_user_name_not_taken(&mut trans, &customer_request.email).is_err() {
             log_error!("The customer name is already taken, follower=[{}]", &self.follower);
-            return Json(CreateCustomerReply::from_error(USER_NAME_ALREADY_TAKEN));
+            return WebType::from_errorset(USER_NAME_ALREADY_TAKEN);
         };
 
         log_info!("😎 Admin user name is available, user name=[{}], follower=[{}]", &customer_request.email, &self.follower);
@@ -183,7 +179,7 @@ impl CustomerDelegate {
 
             let Ok(not_taken) = self.check_code_not_taken(&mut trans, customer_code_str)
                 .map_err(err_fwd!("Cannot verify the customer code uniqueness, follower=[{}]", &self.follower)) else {
-                return internal_database_error_reply;
+                return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
             };
 
             if not_taken {
@@ -199,7 +195,7 @@ impl CustomerDelegate {
         if let Err(e) = self.run_cs_script(&customer_code) {
             log_error!("CS schema batch failed, error [{}], follower=[{}]", e, &self.follower);
             trans.rollback();
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Created the CS schema, customer=[{}], follower=[{}]", &customer_code, &self.follower);
@@ -208,7 +204,7 @@ impl CustomerDelegate {
             log_error!("FS schema batch failed, error [{}], follower=[{}]", e, &self.follower);
             trans.rollback();
             let _ = warning_cs_schema(&customer_code);
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Created the FS schema, customer=[{}], follower=[{}]", &customer_code, &self.follower);
@@ -221,21 +217,21 @@ impl CustomerDelegate {
         let Ok(km_host) = get_prop_value(KEY_MANAGER_HOSTNAME_PROPERTY)
             .map_err(err_fwd!("Cannot read the key manager hostname")) else {
             log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
-            return internal_technical_error;
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
         let Ok(km_port) = get_prop_value(KEY_MANAGER_PORT_PROPERTY).unwrap_or("".to_string())
             .parse().map_err(err_fwd!("Cannot read the key manager port")) else {
             log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
-            return internal_technical_error;
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
         let kmc = KeyManagerClient::new(&km_host, km_port);
         let response = kmc.add_key(&add_key_request, &self.follower.token_type);
 
-        if !response.success {
-            log_error!("💣 Key Manager failed with status=[{:?}], follower=[{}]", response.status, &self.follower);
+        if let Err(e) = response {
+            log_error!("💣 Key Manager failed with status=[{:?}], follower=[{}]", e, &self.follower);
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return internal_technical_error;
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         }
 
         // Insert the customer in the table
@@ -256,7 +252,7 @@ impl CustomerDelegate {
         let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("💣 Insertion of a new customer failed, follower=[{}]", &self.follower)) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         log_info!("😎 Inserted new customer, customer id=[{}], follower=[{}]", customer_id, &self.follower);
@@ -286,7 +282,7 @@ impl CustomerDelegate {
         let Ok(user_id) = sql_insert.insert(&mut trans).map_err(err_fwd!("💣 Insertion of a new admin user failed, follower=[{}]", &self.follower)) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         log_info!("😎 Inserted new user, user id=[{}], follower=[{}]", user_id, &self.follower);
@@ -295,18 +291,17 @@ impl CustomerDelegate {
         if trans.commit().map_err(err_fwd!("Commit failed, follower=[{}]", &self.follower)).is_err() {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Committed. Customer created with success, follower=[{}]", &self.follower);
 
         log_info!("🏁 End create_customer, follower=[{}]", &self.follower);
 
-        Json(CreateCustomerReply {
+        WebType::from_item( Status::Ok.code,CreateCustomerReply {
             customer_code,
             customer_id,
             admin_user_id: user_id,
-            status: JsonErrorSet::from(SUCCESS),
         })
     }
 
@@ -394,13 +389,13 @@ impl CustomerDelegate {
     /// If the customer is "removable",
     /// this routine drops all the cs_{} and fs_{} and also delete the customer from the db
     // TODO implement a backup procedure for the customer
-    pub fn delete_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
+    pub fn delete_customer(mut self, customer_code: &RawStr) -> WebType<SimpleMessage> {
         log_info!("🚀 Start delete_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
             log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
-            return Json(JsonErrorSet::from(INVALID_TOKEN));
+            return WebType::from_errorset(INVALID_TOKEN);
         }
 
         // Change the token type to "Token"
@@ -410,17 +405,15 @@ impl CustomerDelegate {
             .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {
             Ok(s) => s.to_string(),
             Err(_) => {
-                return Json(JsonErrorSet::from(INVALID_REQUEST));
+                return WebType::from_errorset(INVALID_REQUEST);
             }
         };
-
-        let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
 
         // | Open the transaction
         let mut r_cnx = SQLConnection::new();
         let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
         let Ok(mut trans) = r_trans else {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         // Check if the customer is removable (flag is_removable)
@@ -435,20 +428,20 @@ impl CustomerDelegate {
                     // Clear the customer table and user
 
                     if self.delete_user_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete user, follower=[{}]", &self.follower)).is_err() {
-                        return internal_database_error_reply;
+                        return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
                     }
 
                     log_info!("😎 We removed the users for the customer, follower=[{}]", &self.follower);
 
                     if self.delete_customer_from_db(&mut trans, &customer_code).map_err(err_fwd!("💣 Cannot delete customer, follower=[{}]", &self.follower)).is_err() {
-                        return internal_database_error_reply;
+                        return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
                     }
 
                     log_info!("😎 We removed the customer, follower=[{}]", &self.follower);
 
                 } else {
                     log_error!("💣 The customer is not removable, follower=[{}]", &self.follower);
-                    return Json(JsonErrorSet::from(CUSTOMER_NOT_REMOVABLE));
+                    return WebType::from_errorset(CUSTOMER_NOT_REMOVABLE);
                 }
             }
             Err(_) => {
@@ -460,24 +453,24 @@ impl CustomerDelegate {
 
         if self.drop_cs_schema_from_db(&customer_code).map_err(err_fwd!("💣 Cannot delete the CS schema, follower=[{}]", &self.follower)).is_err() {
             trans.rollback();
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         if self.drop_fs_schema_from_db( &customer_code).map_err(err_fwd!("💣 Cannot delete the FS schema, follower=[{}]", &self.follower)).is_err() {
             trans.rollback();
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         // Close the transaction
         if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Customer delete created with success, follower=[{}]", &self.follower);
 
         log_info!("🏁 End delete_customer, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
-        Json(JsonErrorSet::from(SUCCESS))
+        WebType::from_item(Status::Ok.code, SimpleMessage { message: "Ok".to_string() })
     }
 
 
@@ -642,16 +635,14 @@ impl CustomerDelegate {
     ///
     /// 🔑 Set the flag to removable on a customer
     ///
-    pub fn set_removable_flag_customer(mut self, customer_code: &RawStr) -> Json<JsonErrorSet> {
+    pub fn set_removable_flag_customer(mut self, customer_code: &RawStr) -> WebType<SimpleMessage> {
 
         log_info!("🚀 Start set_removable_flag_customer api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
-        // Already done : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
-        // log_debug!("x_request_id = [{}]", &self.follower.x_request_id);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
             log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
-            return  Json(JsonErrorSet::from(INVALID_TOKEN));
+            return  WebType::from_errorset(INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
@@ -660,95 +651,32 @@ impl CustomerDelegate {
             .map_err(err_fwd!("💣 Invalid input parameter [{}], follower=[{}]", customer_code, &self.follower) ) {
             Ok(s) => s.to_string(),
             Err(_) => {
-                return Json(JsonErrorSet::from(INVALID_REQUEST));
+                return WebType::from_errorset(INVALID_REQUEST);
             }
         };
-
-        let internal_database_error_reply = Json(JsonErrorSet::from(INTERNAL_DATABASE_ERROR));
 
         // | Open the transaction
         let mut r_cnx = SQLConnection::new();
         let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower)) {
             Ok(x) => { x },
-            Err(_) => { return internal_database_error_reply; },
+            Err(_) => { return WebType::from_errorset(INTERNAL_DATABASE_ERROR); },
         };
 
         if set_removable_flag_customer_from_db(&mut trans, &customer_code)
                                 .map_err(err_fwd!("💣 Cannot set the removable flag, follower=[{}]", &self.follower)).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         // Close the transaction
         if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR );
         }
 
         log_info!("😎 Set removable flag with success,follower=[{}]", &self.follower);
 
         log_info!("🏁 End set_removable_flag_customer, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
-        Json(JsonErrorSet::from(SUCCESS))
+        WebType::from_item(Status::Ok.code, SimpleMessage { message: "OK".to_string() })
     }
 
-
-}
-
-#[cfg(test)]
-mod test {
-
-    //use crate::customer::test::{MyTokenType, Security};
-
-    pub struct Security(pub String);
-
-    #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-    pub enum MyTokenType<'a> {
-        Token(&'a str),
-        Sid(&'a str),
-        None,
-    }
-
-    #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-    pub struct MyDelegate<'a> {
-        pub security: Security,
-        pub token: MyTokenType<'a>,
-    }
-
-    impl<'a> MyDelegate<'a> {
-        pub fn new(security: Security) -> Self {
-            Self {
-                security,
-                token: MyTokenType::None,
-            }
-        }
-
-        fn build_token_ext(&mut self, ext: MyTokenType<'a>) {
-            //self.token = MyTokenType::Token(&self.security.0);
-            self.token = ext;
-        }
-
-        fn build_token_ext2(&'a mut self, mut ext: &'a str) {
-            //self.token = MyTokenType::Token(&self.security.0);
-            ext = &self.security.0;
-            self.token = MyTokenType::Token(ext);
-        }
-
-        fn build_token(&'a mut self) -> &Self {
-            self.token = MyTokenType::Token(&self.security.0);
-            self
-        }
-
-        fn carrement_lourd(&'a mut self) {
-            self.build_token();
-            println!("{:?}", self)
-        }
-    }
-
-
-    #[test]
-    fn test_1() {
-        let mut delegate = MyDelegate::new(Security("MyToken".to_string()));
-        delegate.carrement_lourd();
-        // let delegate = delegate.build_token();
-        // println!("{:?}", delegate.token)
-    }
 }

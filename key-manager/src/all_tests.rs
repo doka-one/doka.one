@@ -6,8 +6,9 @@ mod test {
     use serde::{Deserialize};
     use std::fs::File;
     use std::io::{BufReader, Read, Write};
-    use crate::dk_crypto::DkEncrypt;
+    //use crate::dk_crypto::DkEncrypt;
     use rocket::local::Client;
+    use dkcrypto::dk_crypto::DkEncrypt;
 
 
     // #[test]
@@ -43,19 +44,14 @@ mod test {
             let short = &string_name[len - 10..len];
             let base = &string_name[0..len - 10];
 
-            dbg!(base, short);
-
             if reference_base != base {
-                dbg!(base, reference_base);
                 // we have a new base !!!
                 let target_file = format!("{}{}.pdf", target, base);
-                dbg!(&target_file);
                 f = Some(File::create(&target_file).expect("💣 WOOOOOOW !!"));
                 reference_base = base.to_owned().clone();
             }
 
             // Write the part
-            dbg!(&string_name);
             let s0 = DkEncrypt::decrypt_file(p.path().to_str().unwrap()
                                              /*&string_name[..]*/, "ZMBy1nxeze7dv59OCSeCoDayVijUQD96HyLev3YvhqM");
             let b0 = &s0.unwrap()[..];

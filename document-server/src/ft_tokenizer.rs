@@ -1,8 +1,8 @@
+use log::{debug, warn};
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
-use dkcrypto::dk_crypto::DkEncrypt;
-use log::warn;
-use log::info;
+
 use commons_error::*;
+use dkcrypto::dk_crypto::DkEncrypt;
 
 enum CharType {
     SEPARATOR,
@@ -70,7 +70,7 @@ impl <'a> FTTokenizer<'a> {
         };
 
         if word.len() >= MIN_WORD_LEN {
-            log_info!("Added word [{}]", &w);
+            log_debug!("Added word [{}]", &w);
             self.words.push(w);
         }
 
@@ -313,8 +313,8 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
 
 #[cfg(test)]
 mod file_server_test {
-    use rocket::logger::warn;
     use unicode_segmentation::UnicodeSegmentation;
+
     use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
 
     #[test]
@@ -329,15 +329,15 @@ mod file_server_test {
         let garbage_3_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "नमस\u{94d}त\u{947}", ];
 
         let mut tkn = FTTokenizer::new(&garbage_1);
-        let garbage_1_words: Vec<String> = tkn.next_words();
+        let garbage_1_words: Vec<String> = tkn.next_n_words(1);
         assert_eq!(garbage_1_tokens, garbage_1_words);
 
         let mut tkn = FTTokenizer::new(&garbage_2);
-        let garbage_2_words: Vec<String> = tkn.next_words();
+        let garbage_2_words: Vec<String> = tkn.next_n_words(1);
         assert_eq!(garbage_2_tokens, garbage_2_words);
 
         let mut tkn = FTTokenizer::new(&garbage_3);
-        let garbage_3_words: Vec<String> = tkn.next_words();
+        let garbage_3_words: Vec<String> = tkn.next_n_words(1);
         assert_eq!(garbage_3_tokens, garbage_3_words);
     }
 
@@ -359,7 +359,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_words();
+            let words: Vec<String> = tkn.next_n_words(1);
             assert_eq!(case.1, words);
         }
     }
@@ -395,7 +395,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_words();
+            let words: Vec<String> = tkn.next_n_words(1);
             println!("{:?}", &words);
             assert_eq!(case.1, words);
         }
@@ -429,7 +429,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_words();
+            let words: Vec<String> = tkn.next_n_words(1);
             println!("{:?}", &words);
             assert_eq!(case.1, words);
         }
@@ -452,7 +452,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_words();
+            let words: Vec<String> = tkn.next_n_words(1);
             assert_eq!(case.1, words);
         }
     }
@@ -481,7 +481,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_words();
+            let words: Vec<String> = tkn.next_n_words(1);
             assert_eq!(case.1, words);
         }
 
@@ -533,5 +533,43 @@ mod file_server_test {
         assert_eq!(answer, &phrase);
     }
 
+    #[test]
+    pub fn simple_grapheme() {
+        let my_str_1 = "denis 😎 papin\n";
+        let my_str_2= "denis😎papin";
+
+        println!("[{}] Has not printable char = {:?}", my_str_1, has_not_printable_char(my_str_1));
+        println!("[{}] Has not printable char = {:?}", my_str_2, has_not_printable_char(my_str_2));
+    }
+
+    fn has_not_printable_char(tag_name: &str) -> bool {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        // let my_str = "denis 😎 papin\n";
+        let mut g_str = tag_name.graphemes(true);
+
+        loop {
+            let o_s = g_str.next();
+
+            match o_s {
+                None => {
+                    break;
+                }
+                Some(c) => {
+                    for cc in  c.chars() {
+                        // let v = decode_utf16(cc);
+                        // println!("Char : {:?}", cc as u32);
+                        let val = cc as u32;
+                        if  val == 32 || val <= 15 {
+                            return true;
+                        }
+                    }
+
+                }
+            }
+
+        }
+        false
+    }
 
 }

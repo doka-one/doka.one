@@ -1,0 +1,33 @@
+======================== P2 Postgres database creation guide ========================
+
+1. Copy file unaccent_default.rules to the postgresql location $SHAREDIR/tsearch_data/ (ex : /usr/share/postgresql/9.4/share/tsearch_data )
+
+2. Create database with the following parameters:
+
+CREATE DATABASE ad_dev_1
+  WITH ENCODING = 'UTF8'
+       LC_COLLATE = 'en_US.UTF-8'
+       LC_CTYPE = 'en_US.UTF-8';
+
+CREATE DATABASE cs_dev_1
+  WITH ENCODING = 'UTF8'
+       LC_COLLATE = 'en_US.UTF-8'
+       LC_CTYPE = 'en_US.UTF-8';
+
+CREATE DATABASE fs_dev_1
+  WITH ENCODING = 'UTF8'
+       LC_COLLATE = 'en_US.UTF-8'
+       LC_CTYPE = 'en_US.UTF-8';
+
+
+3. On each db, run the
+
+    40_create_function.sql
+
+4. Execute the following scripts on ad_dev_1
+
+    10_dokaadmin_schema.sql
+    20_dokasys_schema.sql
+	30_keymanager_schema.sql
+
+=============================== End =================================

@@ -62,6 +62,7 @@ pub struct SQLConnection {
 }
 
 impl SQLConnection {
+
     pub fn new() -> anyhow::Result<SQLConnection> {
         let pool = SQL_POOL.read().map_err(err_fwd!("*")).unwrap();
 
@@ -231,8 +232,6 @@ impl SQLDataSet {
         }
         let row: &HashMap<String, CellValue> = self.data.deref().get(self.position - 1)?;
         let cell = row.get(col_name).unwrap();
-        dbg!("My cell date", &cell);
-
         let opt_d = cell.inner_value_naivedate().map(|nd| {Self::naivedate_to_date(&nd)});
 
         opt_d
@@ -359,8 +358,6 @@ impl CellValue {
         }
     }
 
-
-
     pub fn from_raw_int(i: i64) -> Self {
         CellValue::Int(Some(i))
     }
@@ -412,6 +409,10 @@ impl CellValue {
     //     //     }
     //     // }
     // }
+
+    pub fn from_raw_str(text: &str) -> Self {
+        CellValue::from_raw_string(text.to_owned())
+    }
 
     pub fn from_raw_string(text: String) -> Self {
         CellValue::String(Some(text))
@@ -481,15 +482,10 @@ impl SQLQueryBlock {
             }
         }
 
-        dbg!(&new_sql_string);
-        // dbg!(&v_params);
-
         let result_set = sql_transaction.inner_transaction.query(new_sql_string.as_str(), v_params.as_slice())
             .map_err(err_fwd!("Sql query failed, sql [{}]", new_sql_string.as_str()))?;
 
         let mut result: Vec<HashMap<String, CellValue>> = vec![];
-
-        // log_info!("result set {:?}", &result_set);
 
         for row in result_set {
             let column = row.columns();
@@ -526,14 +522,13 @@ impl SQLQueryBlock {
                         let option_cell = CellValue::Bool(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
-                    "varchar" | "bpchar" => {
+                    "varchar" | "bpchar" | "text" => {
                         let db_value: Option<&str> = row.get(name);
                         let option_cell = CellValue::from_opt_str(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "date" => {
                         let db_value: Option<chrono::NaiveDate> = row.get(name);
-                        dbg!(&db_value, name);
                         let option_cell = CellValue::from_opt_naivedate(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
@@ -554,7 +549,6 @@ impl SQLQueryBlock {
                     }
                 }
             }
-            // dbg!(&my_row);
             result.push(my_row);
         }
 
@@ -580,9 +574,6 @@ fn parse_query<'a>(string_template: &str, params: &'a HashMap<String, CellValue>
         new_sql_string = new_sql_string.replace(&from, to.as_str());
 
         // Store the param value
-
-        // dbg!(&param_value);
-
         match param_value {
             CellValue::Int(i) => {
                 v_params.push(i);
@@ -637,9 +628,8 @@ impl SQLChange {
     fn execute(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<u64> {
         let null_str = "".to_owned();
         let (new_sql_string, v_params) = parse_query(self.sql_query.as_str(), &self.params, &null_str);
-        // dbg!(&new_sql_string);
+
         log_debug!("New sql query : [{}]", &new_sql_string);
-        // dbg!(&v_params);
         let change_query_info = sql_transaction.inner_transaction.execute(
             new_sql_string.as_str(),
             v_params.as_slice(),
@@ -664,6 +654,10 @@ impl SQLChange {
         Ok(pk)
     }
 
+    pub fn insert_no_pk(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<()> {
+        let _ = self.execute(sql_transaction)?;
+        Ok(())
+    }
 
     pub fn update(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<u64> {
         let update_info = self.execute(sql_transaction)?;
@@ -739,7 +733,6 @@ mod tests {
         if sql_result.next() {
             let id = sql_result.get_int("id");
             if let Some(val) = id {
-                dbg!(val);
                 assert!(true);
             }
         } else {
@@ -781,10 +774,9 @@ mod tests {
         let mut data_set = query.execute(&mut trans).unwrap();
 
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
-        dbg!(&data_set);
         while data_set.next() {
             let id = data_set.get_int("id");
             let name = data_set.get_string("name");
@@ -795,14 +787,6 @@ mod tests {
             let category_id = data_set.get_int("category_id");
             let tag_country = data_set.get_string("tag_country");
 
-            dbg!(id);
-            dbg!(name);
-            dbg!(the_type);
-            dbg!(created);
-
-            dbg!(last_modified);
-            dbg!(category_id);
-            dbg!(tag_country);
         }
 
         assert!(data_set.len() > 0);
@@ -831,7 +815,7 @@ mod tests {
 
         let id = query.insert(&mut trans).unwrap();
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         assert!(id > 10)
@@ -867,7 +851,7 @@ mod tests {
         }
 
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return internal_database_error_reply;
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
     }
 

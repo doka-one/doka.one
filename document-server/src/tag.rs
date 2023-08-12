@@ -1,427 +1,472 @@
 use std::collections::HashMap;
-use commons_services::token_lib::SessionToken;
-use rocket::{get,post, delete};
+
+use anyhow::anyhow;
+use log::{debug, error, info};
+use rocket::http::Status;
 use rocket_contrib::json::Json;
+
 use commons_error::*;
-use log::error;
-use log::info;
 use commons_pg::{CellValue, iso_to_date, iso_to_datetime, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
-use dkdto::error_codes::{INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_STRING_LENGTH, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE, SUCCESS};
-use dkdto::{AddTagReply, AddTagRequest, GetTagReply, JsonErrorSet, TagElement};
+use commons_services::token_lib::SessionToken;
+use commons_services::x_request_id::{Follower, XRequestID};
+use dkdto::{AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagElement, WebType, WebTypeBuilder};
+use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE};
+use doka_cli::request_client::TokenType;
 
-///
-/// Find a session from its sid
-///
-#[get("/tag?<start_page>&<page_size>")]
-pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> Json<GetTagReply> {
-
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        log_error!("Invalid session token {:?}", &session_token);
-        return Json(GetTagReply { tags : vec![], status: JsonErrorSet::from(INVALID_TOKEN) } )
-    }
-
-    let sid = session_token.take_value();
-
-    log_info!("🚀 Start get_all_tag api, sid={}", &sid);
-
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return Json(GetTagReply {
-                tags : vec![],
-                status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-            });
-        }
-    };
-
-    // Query the items
-    let internal_database_error_reply = Json(GetTagReply{ tags: vec![], status : JsonErrorSet::from(INTERNAL_DATABASE_ERROR) });
-
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    let tags = match search_tag_by_sid(&mut trans, None,
-                                       start_page, page_size,
-                                       &entry_session.customer_code ) {
-        Ok(x) => {x}
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
-
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
-    }
-
-    Json(GetTagReply{
-        tags,
-        status: JsonErrorSet::from(SUCCESS),
-    })
+pub(crate) struct TagDelegate {
+    pub session_token: SessionToken,
+    pub follower: Follower,
 }
 
-///
-/// Search items by id
-/// If no item id provided, return all existing items
-///
-fn search_tag_by_sid(mut trans : &mut SQLTransaction, tag_id: Option<i64>,
-                     start_page : Option<u32>, page_size : Option<u32>,
-                     customer_code : &str) -> anyhow::Result<Vec<TagElement>> {
+impl TagDelegate {
+    pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
+        Self {
+            session_token,
+            follower: Follower {
+                x_request_id: x_request_id.new_if_null(),
+                token_type: TokenType::None,
+            }
+        }
+    }
 
-    let p_tag_id = CellValue::Int(tag_id);
+    ///
+    /// ✨ Find all the existing tags by pages
+    ///
+    pub fn get_all_tag(mut self, start_page : Option<u32>, page_size : Option<u32>) -> WebType<GetTagReply> {
 
-    let mut params = HashMap::new();
-    params.insert("p_tag_id".to_owned(), p_tag_id);
+        log_info!("🚀 Start get_all_tag api, follower=[{}]", &self.follower);
 
-    let sql_query = format!(r"SELECT id, name, type, string_tag_length, default_value
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+            return WebType::from_errorset(INVALID_TOKEN);
+        }
+
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
+                                            .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+        };
+
+        // Query the items
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(tags) = self.search_tag_by_id(&mut trans, None, start_page, page_size, &entry_session.customer_code )
+                                    .map_err(err_fwd!("💣 Cannot find the tag by id, follower=[{}]", &self.follower)) else
+        {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!("🏁 End get_all_tag api, follower=[{}]", &self.follower);
+
+        WebType::from_item(Status::Ok.code,GetTagReply{  tags, })
+    }
+
+
+    /// Search items by id
+    /// If no item id provided, return all existing items
+    pub (crate) fn search_tag_by_id(&self, mut trans : &mut SQLTransaction, tag_id: Option<i64>,
+                        start_page : Option<u32>, page_size : Option<u32>,
+                        customer_code : &str) -> anyhow::Result<Vec<TagElement>> {
+
+        let p_tag_id = CellValue::Int(tag_id);
+
+        let mut params = HashMap::new();
+        params.insert("p_tag_id".to_owned(), p_tag_id);
+
+        let sql_query = format!(r"SELECT id, name, type, string_tag_length, default_value
                                     FROM cs_{}.tag_definition
                                     WHERE ( id = :p_tag_id OR :p_tag_id IS NULL )
                                     ORDER BY name ", customer_code );
 
-    let query = SQLQueryBlock {
-        sql_query,
-        start : start_page.unwrap_or(0) * page_size.unwrap_or(0),
-        length : page_size,
-        params,
-    };
-
-    let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
-
-    let mut tags = vec![];
-    while sql_result.next() {
-        let id : i64 = sql_result.get_int("id").unwrap_or(0i64);
-        let name : String = sql_result.get_string("name").unwrap_or("".to_owned());
-        let tag_type= sql_result.get_string("type").unwrap_or("".to_owned());
-        let string_tag_length = sql_result.get_int_32("string_tag_length");
-        let default_value= sql_result.get_string("default_value");
-
-        let item = TagElement {
-            tag_id: id,
-            name,
-            tag_type,
-            string_tag_length,
-            default_value,
+        let query = SQLQueryBlock {
+            sql_query,
+            start : start_page.unwrap_or(0) * page_size.unwrap_or(0),
+            length : page_size,
+            params,
         };
 
-        let _ = &tags.push(item);
+        let mut sql_result : SQLDataSet =  query.execute(&mut trans)
+                    .map_err(err_fwd!("Query failed, sql=[{}], follower=[{}]", &query.sql_query, &self.follower))?;
 
-    }
+        let mut tags = vec![];
+        while sql_result.next() {
+            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
+            let name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
+            let tag_type= sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
+            // optional
 
-    Ok(tags)
-}
+            let default_value= sql_result.get_string("default_value");
 
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
 
-///
-/// Return a None if all inputs are correct
-///
-fn check_input_values(add_tag_request: &AddTagRequest)-> Option<AddTagReply> {
+            let item = TagElement {
+                tag_id: id,
+                name,
+                tag_type,
 
-    // Check the input values ( ie tag_type, length limit, default_value type, etc )
-    match add_tag_request.tag_type.to_lowercase().as_str() {
-        "string" => {
-            // The string_length between 0 and 10_000_000
-            if let Some(length ) = add_tag_request.string_tag_length {
-                if length > 10_000_000 || length < 0 {
-                    return Some(AddTagReply {
-                        tag_id: 0,
-                        status:  JsonErrorSet::from(INCORRECT_STRING_LENGTH),
-                    })
-                }
-                if let Some(default_string) = &add_tag_request.default_value {
-                    if default_string.len() > length as usize {
-                        return Some(AddTagReply {
-                            tag_id: 0,
-                            status:  JsonErrorSet::from(INCORRECT_DEFAULT_STRING_LENGTH),
-                        })
-                    }
-                }
-            }
-        },
-        "bool" => {
-            if let Some(v) = &add_tag_request.default_value {
-                if v != "true" && v != "false" {
-                    return Some(AddTagReply {
-                        tag_id: 0,
-                        status:  JsonErrorSet::from(INCORRECT_DEFAULT_BOOLEAN_VALUE),
-                    })
-                }
-            }
-        },
-        "integer" => {
-            if let Some(v) = &add_tag_request.default_value {
-                if v.parse::<i64>().is_err() {
-                    return Some(AddTagReply {
-                        tag_id: 0,
-                        status:  JsonErrorSet::from(INCORRECT_DEFAULT_INTEGER_VALUE),
-                    })
-                }
-            }
-        },
-        "double" => {
-            if let Some(d) = &add_tag_request.default_value {
-                if d.parse::<f64>().is_err() {
-                    return Some(AddTagReply {
-                        tag_id: 0,
-                        status:  JsonErrorSet::from(INCORRECT_DEFAULT_DOUBLE_VALUE),
-                    })
-                }
-            }
-        },
-        "date" => {
-            if let Some(d_str) = &add_tag_request.default_value {
-                // Check if the default is a valid date  ISO8601 1977-04-22
-                if iso_to_date(d_str).is_err() {
-                    return Some(AddTagReply {
-                        tag_id: 0,
-                        status:  JsonErrorSet::from(INCORRECT_DEFAULT_DATE_VALUE),
-                    })
-                }
-            }
-        },
-        "datetime" => {
-            if let Some(dt_str) = &add_tag_request.default_value {
-                // Check if the default is a valid datetime ISO8601 "1977-04-22T06:00:00Z"
-                if iso_to_datetime(dt_str).is_err() {
-                    return Some(AddTagReply {
-                        tag_id: 0,
-                        status:  JsonErrorSet::from(INCORRECT_DEFAULT_DATETIME_VALUE),
-                    })
-                }
-            }
-        },
-        _ => {
-            return Some(AddTagReply {
-                tag_id: 0,
-                status:  JsonErrorSet::from(INCORRECT_TAG_TYPE),
-            })
-        },
-    };
-
-    None
-}
-
-
-fn check_tag_usage(trans : &mut SQLTransaction, tag_id: i64, customer_code : &str) -> anyhow::Result<()> {
-
-    let sql_query = format!( r"SELECT 1 FROM cs_{}.tag_value
-	                                WHERE tag_id = :p_tag_id", customer_code );
-
-    let mut params = HashMap::new();
-    params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
-
-    let sql = SQLQueryBlock {
-        sql_query,
-        start: 0,
-        length: Some(1),
-        params,
-    };
-
-    let dataset = sql.execute( trans)?;
-
-    if dataset.len() > 0 {
-        return Err(anyhow::anyhow!("Tag still in use"));
-    }
-
-    Ok(())
-}
-
-
-///
-/// Create a new tag
-///
-#[delete("/tag/<tag_id>")]
-pub (crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> Json<JsonErrorSet> {
-
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        return Json(
-            JsonErrorSet::from(INVALID_TOKEN),
-        );
-    }
-    let sid = session_token.take_value();
-
-    log_info!("🚀 Start delete_tag api, sid={}", &sid);
-
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return Json(
-                JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-            );
+                default_value,
+            };
+            let _ = &tags.push(item);
         }
-    };
 
-    let customer_code = entry_session.customer_code.as_str();
-
-    // Open the transaction
-
-    let internal_database_error_reply = Json(
-        JsonErrorSet::from(INTERNAL_DATABASE_ERROR),
-    );
-
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    // Check if the tag definition is used somewhere
-
-    if check_tag_usage(&mut trans, tag_id, customer_code).is_err() {
-        return Json(
-            JsonErrorSet::from(STILL_IN_USE),
-        );
+        Ok(tags)
     }
 
-    // Delete the tag definition
+    /// Search items by name
+    pub (crate) fn search_tag_by_name(&self, mut trans : &mut SQLTransaction, tag_name: &str, customer_code : &str) -> anyhow::Result<TagElement> {
 
-    let sql_query = format!( r"DELETE FROM cs_{}.tag_definition
+        let p_tag_name = CellValue::from_raw_string(tag_name.to_string());
+
+        let mut params = HashMap::new();
+        params.insert("p_tag_name".to_owned(), p_tag_name);
+
+        let sql_query = format!(r"SELECT id, name, type, string_tag_length, default_value
+                                    FROM cs_{}.tag_definition
+                                    WHERE ( name = :p_tag_name )
+                                    ORDER BY name ", customer_code );
+
+        let query = SQLQueryBlock {
+            sql_query,
+            start : 0,
+            length : None,
+            params,
+        };
+
+        let mut sql_result : SQLDataSet =  query.execute(&mut trans)
+            .map_err(err_fwd!("Query failed, sql=[{}], follower=[{}]", &query.sql_query, &self.follower))?;
+
+        if sql_result.next() {
+            let id : i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
+            let name : String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
+            let tag_type= sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
+            // optional
+            // let string_tag_length = sql_result.get_int_32("string_tag_length");
+            let default_value= sql_result.get_string("default_value");
+
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
+
+            Ok(TagElement {
+                tag_id: id,
+                name,
+                tag_type,
+
+                default_value,
+            })
+        } else {
+            log_error!("💣 Cannot find the tag, tag_name=[{}], follower=[{}]", tag_name, &self.follower);
+            Err(anyhow!("Cannot find tag, tag_name=[{}]", tag_name))
+        }
+
+    }
+
+
+    ///
+    /// ✨ Delete a tag
+    ///
+    pub fn delete_tag(mut self, tag_id: i64) -> WebType<SimpleMessage> {
+
+        log_info!("🚀 Start delete_tag api, follower={}", &self.follower);
+
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+            return WebType::from_errorset(INVALID_TOKEN);
+        }
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower={}", &self.follower)) else {
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR)
+        };
+
+        let customer_code = entry_session.customer_code.as_str();
+
+        log_info!("😎 We found the session, customer code=[{}], follower=[{}]", customer_code, &self.follower);
+
+        // Open the transaction
+
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower={}", &self.follower));
+        let Ok(mut trans) = r_trans  else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        // Check if the tag definition is used somewhere
+
+        if self.check_tag_usage(&mut trans, tag_id, customer_code).is_err() {
+            log_error!("💣 The tag is still in use, tag id=[{}], follower=[{}]", tag_id, &self.follower);
+            return WebType::from_errorset(STILL_IN_USE);
+        }
+
+        log_info!("😎 The tag is not used anywhere, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
+
+        // Delete the tag definition
+
+        let sql_query = format!( r"DELETE FROM cs_{}.tag_definition
 	                                WHERE id = :p_tag_id", customer_code );
 
-    let mut params = HashMap::new();
-    params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
+        let mut params = HashMap::new();
+        params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
 
-    dbg!(&params);
+        let sql_delete = SQLChange {
+            sql_query,
+            params,
+            sequence_name: "".to_string()
+        };
 
-    let sql_delete = SQLChange {
-        sql_query,
-        params,
-        sequence_name: "".to_string()
-    };
+        let Ok(_tag_id) = sql_delete.delete(&mut trans)
+                    .map_err(err_fwd!("💣 Tag delete failed, tag_id=[{}], follower=[{}]", tag_id, &self.follower)) else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
 
-    let _tag_id = match sql_delete.delete(&mut trans).map_err(err_fwd!("Tag delete failed, tag_id=[{}]", tag_id)) {
-        Ok(x) => x,
-        Err(_) => {
-            return internal_database_error_reply;
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower)).is_err() {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
-    };
 
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
+        log_info!("😎 The tag has been delete, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
+
+        log_info!("🏁 End delete_tag api, follower=[{}]", &self.follower);
+
+        WebType::from_item(Status::Ok.code, SimpleMessage{ message: "Ok".to_string() })
+
     }
 
-    Json(
-        JsonErrorSet::from(SUCCESS),
-    )
+
+    fn check_tag_usage(&self, trans : &mut SQLTransaction, tag_id: i64, customer_code : &str) -> anyhow::Result<()> {
+
+        let sql_query = format!( r"SELECT 1 FROM cs_{}.tag_value
+	                                WHERE tag_id = :p_tag_id", customer_code );
+
+        let mut params = HashMap::new();
+        params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
+
+        let sql = SQLQueryBlock {
+            sql_query,
+            start: 0,
+            length: Some(1),
+            params,
+        };
+
+        let dataset = sql.execute( trans).map_err(tr_fwd!())?;
+
+        if dataset.len() > 0 {
+            return Err(anyhow::anyhow!("Tag still in use, follower=[{}]", &self.follower));
+        }
+
+        Ok(())
+    }
+
+    ///
+    /// ✨ Create a new tag
+    ///
+    pub fn add_tag( mut self, add_tag_request: Json<AddTagRequest>) -> WebType<AddTagReply> {
+
+        log_info!("🚀 Start add_tag api, follower=[{}]", &self.follower);
+
+        // Check if the token is valid
+        if !self.session_token.is_valid() {
+            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+            return WebType::from_errorset(INVALID_TOKEN);
+        }
+        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+
+        // Read the session information
+        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
+                                    .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
+            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+        };
+
+        let customer_code = entry_session.customer_code.as_str();
+
+        log_info!("😎 We found the session, customer code=[{}], follower=[{}]", customer_code, &self.follower);
+
+        if let Err(e) = self.check_input_values(&add_tag_request) {
+            log_error!("💣 Tag definition is not correct, err message=[{}], follower=[{}]", e.err_message, &self.follower);
+            return WebType::from_errorset(e);
+        }
+
+        // Open the transaction
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(tag_id) = self.insert_tag_definition(&mut trans, &add_tag_request, customer_code)
+                                    .map_err(err_fwd!("💣 Insertion of a new tag failed, follower=[{}]", &self.follower)) else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!("😎 The tag has been created, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
+        log_info!("🏁 End add_tag api, follower=[{}]", &self.follower);
+
+        WebType::from_item( Status::Ok.code, AddTagReply { tag_id, })
+    }
+
+
+
+    pub (crate) fn insert_tag_definition(&self, mut trans : &mut SQLTransaction, add_tag_request: &AddTagRequest,
+                             customer_code : &str) -> anyhow::Result<i64> {
+
+        let sql_query = format!( r"INSERT INTO cs_{}.tag_definition(name, string_tag_length, default_value, type)
+	            VALUES (:p_name, :p_string_tag_length , :p_default_value, :p_type)", customer_code );
+
+        let sequence_name = format!( "cs_{}.tag_definition_id_seq", customer_code );
+
+        let length = CellValue::Int32(Some(2000_i32)); // TODO Db column to be removed
+        let default_value = CellValue::from_opt_str(add_tag_request.default_value.as_deref());
+        let mut params = HashMap::new();
+        params.insert("p_name".to_string(), CellValue::from_raw_string(add_tag_request.name.clone()));
+        params.insert("p_type".to_string(), CellValue::from_raw_string(add_tag_request.tag_type.clone()));
+        params.insert("p_string_tag_length".to_string(), length);
+        params.insert("p_default_value".to_string(), default_value);
+
+        dbg!(&sql_query);
+        dbg!(&params);
+
+        let sql_insert = SQLChange {
+            sql_query,
+            params,
+            sequence_name,
+        };
+
+        let tag_id = sql_insert.insert(&mut trans).map_err(err_fwd!("💣 Insertion of a new tag failed, follower=[{}]", &self.follower))?;
+
+        Ok(tag_id)
+    }
+
+
+    ///
+    /// Return a None if the tag definition is correct
+    ///
+    pub (crate) fn check_input_values(&self, add_tag_request: &AddTagRequest)-> Result<(), ErrorSet<'static>> {
+
+        log_info!("Check the tag definition, add_tag_request=[{:?}], follower=[{}]", add_tag_request, &self.follower);
+
+        // Check the tag name
+        if Self::has_not_printable_char(&add_tag_request.name) {
+            return Err(INCORRECT_CHAR_TAG_NAME);
+        }
+
+        if add_tag_request.name.len() > 50 {
+            return Err(INCORRECT_LENGTH_TAG_NAME);
+        }
+
+        // Check the input values ( ie tag_type, length limit, default_value type, etc )
+        match add_tag_request.tag_type.to_lowercase().as_str() {
+            TAG_TYPE_STRING => {
+                // The string_length between 0 and 10_000_000
+                const MAX_STRING_LENGTH : usize = 2000;
+                if let Some(default_string) = &add_tag_request.default_value {
+                    if default_string.len() > MAX_STRING_LENGTH as usize {
+                        return Err(INCORRECT_DEFAULT_STRING_LENGTH);
+                    }
+                }
+            },
+            TAG_TYPE_LINK => {
+                // A Link is like a string
+                const MAX_LINK_LENGTH: usize = 400;
+                if let Some(default_string) = &add_tag_request.default_value {
+                    if default_string.len() > MAX_LINK_LENGTH as usize {
+                        return Err(INCORRECT_DEFAULT_LINK_LENGTH);
+                    }
+                }
+            },
+            TAG_TYPE_BOOL => {
+                if let Some(v) = &add_tag_request.default_value {
+                    if v != "true" && v != "false" {
+                        return Err(INCORRECT_DEFAULT_BOOLEAN_VALUE);
+                    }
+                }
+            },
+            TAG_TYPE_INT => {
+                if let Some(v) = &add_tag_request.default_value {
+                    if v.parse::<i64>().is_err() {
+                        return Err(INCORRECT_DEFAULT_INTEGER_VALUE);
+                    }
+                }
+            },
+            TAG_TYPE_DOUBLE => {
+                if let Some(d) = &add_tag_request.default_value {
+                    if d.parse::<f64>().is_err() {
+                        return Err(INCORRECT_DEFAULT_DOUBLE_VALUE);
+                    }
+                }
+            },
+            TAG_TYPE_DATE => {
+                if let Some(d_str) = &add_tag_request.default_value {
+                    // Check if the default is a valid date  ISO8601 1977-04-22
+                    if iso_to_date(d_str).is_err() {
+                        return Err(INCORRECT_DEFAULT_DATE_VALUE);
+                    }
+                }
+            },
+            TAG_TYPE_DATETIME => {
+                if let Some(dt_str) = &add_tag_request.default_value {
+                    // Check if the default is a valid datetime ISO8601 "1977-04-22T06:00:00Z"
+                    if iso_to_datetime(dt_str).is_err() {
+                        return Err(INCORRECT_DEFAULT_DATETIME_VALUE);
+                    }
+                }
+            },
+            _ => {
+                return Err(INCORRECT_TAG_TYPE);
+            },
+        };
+
+        Ok(())
+    }
+
+
+    fn has_not_printable_char(tag_name: &str) -> bool {
+        use unicode_segmentation::UnicodeSegmentation;
+        let mut g_str = tag_name.graphemes(true);
+
+        loop {
+            let o_s = g_str.next();
+            match o_s {
+                None => {
+                    break;
+                }
+                Some(c) => {
+                    for cc in  c.chars() {
+                        let val = cc as u32;
+                        if  val == 32 || val <= 15 {
+                            return true;
+                        }
+                    }
+
+                }
+            }
+        }
+        false
+    }
 
 }
 
-
-
-///
-/// Create a new tag
-///
-#[post("/tag", format = "application/json", data = "<add_tag_request>")]
-pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: SessionToken) -> Json<AddTagReply> {
-    dbg!(&add_tag_request);
-    // Check if the token is valid
-    if !session_token.is_valid() {
-        return Json(AddTagReply {
-            tag_id: 0,
-            status: JsonErrorSet::from(INVALID_TOKEN),
-        });
-    }
-    let sid = session_token.take_value();
-
-    log_info!("🚀 Start add_tag api, sid={}", &sid);
-
-    let internal_database_error_reply = Json(AddTagReply {
-        tag_id: 0,
-        status: JsonErrorSet::from(INTERNAL_DATABASE_ERROR),
-    });
-
-    let _internal_technical_error = Json(AddTagReply {
-        tag_id: 0,
-        status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-    });
-
-    // Read the session information
-    let entry_session = match fetch_entry_session(&sid).map_err(err_fwd!("Session Manager failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return Json(AddTagReply {
-                tag_id: 0,
-                status: JsonErrorSet::from(INTERNAL_TECHNICAL_ERROR),
-            });
-        }
-    };
-
-    let customer_code = entry_session.customer_code.as_str();
-
-    if let Some(err) = check_input_values(&add_tag_request) {
-        return Json(err);
-    }
-
-    // Open the transaction
-    let mut r_cnx = SQLConnection::new();
-    let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error")) {
-        Ok(x) => { x },
-        Err(_) => { return internal_database_error_reply; },
-    };
-
-    let sql_query = format!( r"INSERT INTO cs_{}.tag_definition(name, string_tag_length, default_value, type)
-	VALUES (:p_name, :p_string_tag_length , :p_default_value, :p_type)", customer_code );
-
-    let sequence_name = format!( "cs_{}.tag_definition_id_seq", customer_code );
-
-    let length = CellValue::Int32(add_tag_request.string_tag_length);
-    let default_value = CellValue::from_opt_str(add_tag_request.default_value.as_deref());
-    let mut params = HashMap::new();
-    params.insert("p_name".to_string(), CellValue::from_raw_string(add_tag_request.name.clone()));
-    params.insert("p_type".to_string(), CellValue::from_raw_string(add_tag_request.tag_type.clone()));
-    params.insert("p_string_tag_length".to_string(), length);
-    params.insert("p_default_value".to_string(), default_value);
-
-    dbg!(&params);
-
-    let sql_insert = SQLChange {
-        sql_query,
-        params,
-        sequence_name,
-    };
-
-    let tag_id = match sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion of a new item failed")) {
-        Ok(x) => x,
-        Err(_) => {
-            return internal_database_error_reply;
-        }
-    };
-
-    if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-        return internal_database_error_reply;
-    }
-
-    dbg!(tag_id);
-
-    Json(AddTagReply {
-        tag_id: tag_id,
-        status: JsonErrorSet::from(SUCCESS),
-    })
-}
-
-// fn iso_to_datetime(dt_str : &str) -> anyhow::Result<DateTime<FixedOffset>>{
-//     let dt = DateTime::parse_from_rfc3339(dt_str)?;
-//     anyhow::Result::Ok(dt)
-// }
-//
-// fn iso_to_date(d_str : &str) -> anyhow::Result<Date<FixedOffset>>{
-//     let dt_s = format!("{}T00:00:00Z", d_str);
-//     let dt = DateTime::parse_from_rfc3339(&dt_s)?.date();
-//     anyhow::Result::Ok(dt)
-// }
 
 
 #[cfg(test)]
 mod test {
+    use chrono::{Datelike, DateTime, Timelike, Utc};
 
-    use chrono::{Datelike, DateTime, NaiveDateTime, Timelike, Utc};
     use commons_pg::{iso_to_date, iso_to_datetime};
 
     #[test]

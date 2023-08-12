@@ -1,4 +1,6 @@
 
+///  Ensure a string is a correct password
+///  Verify if only a few special characters are being used
 pub fn valid_password( pass : &str ) -> bool {
 
     let special_chars : Vec<char> = vec!['€', '$', '%', ';', ',', '.', ':', '_', '-', '/', '&', '!', '?', '#', '*', '+' ];

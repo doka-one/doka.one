@@ -36,6 +36,7 @@ const FILE_UPLOAD_FAILED : u16 = 110;
 const FILE_DOWNLOAD_FAILED: u16 = 120;
 const SUCCESS: u16 = 0;
 
+
 fn read_configuration_file() -> anyhow::Result<()> {
     let config_path = get_target_file("config/application.properties")?;
     let config_path_str = config_path.to_str().ok_or(anyhow!("Cannot convert path to str"))?;
@@ -139,7 +140,7 @@ fn dispatch(params : &Params, commands : &[Command]) -> u16 {
             let err = get_item(&id);
             success_or_err(err, GET_ITEM_FAILED)
         }
-        ("item", "prop") => {
+        ("item", "tag") => {
             let Ok((id, o_delete_prop, o_add_props))
                 = (|| -> anyhow::Result<(String, Option<String>, Option<String>)> {
                 Ok((extract_mandatory_option( &params.options, "-id")?,

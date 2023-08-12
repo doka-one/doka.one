@@ -477,7 +477,7 @@ impl ItemDelegate {
                                 tag_name: prop.tag_name.clone(),
                                 value: prop.value.clone(),
                             };
-                            if self.change_item_property(&mut trans, &add_tag_value, item_id, customer_code)
+                            if self.change_item_tag_value(&mut trans, &add_tag_value, item_id, customer_code)
                                 .map_err(err_fwd!("💣 Change of tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
                                 return Err(INTERNAL_DATABASE_ERROR);
                             }
@@ -495,7 +495,7 @@ impl ItemDelegate {
     }
 
     ///
-    fn change_item_property(&self, _trans: &mut SQLTransaction, _add_tag_value: &AddTagValue, _item_id: i64,  _customer_code: &str) -> anyhow::Result<()> {
+    fn change_item_tag_value(&self, _trans: &mut SQLTransaction, _add_tag_value: &AddTagValue, _item_id: i64, _customer_code: &str) -> anyhow::Result<()> {
 
         // let sql_query = format!(r"UPDATE cs_{}.tag_value
         //

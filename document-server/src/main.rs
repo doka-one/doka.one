@@ -5,7 +5,6 @@
 use std::path::Path;
 use std::process::exit;
 
-use anyhow::anyhow;
 use log::{error, info};
 use rocket::{Config, routes};
 use rocket::{delete, get, post};
@@ -21,8 +20,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DType, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType, WebTypeBuilder};
-use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INVALID_CEK};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -34,27 +32,6 @@ mod fulltext;
 mod ft_tokenizer;
 mod language;
 
-///
-/// ✨ Test Http Erreur Code
-/// **NORM
-///
-#[get("/get_bonj")]
-pub fn get_bonj() -> WebType<DType> {
-    let res = process_bonj();
-    res
-}
-
-fn process_bonj() -> WebType<DType> {
-    let Ok(_r) = dummy_sub_routine().map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", "kkk".to_string())) else {
-        return WebType::from_errorset(INVALID_CEK)
-    };
-    WebType::from_errorset(INCORRECT_CHAR_TAG_NAME)
-}
-
-fn dummy_sub_routine() -> anyhow::Result<()> {
-    Err(anyhow!("Sub routine erreur"))
-}
-/////////////////////////////////////////////
 
 ///
 /// ✨ Find all the items at page [start_page]
@@ -209,7 +186,6 @@ fn main() {
 
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
-            get_bonj,
             get_all_item,
             get_item,
             add_item,

@@ -1,37 +1,35 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
 
-mod session;
-
 use std::path::Path;
 use std::process::exit;
+
 use log::*;
 use rocket::*;
-use rocket_contrib::json::Json;
-use dkconfig::conf_reader::{read_config};
-
-
+use rocket::config::Environment;
 use rocket::http::RawStr;
-use commons_error::*;
+use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 
-use rocket::config::Environment;
-use commons_pg::{init_db_pool};
+use commons_error::*;
+use commons_pg::init_db_pool;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
-use commons_services::x_request_id::{XRequestID};
+use commons_services::x_request_id::XRequestID;
+use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-
-use dkdto::{OpenSessionReply, OpenSessionRequest, SessionReply};
+use dkdto::{OpenSessionReply, OpenSessionRequest, SessionReply, WebType};
 
 use crate::session::SessionDelegate;
+
+mod session;
 
 ///
 /// 🔑 Find a session from its sid
 ///
 #[get("/session/<session_id>")]
-fn read_session(session_id: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> Json<SessionReply> {
+fn read_session(session_id: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<SessionReply> {
     let mut delegate = SessionDelegate::new(security_token, x_request_id);
     delegate.read_session(session_id)
 }
@@ -43,7 +41,7 @@ fn read_session(session_id: &RawStr, security_token: SecurityToken, x_request_id
 /// It's usually called by the Login end point using the session_id as a security_token
 ///
 #[post("/session", format = "application/json", data = "<session_request>")]
-fn open_session(session_request: Json<OpenSessionRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<OpenSessionReply> {
+fn open_session(session_request: Json<OpenSessionRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<OpenSessionReply> {
     let mut delegate = SessionDelegate::new(security_token, x_request_id);
     delegate.open_session(session_request)
 }
@@ -61,7 +59,7 @@ fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
 
     set_prop_values(props);
 

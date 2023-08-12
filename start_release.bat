@@ -1,8 +1,8 @@
 ECHO OFF
 CLS
 
-SET ROOT_FOLDER="F:\wks-doka-one\doka.one\target\debug"
-#SET ROOT_FOLDER="C:\Users\denis\wks-doka-one\doka.one\target\debug"
+SET ROOT_FOLDER="F:\wks-doka-one\doka.one\target\release"
+#SET ROOT_FOLDER="C:\Users\denis\wks-doka-one\doka.one\target\release"
 
 echo *************************
 echo ***** KEY MANAGER *******

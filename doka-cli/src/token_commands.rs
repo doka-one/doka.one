@@ -1,17 +1,14 @@
+use std::env;
+use std::env::current_exe;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::ops::Add;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 
 use dkcrypto::dk_crypto::DkEncrypt;
-
-
-use serde::{Serialize, Deserialize};
-
-use crate::{get_target_file};
-use crate::command_options::Params;
 
 ///
 ///
@@ -53,7 +50,7 @@ fn read_cek_from_file(cek_file: &Path) -> anyhow::Result<String> {
 }
 
 ///
-pub(crate) fn token_generate(cek_file : &str) -> anyhow::Result<()> {
+pub fn token_generate(cek_file : &str) -> anyhow::Result<()> {
     println!("👶 Generate a security token...");
 
     let cek  = read_cek_from_file(& Path::new(&cek_file))?;
@@ -76,10 +73,24 @@ fn write_security_token(security_token: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub (crate) fn read_security_token() -> anyhow::Result<String> {
+pub fn read_security_token() -> anyhow::Result<String> {
     let file = File::open(get_target_file("config/token.id")?)?;
     let mut buf_reader = BufReader::new(file);
     let mut content: String = "".to_string();
     let _ = buf_reader.read_to_string(&mut content)?;
     Ok(content)
+}
+
+/// Get the location of a file into the working folder
+pub fn get_target_file(termnination_path: &str) -> anyhow::Result<PathBuf> {
+
+    let doka_cli_env = env::var("DOKA_CLI_ENV").unwrap_or("".to_string());
+
+    if ! doka_cli_env.is_empty() {
+        Ok(Path::new(&doka_cli_env).join("doka-cli").join(termnination_path).to_path_buf())
+    } else {
+        let path = current_exe()?; //
+        let parent_path = path.parent().ok_or(anyhow!("Problem to identify parent's binary folder"))?;
+        Ok(parent_path.join(termnination_path))
+    }
 }

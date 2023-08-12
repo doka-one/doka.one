@@ -1,13 +1,12 @@
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
-use anyhow::anyhow;
-use dkconfig::properties::get_prop_value;
 
+use anyhow::anyhow;
+
+use dkconfig::properties::get_prop_value;
 use dkdto::LoginRequest;
 use doka_cli::request_client::AdminServerClient;
-use crate::{get_target_file};
-use crate::command_options::Params;
-
+use crate::token_commands::get_target_file;
 
 ///
 pub (crate)  fn session_login(user_name: &str, user_password: &str) -> anyhow::Result<()> {
@@ -21,17 +20,22 @@ pub (crate)  fn session_login(user_name: &str, user_password: &str) -> anyhow::R
         login: user_name.to_owned(),
         password: user_password.to_owned(),
     };
-    let reply = client.login(&login_request);
-    if reply.status.error_code == 0 {
-        let customer_code = reply.customer_code.clone();
-        println!("Connected as customer {}", &customer_code);
-        write_session_id(&reply.session_id)?;
 
-        println!("😎 Session successfully opened, session id : {}... ", &reply.session_id[0..7]);
-        Ok(())
-    } else {
-        Err(anyhow!("{}", reply.status.err_message))
+    match client.login(&login_request) {
+        Ok(reply) => {
+            let customer_code = reply.customer_code.clone();
+            println!("Connected as customer {}", &customer_code);
+            write_session_id(&reply.session_id)?;
+
+            println!("😎 Session successfully opened, session id : {}... ", &reply.session_id[0..7]);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("{:?}", e);
+            Err(anyhow!("{} - {}", e.http_error_code, e.message))
+        }
     }
+
 }
 
 fn write_session_id(session_id: &str) -> anyhow::Result<()> {

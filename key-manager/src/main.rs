@@ -1,5 +1,5 @@
 #![feature(proc_macro_hygiene, decl_macro)]
-
+//#![feature(let_else)]
 
 mod key;
 mod all_tests;
@@ -13,7 +13,7 @@ use rocket::http::RawStr;
 use rocket_contrib::templates::Template;
 use rocket::config::Environment;
 
-use dkconfig::conf_reader::{read_config};
+use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 
 use commons_error::*;
@@ -23,7 +23,7 @@ use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FIL
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
-use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply,};
+use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
 use crate::key::{KeyDelegate};
 
 ///
@@ -31,18 +31,17 @@ use crate::key::{KeyDelegate};
 /// ** NORM
 ///
 #[get("/key/<customer_code>")]
-fn read_key(customer_code: &RawStr, security_token: SecurityToken) -> Json<CustomerKeyReply> {
+fn read_key(customer_code: &RawStr, security_token: SecurityToken) -> WebType<CustomerKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
     delegate.read_key(customer_code)
 }
-
 
 ///
 /// ✨ Read all the keys
 /// ** NORM
 ///
 #[get("/key")]
-fn key_list(security_token: SecurityToken) -> Json<CustomerKeyReply> {
+fn key_list(security_token: SecurityToken) -> WebType<CustomerKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
     delegate.key_list()
 }
@@ -54,7 +53,7 @@ fn key_list(security_token: SecurityToken) -> Json<CustomerKeyReply> {
 /// ** NORM
 ///
 #[post("/key", format = "application/json", data = "<customer>")]
-fn add_key(customer: Json<AddKeyRequest>, security_token: SecurityToken) -> Json<AddKeyReply> {
+fn add_key(customer: Json<AddKeyRequest>, security_token: SecurityToken) -> WebType<AddKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
     delegate.add_key(customer)
 }
@@ -71,10 +70,12 @@ fn main() {
     const PROJECT_CODE: &str = "key-manager";
     const VAR_NAME: &str = "DOKA_ENV";
 
+    let doka_env = read_doka_env(&VAR_NAME);
+
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &doka_env);
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
@@ -104,6 +105,7 @@ fn main() {
     read_cek_and_store();
 
     // Init DB pool
+    log_info!("😎 Init DB pool");
     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
         .map_err(err_fwd!("Cannot read the database connection information")) {
         Ok(x) => x,

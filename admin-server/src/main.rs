@@ -3,32 +3,34 @@
 
 //! admin-server handles the customer creation and login
 
-mod schema_cs;
-mod schema_fs;
-mod dk_password;
-mod customer;
-mod login;
-
-use log::*;
 use std::path::Path;
 use std::process::exit;
-use rocket::{Config, routes, post, patch, delete};
+
+use log::*;
+use rocket::{Config, delete, patch, post, routes};
 use rocket::config::Environment;
 use rocket::http::RawStr;
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
-use commons_error::{err_fwd, err_closure_fwd, log_error, log_info};
+
+use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
 use commons_pg::init_db_pool;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
-use dkconfig::conf_reader::read_config;
+use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{CreateCustomerReply, CreateCustomerRequest, JsonErrorSet, LoginReply, LoginRequest};
-use crate::customer::{CustomerDelegate};
-use crate::login::{LoginDelegate};
+use dkdto::{CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType};
 
+use crate::customer::CustomerDelegate;
+use crate::login::LoginDelegate;
+
+mod schema_cs;
+mod schema_fs;
+mod dk_password;
+mod customer;
+mod login;
 
 /// 0️ Login into the system with the provided credentials
 ///
@@ -45,7 +47,7 @@ use crate::login::{LoginDelegate};
 /// **NORM
 ///
 #[post("/login", format = "application/json", data = "<login_request>")]
-pub fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
+pub fn login(login_request: Json<LoginRequest>) -> WebType<LoginReply> {
     // TODO define the cases when a service needs a x_request_id has an entry parameter.
     let delegate = LoginDelegate::new(XRequestID::from_value(None));
     delegate.login(login_request)
@@ -57,7 +59,7 @@ pub fn login(login_request: Json<LoginRequest>) -> Json<LoginReply> {
 /// **NORM
 ///
 #[patch("/customer/removable/<customer_code>")]
-pub fn set_removable_flag_customer(customer_code: &RawStr, security_token: SecurityToken) -> Json<JsonErrorSet> {
+pub fn set_removable_flag_customer(customer_code: &RawStr, security_token: SecurityToken) -> WebType<SimpleMessage> {
     let delegate = CustomerDelegate::new(security_token, XRequestID::from_value(None));
     delegate.set_removable_flag_customer(customer_code)
 }
@@ -67,7 +69,7 @@ pub fn set_removable_flag_customer(customer_code: &RawStr, security_token: Secur
 /// 🔑 Create a brand new customer with schema and all
 /// **NORM
 #[post("/customer", format = "application/json", data = "<customer_request>")]
-pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> Json<CreateCustomerReply> {
+pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<CreateCustomerReply> {
     let delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.create_customer(customer_request)
 }
@@ -76,7 +78,7 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
 /// 🔑 Delete a customer with schema and all
 /// **NORM
 #[delete("/customer/<customer_code>")]
-pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> Json<JsonErrorSet> {
+pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<SimpleMessage> {
     // delete_customer_delegate(customer_code, security_token, x_request_id)
     let delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.delete_customer(customer_code)
@@ -95,7 +97,7 @@ fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
 
     set_prop_values(props);
 

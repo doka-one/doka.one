@@ -1,49 +1,38 @@
 #![feature(proc_macro_hygiene, decl_macro)]
+//#![feature(let_else)]
 
 
-mod file_delegate;
-
-use std::collections::HashMap;
 use std::path::Path;
 use std::process::exit;
-use rocket::config::Environment;
-use rocket_contrib::templates::Template;
-use rocket::{Config, Data, Request, Response, routes};
-use commons_pg::{init_db_pool, };
-use commons_services::read_cek_and_store;
-use dkconfig::conf_reader::read_config;
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+
 use log::*;
-use commons_error::*;
-use rocket::{post,get};
+use rocket::{Config, Data, Request, Response, routes};
+use rocket::{get, post};
+use rocket::config::Environment;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::{ContentType, Method, RawStr, Status};
-use rocket::response::{Content};
-use rocket_contrib::json::Json;
+use rocket_contrib::templates::Template;
 
-use commons_services::property_name::{ LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,};
+use commons_error::*;
+use commons_pg::init_db_pool;
+use commons_services::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,};
+use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkdto::{GetFileInfoReply, GetFileInfoShortReply, UploadReply};
+use dkconfig::conf_reader::{read_config, read_doka_env};
+use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkdto::{DownloadReply, GetFileInfoReply, GetFileInfoShortReply, UploadReply, WebType};
 
 use crate::file_delegate::FileDelegate;
 
-
-///
-/// ✨  Upload the binary content of a file
-///
-#[post("/upload", data = "<file_data>")]
-pub fn upload(file_data: Data, session_token : SessionToken) -> Json<UploadReply> {
-    let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.upload(file_data)
-}
+mod file_delegate;
 
 ///
 /// ✨  Upload the binary content of a file v2
 /// item_info : Base64Url encoded information representing a value from the possible target item (for instance, its filename)
 ///
 #[post("/upload2/<item_info>", data = "<file_data>")]
-pub fn upload2(item_info: &RawStr, file_data: Data, session_token : SessionToken) -> Json<UploadReply> {
+pub fn upload2(item_info: &RawStr, file_data: Data, session_token : SessionToken) -> WebType<UploadReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.upload2(item_info, file_data)
 }
@@ -53,7 +42,7 @@ pub fn upload2(item_info: &RawStr, file_data: Data, session_token : SessionToken
 /// ✨ Get the information about the composition of a file [file_ref]
 ///
 #[get("/info/<file_ref>")]
-pub fn file_info(file_ref: &RawStr, session_token : SessionToken) -> Json<GetFileInfoReply> {
+pub fn file_info(file_ref: &RawStr, session_token : SessionToken) -> WebType<GetFileInfoReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.file_info(file_ref)
 
@@ -63,7 +52,7 @@ pub fn file_info(file_ref: &RawStr, session_token : SessionToken) -> Json<GetFil
 /// ✨ Get the information about the loading status of a file [file_ref]
 ///
 #[get("/stats/<file_ref>")]
-pub fn file_stats(file_ref: &RawStr, session_token : SessionToken) -> Json<GetFileInfoShortReply> {
+pub fn file_stats(file_ref: &RawStr, session_token : SessionToken) -> WebType<GetFileInfoShortReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.file_stats(file_ref)
 }
@@ -72,7 +61,7 @@ pub fn file_stats(file_ref: &RawStr, session_token : SessionToken) -> Json<GetFi
 /// ✨  Download the binary content of a file
 ///
 #[get("/download/<file_ref>")]
-pub fn download(file_ref: &RawStr, session_token : SessionToken) -> Content<Vec<u8>> {
+pub fn download(file_ref: &RawStr, session_token : SessionToken) -> DownloadReply /*Content<Vec<u8>>*/ {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.download(file_ref)
 }
@@ -119,10 +108,8 @@ fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, VAR_NAME);
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
     set_prop_values(props);
-
-    log_info!("🚀 Start {}", PROGRAM_NAME);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
@@ -145,6 +132,8 @@ fn main() {
         }
         Ok(_) => {}
     }
+
+    log_info!("🚀 Start {}", PROGRAM_NAME);
 
     // Read the CEK
     log_info!("😎 Read Common Edible Key");
@@ -170,11 +159,8 @@ fn main() {
 
     let base_url = format!("/{}", PROJECT_CODE);
 
-
-
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
-            upload,
             upload2,
             file_info,
             file_stats,

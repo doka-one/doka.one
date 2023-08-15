@@ -139,7 +139,7 @@
       },
       {
         "name" : "tag",
-        "description" : "Manage the item properties",
+        "description" : "Manage the item tags",
         "options": [
           {
             "flags": ["-id"],
@@ -150,14 +150,14 @@
           },
           {
             "flags": ["-d", "--delete"],
-            "description": "delete the properties",
+            "description": "delete the tags",
             "required": false,
             "hasValue": true,
             "key": "d"
           },
           {
-            "flags": ["-a", "-add"],
-            "description": "add the properties",
+            "flags": ["-u", "--update"],
+            "description": "add the tags or change the values",
             "required": true,
             "hasValue": true,
             "key": "a"

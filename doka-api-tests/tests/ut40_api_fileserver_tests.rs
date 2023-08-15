@@ -1,6 +1,6 @@
 mod test_lib;
 
-const TEST_TO_RUN : &[&str] = &["t01_upload_file", "t02_upload_download_file"];
+const TEST_TO_RUN : &[&str] = &["t10_upload_file", "t20_upload_download_file"];
 
 #[cfg(test)]
 mod api_fileserver_tests {
@@ -14,8 +14,8 @@ mod api_fileserver_tests {
     const NB_PARTS : u32 = 9;
 
     #[test]
-    fn t01_upload_file() -> Result<(), ErrorMessage> {
-        let lookup = Lookup::new("t01_upload_file", TEST_TO_RUN); // auto dropping
+    fn t10_upload_file() -> Result<(), ErrorMessage> {
+        let lookup = Lookup::new("t10_upload_file", TEST_TO_RUN); // auto dropping
         let test_env = read_test_env();
 
         eprintln!("test_env {:?}", &test_env);
@@ -33,7 +33,10 @@ mod api_fileserver_tests {
         // Upload the document
         let file_server = FileServerClient::new("localhost", 30080);
 
-        let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        // FIXME
+        // let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        let file_content = std::fs::read(r"C:\Users\denis\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
         assert_eq!(NB_PARTS, upload_reply.block_count);
@@ -75,8 +78,8 @@ mod api_fileserver_tests {
     }
 
     #[test]
-    fn t02_upload_download_file() -> Result<(), ErrorMessage> {
-        let lookup = Lookup::new("t02_upload_download_file", TEST_TO_RUN); // auto dropping
+    fn t20_upload_download_file() -> Result<(), ErrorMessage> {
+        let lookup = Lookup::new("t20_upload_download_file", TEST_TO_RUN); // auto dropping
         let test_env = read_test_env();
 
         eprintln!("test_env {:?}", &test_env);
@@ -94,7 +97,10 @@ mod api_fileserver_tests {
         // Upload the document
         let file_server = FileServerClient::new("localhost", 30080);
 
-        let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        // FIXME
+        // let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        let file_content = std::fs::read(r"C:\Users\denis\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
         assert_eq!(NB_PARTS, upload_reply.block_count);

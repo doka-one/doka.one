@@ -145,7 +145,7 @@ fn dispatch(params : &Params, commands : &[Command]) -> u16 {
                 = (|| -> anyhow::Result<(String, Option<String>, Option<String>)> {
                 Ok((extract_mandatory_option( &params.options, "-id")?,
                     extract_option( &params.options, "-d")?,
-                    extract_option( &params.options, "-a")?)
+                    extract_option( &params.options, "-u")?)
                 )
             }) ().map_err(eprint_fwd!("Error")) else {
                 return CREATE_ITEM_FAILED;
@@ -225,71 +225,6 @@ fn main() -> () {
 
     let exit_code = dispatch(&params, &commands);
     exit_program(exit_code as i32);
-
-    // match params.object.as_str() {
-    //     "token" => {
-    //         match token_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //                 exit_code = 70;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "customer" => {
-    //         match customer_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //                 exit_code = 80;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "session" => {
-    //         match session_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //
-    //                 exit_code = 90;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "item" => {
-    //         match item_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //
-    //                 exit_code = 120;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "file" => {
-    //         match file_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //
-    //                 exit_code = 140;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     _ => {
-    //
-    //     }
-    // }
-
 
 }
 

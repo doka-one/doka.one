@@ -13,8 +13,8 @@ use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, EnumTagValue, ErrorSet, GetItemReply, ItemElement, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
-use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, EnumTagValue, ErrorMessage, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
+use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_REQUEST, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
 use doka_cli::request_client::TokenType;
 
 use crate::{TagDelegate, WebType};
@@ -296,10 +296,10 @@ impl ItemDelegate {
     }
 
     ///
-    /// ✨ Delegate for add_item_tag
+    /// ✨ Delegate for delete_item_tag
     ///
-    pub fn add_item_tag(mut self, add_item_tag_request: Json<AddItemTagRequest>) -> WebType<AddItemTagReply> {
-        log_info!("🚀 Start add_item_tag api, add_item_tag_request=[{:?}], follower=[{}]", &add_item_tag_request, &self.follower);
+    pub fn delete_item_tag(mut self, add_item_tag_request: Json<AddItemTagRequest>) -> WebType<SimpleMessage> {
+        log_info!("🚀 Start delete_item_tag api, add_item_tag_request=[{:?}], follower=[{}]", &add_item_tag_request, &self.follower);
 
         let customer_code = & match self.valid_sid_get_session() {
             Ok(cc) => { cc }
@@ -317,9 +317,106 @@ impl ItemDelegate {
             return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
+        let item_id = add_item_tag_request.item_id;
+        for tag in &add_item_tag_request.properties {
+            // Tag name is the only option for now
+            let Some(tag_name) = tag.tag_name.as_ref() else {
+                return WebType::from_errorset(INVALID_REQUEST);
+            };
+
+            if let Err(e) = self.delete_item_tag_value(&mut trans, item_id, &tag_name, customer_code) {
+                log_error!("💣 Delete item tag value error, error=[{:?}], follower=[{}]",e , &self.follower);
+                return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            };
+        }
+
+        log_info!("🏁 End delete_item_tag, follower=[{}]", &self.follower);
+        WebType::from_item(Status::Ok.code, SimpleMessage {
+            message: "Done".to_string(),
+        })
+    }
+
+    /// Delete a specific tag for the given item
+    fn delete_tag_for_item(&self, mut trans: &mut SQLTransaction, item_id: u64, tag: &AddTagValue, customer_code: &str) -> Result<(), ErrorSet<'static>> {
+
+        // Check the tag
+        let tag_id = match (tag.tag_id, &tag.tag_name) {
+            (None, None) => {
+                // Impossible case, return an error.
+                log_error!("💣 A tag must have a tag_id or a tag_name, follower=[{}]", &self.follower);
+                return Err(INTERNAL_DATABASE_ERROR);
+            }
+            (Some(tag_id), None) => {
+                // Tag id only, verify if the tag exists, return the tag_id
+                // Any case with a tag_name provided, check / create, return the tag_id
+                let Ok(tid) = self.check_tag_id_validity(&mut trans, tag_id, tag, customer_code)
+                    .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", tag, &self.follower)) else {
+                    return Err(MISSING_TAG_FOR_ITEM);
+                };
+                log_info!("😎 The tag is already in the system, tag id=[{}], follower=[{}]", tid, &self.follower);
+                tid
+            }
+            (_, Some(tag_name)) => {
+                let session_token = self.session_token.clone();
+                let x_request_id = self.follower.x_request_id.clone();
+                let tag_delegate = TagDelegate::new(session_token, x_request_id);
+                // Any case with a tag_name provided, check / create , return the tag_id
+                let tag_id = match tag_delegate.search_tag_by_name(&mut trans, tag_name.as_str(), customer_code)
+                {
+                    Ok(tag) => {
+                        // We found the tag by it's name
+                        tag.tag_id
+                    }
+                    Err(_) => {
+                        return Err(BAD_TAG_FOR_ITEM);
+                    }
+                };
+
+                log_info!("The tag is in the system, tag id=[{:?}], follower=[{}]", tag_id, &self.follower);
+                tag_id
+            }
+        };
+
+        // Verify if the tag exists on the item
+        match self.is_tags_on_item(&mut trans, item_id as i64, tag_id, customer_code) {
+            Ok((o_tag_value_id, o_tag_type)) => {
+
+            }
+            Err(e) => {
+
+            }
+        }
+
+        // Remove the tag value
+
+        Ok(())
+    }
+
+
+    ///
+    /// ✨ Delegate for add_item_tag
+    ///
+    pub fn update_item_tag(mut self, add_item_tag_request: Json<AddItemTagRequest>) -> WebType<AddItemTagReply> {
+        log_info!("🚀 Start update_item_tag api, add_item_tag_request=[{:?}], follower=[{}]", &add_item_tag_request, &self.follower);
+
+        let customer_code = & match self.valid_sid_get_session() {
+            Ok(cc) => { cc }
+            Err(e) => {
+                return WebType::from_errorset(e);
+            }
+        };
+
+        log_info!("😎 We read the session information, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+
+        // Open the transaction
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
 
         // Add the tags
-        let r_add_tags = self.add_tags_on_item(&mut trans, add_item_tag_request.item_id, customer_code, &add_item_tag_request.properties);
+        let r_add_tags = self.update_tags_on_item(&mut trans, add_item_tag_request.item_id, customer_code, &add_item_tag_request.properties);
         if let Err(e) = r_add_tags {
             return WebType::from_errorset(e);
         }
@@ -328,7 +425,7 @@ impl ItemDelegate {
             return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
-        log_info!("🏁 End add_item_tag, follower=[{}]", &self.follower);
+        log_info!("🏁 End update_item_tag, follower=[{}]", &self.follower);
 
         WebType::from_item(Status::Ok.code,AddItemTagReply {
             status: "Ok".to_string()
@@ -390,7 +487,7 @@ impl ItemDelegate {
 
         // | Insert all the properties
         if let Some(properties) = &add_item_request.properties {
-            let r_add_tags = self.add_tags_on_item(&mut trans, item_id, customer_code, properties);
+            let r_add_tags = self.update_tags_on_item(&mut trans, item_id, customer_code, properties);
             if let Err(e) = r_add_tags {
                 return WebType::from_errorset(e);
             }
@@ -418,75 +515,87 @@ impl ItemDelegate {
 
 
     /// Add tags on an item
-    fn add_tags_on_item(&self, mut trans : &mut SQLTransaction, item_id: i64, customer_code : &str, properties: &Vec<AddTagValue>) -> Result<(),ErrorSet<'static>> {
+    fn update_tags_on_item(&self, mut trans : &mut SQLTransaction, item_id: i64, customer_code : &str, properties: &Vec<AddTagValue>) -> Result<(),ErrorSet<'static>> {
 
-        for prop in properties {
+        for tag in properties {
             // Check / Define the property
-            let tag_id = match (prop.tag_id, &prop.tag_name) {
+            let tag_id = match (tag.tag_id, &tag.tag_name) {
                 (None, None) => {
                     // Impossible case, return an error.
-                    log_error!("💣 A property must have a tag_id or a tag_name, follower=[{}]", &self.follower);
+                    log_error!("💣 A tag must have a tag_id or a tag_name, follower=[{}]", &self.follower);
                     return Err(INTERNAL_DATABASE_ERROR);
                 }
                 (Some(tag_id), None) => {
                     // Tag id only, verify if the tag exists, return the tag_id
                     // Any case with a tag_name provided, check / create, return the tag_id
-                    let Ok(tid) = self.check_tag_id_validity(&mut trans, tag_id, prop, customer_code)
-                        .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
+                    let Ok(tid) = self.check_tag_id_validity(&mut trans, tag_id, tag, customer_code)
+                        .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", tag, &self.follower)) else {
                         //let message = format!("tag_id: [{}]", &tag_id);
-                        return Err(MISSING_TAG_FOR_ITEM);// Json(AddItemReply::from_error_with_text(MISSING_TAG_FOR_ITEM, &message));
+                        return Err(MISSING_TAG_FOR_ITEM);
                     };
                     log_info!("😎 The tag is already in the system, tag id=[{}], follower=[{}]", tid, &self.follower);
                     tid
                 }
                 (_, Some(_tag_name)) => {
                     // Any case with a tag_name provided, check / create , return the tag_id
-                    let Ok(tid) = self.define_tag_if_needed(&mut trans, prop, customer_code)
-                        .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", prop, &self.follower)) else {
+                    let Ok(tid) = self.define_tag_if_needed(&mut trans, tag, customer_code)
+                        .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", tag, &self.follower)) else {
                         //let message = format!("tag_name: [{}]", &tag_name);
-                        return Err(BAD_TAG_FOR_ITEM); //Json(AddItemReply::from_error_with_text(BAD_TAG_FOR_ITEM, &message));
+                        return Err(BAD_TAG_FOR_ITEM);
                     };
-                    log_info!("😎 We added the tag in the system, tag id=[{:?}], follower=[{}]", tid, &self.follower);
+                    log_info!("The tag is in the system, tag id=[{:?}], follower=[{}]", tid, &self.follower);
                     tid
                 }
             };
 
             // Verify if the tag exists on the item
             match self.is_tags_on_item(&mut trans, item_id, tag_id, customer_code) {
-                Ok(o_tag_value_id) => {
-                    match o_tag_value_id {
-                        None => {
+                Ok((o_tag_value_id, o_tag_type)) => {
+                    match (o_tag_value_id, o_tag_type) {
+                        (None, None) => {
                             // The tag hasn't any value for the item, create the tag values for the item
                             let add_tag_value  = AddTagValue {
                                 tag_id: Some(tag_id),
-                                tag_name: prop.tag_name.clone(),
-                                value: prop.value.clone(),
+                                tag_name: tag.tag_name.clone(),
+                                value: tag.value.clone(),
                             };
 
                             if self.create_item_property(&mut trans, &add_tag_value, item_id, customer_code)
-                                .map_err(err_fwd!("💣 Insertion of a new tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
+                                .map_err(err_fwd!("💣 Insertion of a new tag value failed, tag value=[{:?}], follower=[{}]", tag, &self.follower)).is_err() {
                                 return Err(INTERNAL_DATABASE_ERROR);
                             }
-                            log_debug!("😎 We added the property to the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
+                            log_info!("😎 We added the tag to the item, tag name=[{:?}], follower=[{}]", tag.value, &self.follower);
                         }
-                        Some(tag_value_id) => {
+                        (Some(tag_value_id), Some(tag_type)) => {
                             // The tag has a value for the item, change the tag values for the item
                             log_info!("The tag has an existing value id=[{}], follower=[{}]", tag_value_id, &self.follower);
+
+                            if Self::enum_tag_value_to_tag_type(&tag) != tag_type {
+                                log_error!("💣 Trying to change the tag value to different type : final type=[{:?}], original type=[{}], item id=[{}], tag_id=[{}], follower=[{}]"
+                                    , tag.value, &tag_type, item_id, tag_id, &self.follower);
+                                return Err(INCORRECT_TAG_TYPE);
+                            }
+
                             let add_tag_value  = AddTagValue {
                                 tag_id: Some(tag_id),
-                                tag_name: prop.tag_name.clone(),
-                                value: prop.value.clone(),
+                                tag_name: tag.tag_name.clone(),
+                                value: tag.value.clone(),
                             };
-                            if self.change_item_tag_value(&mut trans, &add_tag_value, item_id, customer_code)
-                                .map_err(err_fwd!("💣 Change of tag value failed, tag value=[{:?}], follower=[{}]", prop, &self.follower)).is_err() {
+
+                            if self.change_item_tag_value(&mut trans, &add_tag_value, tag_value_id, customer_code)
+                                .map_err(err_fwd!("💣 Change of tag value failed, tag value=[{:?}], follower=[{}]", tag, &self.follower)).is_err() {
                                 return Err(INTERNAL_DATABASE_ERROR);
                             }
-                            log_debug!("😎 We changed the property of the item, prop name=[{:?}], follower=[{}]", prop.value, &self.follower);
+                            log_info!("😎 We changed the tag value of the item, tag name=[{:?}], follower=[{}]", tag.value, &self.follower);
+                        }
+                        (_,_) => {
+                            log_error!("💣 Error while checking the existing the tag value, item id=[{}], tag_id=[{}], follower=[{}]", item_id, tag_id, &self.follower);
+                            return Err(INTERNAL_DATABASE_ERROR);
                         }
                     }
                 }
                 Err(e) => {
-                    log_error!("💣 Erreur while reading the properties, item id=[{}], tag_id=[{}], message=[{}]", item_id, tag_id, e.to_string());
+                    log_error!("💣 Error while reading the tag value, item id=[{}], tag_id=[{}], message=[{}], follower=[{}]", item_id, tag_id, e.to_string(), &self.follower);
                     return Err(INTERNAL_DATABASE_ERROR);
                 }
             }
@@ -495,37 +604,57 @@ impl ItemDelegate {
     }
 
     ///
-    fn change_item_tag_value(&self, _trans: &mut SQLTransaction, _add_tag_value: &AddTagValue, _item_id: i64, _customer_code: &str) -> anyhow::Result<()> {
+    fn change_item_tag_value(&self, mut trans: &mut SQLTransaction, tag: &AddTagValue, tag_value_id: i64, customer_code: &str) -> anyhow::Result<()> {
+        let sql_update = format!(r"UPDATE cs_{0}.tag_value
+                                            SET
+                                                value_boolean = :p_value_boolean,
+                                                value_string = :p_value_string,
+                                                value_integer = :p_value_integer,
+                                                value_double = :p_value_double,
+                                                value_date = :p_val_date,
+                                                value_datetime = :p_value_datetime
+                                            WHERE id = :p_tag_value_id
+                                                 ", customer_code);
 
-        // let sql_query = format!(r"UPDATE cs_{}.tag_value
-        //
-        //         SET // build a conditional query ...
-        // (tag_id, item_id, value_boolean, value_string, value_integer, value_double, value_date, value_datetime)
-        //          VALUES (:p_tag_id, :p_item_id, :p_value_boolean, :p_value_string, :p_value_integer, :p_value_double, :p_val_date, :p_value_datetime) ", customer_code);
-        //
-        //
-        // let query = SQLChange {
-        //     sql_query: "UPDATE public.keys SET ciphered_password = :p_customer_key WHERE id > :p_customer_id".to_string(),
-        //     params,
-        //     sequence_name: "".to_string(),
-        // };
-        //
-        // match query.update(&mut trans) {
-        //     Ok(id) => {
-        //         println!("{:?}", id);
-        //     }
-        //     Err(e) => {
-        //         println!("{:?}", e);
-        //     }
-        // }
+        let mut params = HashMap::new();
 
+        params.insert("p_tag_value_id".to_string(), CellValue::from_raw_int(tag_value_id));
+        params = self.build_params_for_insert_and_update(&tag, params);
+        let query = SQLChange {
+            sql_query: sql_update.to_string(),
+            params,
+            sequence_name: "".to_string(),
+        };
+        let _id = query.update(&mut trans).map_err(err_fwd!("💣 Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
+        Ok(())
+    }
+
+
+    ///
+    fn delete_item_tag_value(&self, mut trans: &mut SQLTransaction, item_id: i64, tag_name: &str, customer_code: &str) -> anyhow::Result<()> {
+        let sql_delete = format!(r"DELETE cs_{0}.tag_value
+                                            WHERE tag_id = (SELECT td.id FROM tag_definition td WHERE td.tag_name = :p_tag_name)
+                                            AND item_id = :p_item_id
+
+                                                 ", customer_code);
+
+        let mut params = HashMap::new();
+
+        params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
+        params.insert("p_tag_name".to_string(), CellValue::from_raw_str(tag_name));
+        let query = SQLChange {
+            sql_query: sql_delete.to_string(),
+            params,
+            sequence_name: "".to_string(),
+        };
+        let _id = query.delete(&mut trans).map_err(err_fwd!("💣 Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
         Ok(())
     }
 
     /// find if the tag is already assigned to the item
-    fn is_tags_on_item(&self, trans : &mut SQLTransaction, item_id: i64, tag_id: i64, customer_code: &str) -> anyhow::Result<Option<i64>> {
-        let sql_query = format!(r#"SELECT tv.id FROM
-                                            cs_{0}.tag_value tv
+    fn is_tags_on_item(&self, trans : &mut SQLTransaction, item_id: i64, tag_id: i64, customer_code: &str) -> anyhow::Result<(Option<i64>, Option<String>)>{
+        let sql_query = format!(r#"SELECT tv.id, td.type FROM
+                                            cs_{0}.tag_value tv INNER JOIN cs_{0}.tag_definition td ON td.id = tv.tag_id
                                         WHERE tv.tag_id = :p_tag_id
                                             AND tv.item_id = :p_item_id"#, &customer_code);
 
@@ -543,12 +672,12 @@ impl ItemDelegate {
         let mut sql_result : SQLDataSet =  query.execute(trans)
             .map_err(err_fwd!("Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
 
-        let tag_value_id = if sql_result.next() {
-            sql_result.get_int("id")
+        let (tag_value_id, tag_type) = if sql_result.next() {
+            (sql_result.get_int("id"), sql_result.get_string("type"))
         } else {
-            None
+            (None, None)
         };
-        Ok(tag_value_id)
+        Ok((tag_value_id, tag_type))
     }
 
     ///
@@ -593,7 +722,6 @@ impl ItemDelegate {
         };
 
         let tag = tags.get(0).ok_or(anyhow!("Missing tag element"))?;
-
         if tag.tag_type != Self::enum_tag_value_to_tag_type(&prop) {
             return Err(anyhow!("Tag has a different value type than its definition, tag_id=[{}], follower=[{}]", tag_id, &self.follower));
         }
@@ -634,18 +762,17 @@ impl ItemDelegate {
                     return Err(anyhow!("Tag definition is not correct"));
                 }
 
-                tag_delegate.insert_tag_definition(trans, &add_tag_request, customer_code).map_err(tr_fwd!())?
+                let tag_id = tag_delegate.insert_tag_definition(trans, &add_tag_request, customer_code).map_err(tr_fwd!())?;
+                log_info!("😎 Defined the tag, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
+                tag_id
             }
         };
-
-        log_info!("Defined the tag, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
 
         Ok(tag_id)
     }
 
 
     fn enum_tag_value_to_tag_type(prop: &AddTagValue) -> String {
-
         match prop.value {
             EnumTagValue::String(_) => {
                 TAG_TYPE_STRING
@@ -673,9 +800,9 @@ impl ItemDelegate {
     }
 
     ///
-    fn create_item_property(&self, trans : &mut SQLTransaction, prop :&AddTagValue, item_id : i64, customer_code : &str) -> anyhow::Result<()> {
+    fn create_item_property(&self, trans : &mut SQLTransaction, tag:&AddTagValue, item_id : i64, customer_code : &str) -> anyhow::Result<()> {
 
-        let tag_id = prop.tag_id.ok_or(anyhow!("Tag id must be provided, follower=[{}]", &self.follower))?;
+        let tag_id = tag.tag_id.ok_or(anyhow!("Tag id must be provided, follower=[{}]", &self.follower))?;
 
         // FIXME BUG: we named the variable :p_val_date because otherwise it conflict with :p_value_datetime
         //              the replacement expression should be ":variable:" to avoid this case
@@ -687,6 +814,21 @@ impl ItemDelegate {
         params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
         params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
 
+        params = self.build_params_for_insert_and_update(&tag, params);
+
+        let sql_insert = SQLChange {
+            sql_query,
+            params,
+            sequence_name: format!("cs_{}.tag_value_id_seq", customer_code)
+        };
+
+        log_debug!("Created the property, prop tag id=[{}], follower=[{}]", tag_id, &self.follower);
+
+        let _ = sql_insert.insert(trans).map_err(err_fwd!("Cannot insert the tag value, follower=[{}]", &self.follower))?;
+        Ok(())
+    }
+
+    fn build_params_for_insert_and_update(&self, tag:&AddTagValue, mut params : HashMap<String, CellValue> ) -> HashMap<String, CellValue> {
         params.insert("p_value_string".to_string(), CellValue::String(None));
         params.insert("p_value_boolean".to_string(), CellValue::Bool(None));
         params.insert("p_value_integer".to_string(), CellValue::Int(None));
@@ -694,7 +836,7 @@ impl ItemDelegate {
         params.insert("p_val_date".to_string(), CellValue::Date(None));
         params.insert("p_value_datetime".to_string(), CellValue::SystemTime(None));
 
-        match &prop.value {
+        match &tag.value {
             EnumTagValue::String(tv) => {
                 params.insert("p_value_string".to_string(), CellValue::String(tv.clone()));
             }
@@ -730,18 +872,7 @@ impl ItemDelegate {
                 params.insert("p_value_string".to_string(), CellValue::String(tv.clone()));
             }
         }
-
-        let sql_insert = SQLChange {
-            sql_query,
-            params,
-            sequence_name: format!("cs_{}.tag_value_id_seq", customer_code)
-        };
-
-
-        log_debug!("Created the property, prop tag id=[{}], follower=[{}]", tag_id, &self.follower);
-
-        let _ = sql_insert.insert(trans).map_err(err_fwd!("Cannot insert the tag value, follower=[{}]", &self.follower))?;
-        Ok(())
+        params
     }
 }
 

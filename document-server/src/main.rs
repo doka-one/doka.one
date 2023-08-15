@@ -66,14 +66,25 @@ pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: S
 }
 
 ///
-/// ✨ Add tags on an existing item
+/// ✨ Update tags on an existing item
 ///     Tags can be already existing in the system.
 ///
 ///
 #[post("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
-pub (crate) fn add_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
+pub (crate) fn update_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.add_item_tag(add_item_tag_request)
+    delegate.update_item_tag(add_item_tag_request)
+}
+
+///
+/// ✨ Update tags on an existing item
+///     Tags can be already existing in the system.
+///
+///
+#[delete("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
+pub (crate) fn delete_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<SimpleMessage> {
+    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.delete_item_tag(add_item_tag_request)
 }
 
 ///
@@ -189,7 +200,7 @@ fn main() {
             get_all_item,
             get_item,
             add_item,
-            add_item_tag,
+            update_item_tag,
             get_all_tag,
             add_tag,
             delete_tag,

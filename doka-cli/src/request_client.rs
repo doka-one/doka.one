@@ -661,7 +661,7 @@ impl TikaServerClient {
     /// Read meta information from the utf8 text request
     ///
     pub fn read_meta(&self, request : &str) ->  anyhow::Result<TikaMeta> {
-        // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
+        // curl -T birdy_tickets.pdf  http://localhost:9998/meta --header "Accept: application/json"
         let url = self.server.build_url("meta");
 
         let bytes = request.as_bytes().to_vec();

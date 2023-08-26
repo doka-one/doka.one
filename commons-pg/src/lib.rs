@@ -608,6 +608,7 @@ fn parse_query<'a>(string_template: &str, params: &'a HashMap<String, CellValue>
 }
 
 // For Update and insert
+#[derive(Debug)]
 pub struct SQLChange {
     pub sql_query: String,
     pub params: HashMap<String, CellValue>,

@@ -13,7 +13,7 @@ use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, EnumTagValue, ErrorMessage, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorMessage, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
 use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_REQUEST, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
 use doka_cli::request_client::TokenType;
 
@@ -298,8 +298,8 @@ impl ItemDelegate {
     ///
     /// ✨ Delegate for delete_item_tag
     ///
-    pub fn delete_item_tag(mut self, add_item_tag_request: Json<AddItemTagRequest>) -> WebType<SimpleMessage> {
-        log_info!("🚀 Start delete_item_tag api, add_item_tag_request=[{:?}], follower=[{}]", &add_item_tag_request, &self.follower);
+    pub fn delete_item_tag(mut self, item_id: i64, tag_names: DeleteTagsRequest) -> WebType<SimpleMessage> {
+        log_info!("🚀 Start delete_item_tag api, item_id=[{}], tag_names=[{:?}], follower=[{}]", item_id, &tag_names, &self.follower);
 
         let customer_code = & match self.valid_sid_get_session() {
             Ok(cc) => { cc }
@@ -317,17 +317,21 @@ impl ItemDelegate {
             return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
-        let item_id = add_item_tag_request.item_id;
-        for tag in &add_item_tag_request.properties {
-            // Tag name is the only option for now
-            let Some(tag_name) = tag.tag_name.as_ref() else {
-                return WebType::from_errorset(INVALID_REQUEST);
-            };
+        // if tag_names.0.is_empty() {
+        //     return WebType::from_errorset(INVALID_REQUEST);
+        // };
 
+        //let item_id = add_item_tag_request.item_id;
+        for tag_name in tag_names.0 {
             if let Err(e) = self.delete_item_tag_value(&mut trans, item_id, &tag_name, customer_code) {
                 log_error!("💣 Delete item tag value error, error=[{:?}], follower=[{}]",e , &self.follower);
                 return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
             };
+            log_info!("😎 We deleted the tag, tag_name=[{}], follower=[{}]", &tag_name, &self.follower);
+        }
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed")).is_err() {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End delete_item_tag, follower=[{}]", &self.follower);
@@ -337,66 +341,66 @@ impl ItemDelegate {
     }
 
     /// Delete a specific tag for the given item
-    fn delete_tag_for_item(&self, mut trans: &mut SQLTransaction, item_id: u64, tag: &AddTagValue, customer_code: &str) -> Result<(), ErrorSet<'static>> {
-
-        // Check the tag
-        let tag_id = match (tag.tag_id, &tag.tag_name) {
-            (None, None) => {
-                // Impossible case, return an error.
-                log_error!("💣 A tag must have a tag_id or a tag_name, follower=[{}]", &self.follower);
-                return Err(INTERNAL_DATABASE_ERROR);
-            }
-            (Some(tag_id), None) => {
-                // Tag id only, verify if the tag exists, return the tag_id
-                // Any case with a tag_name provided, check / create, return the tag_id
-                let Ok(tid) = self.check_tag_id_validity(&mut trans, tag_id, tag, customer_code)
-                    .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", tag, &self.follower)) else {
-                    return Err(MISSING_TAG_FOR_ITEM);
-                };
-                log_info!("😎 The tag is already in the system, tag id=[{}], follower=[{}]", tid, &self.follower);
-                tid
-            }
-            (_, Some(tag_name)) => {
-                let session_token = self.session_token.clone();
-                let x_request_id = self.follower.x_request_id.clone();
-                let tag_delegate = TagDelegate::new(session_token, x_request_id);
-                // Any case with a tag_name provided, check / create , return the tag_id
-                let tag_id = match tag_delegate.search_tag_by_name(&mut trans, tag_name.as_str(), customer_code)
-                {
-                    Ok(tag) => {
-                        // We found the tag by it's name
-                        tag.tag_id
-                    }
-                    Err(_) => {
-                        return Err(BAD_TAG_FOR_ITEM);
-                    }
-                };
-
-                log_info!("The tag is in the system, tag id=[{:?}], follower=[{}]", tag_id, &self.follower);
-                tag_id
-            }
-        };
-
-        // Verify if the tag exists on the item
-        match self.is_tags_on_item(&mut trans, item_id as i64, tag_id, customer_code) {
-            Ok((o_tag_value_id, o_tag_type)) => {
-
-            }
-            Err(e) => {
-
-            }
-        }
-
-        // Remove the tag value
-
-        Ok(())
-    }
+    // fn delete_tag_for_item(&self, mut trans: &mut SQLTransaction, item_id: u64, tag: &AddTagValue, customer_code: &str) -> Result<(), ErrorSet<'static>> {
+    //
+    //     // Check the tag
+    //     let tag_id = match (tag.tag_id, &tag.tag_name) {
+    //         (None, None) => {
+    //             // Impossible case, return an error.
+    //             log_error!("💣 A tag must have a tag_id or a tag_name, follower=[{}]", &self.follower);
+    //             return Err(INTERNAL_DATABASE_ERROR);
+    //         }
+    //         (Some(tag_id), None) => {
+    //             // Tag id only, verify if the tag exists, return the tag_id
+    //             // Any case with a tag_name provided, check / create, return the tag_id
+    //             let Ok(tid) = self.check_tag_id_validity(&mut trans, tag_id, tag, customer_code)
+    //                 .map_err(err_fwd!("💣 The definition of the new tag failed, tag name=[{:?}], follower=[{}]", tag, &self.follower)) else {
+    //                 return Err(MISSING_TAG_FOR_ITEM);
+    //             };
+    //             log_info!("😎 The tag is already in the system, tag id=[{}], follower=[{}]", tid, &self.follower);
+    //             tid
+    //         }
+    //         (_, Some(tag_name)) => {
+    //             let session_token = self.session_token.clone();
+    //             let x_request_id = self.follower.x_request_id.clone();
+    //             let tag_delegate = TagDelegate::new(session_token, x_request_id);
+    //             // Any case with a tag_name provided, check / create , return the tag_id
+    //             let tag_id = match tag_delegate.search_tag_by_name(&mut trans, tag_name.as_str(), customer_code)
+    //             {
+    //                 Ok(tag) => {
+    //                     // We found the tag by it's name
+    //                     tag.tag_id
+    //                 }
+    //                 Err(_) => {
+    //                     return Err(BAD_TAG_FOR_ITEM);
+    //                 }
+    //             };
+    //
+    //             log_info!("The tag is in the system, tag id=[{:?}], follower=[{}]", tag_id, &self.follower);
+    //             tag_id
+    //         }
+    //     };
+    //
+    //     // Verify if the tag exists on the item
+    //     match self.is_tags_on_item(&mut trans, item_id as i64, tag_id, customer_code) {
+    //         Ok((o_tag_value_id, o_tag_type)) => {
+    //
+    //         }
+    //         Err(e) => {
+    //
+    //         }
+    //     }
+    //
+    //     // Remove the tag value
+    //
+    //     Ok(())
+    // }
 
 
     ///
     /// ✨ Delegate for add_item_tag
     ///
-    pub fn update_item_tag(mut self, add_item_tag_request: Json<AddItemTagRequest>) -> WebType<AddItemTagReply> {
+    pub fn update_item_tag(mut self, item_id: i64, add_item_tag_request: Json<AddItemTagRequest>) -> WebType<AddItemTagReply> {
         log_info!("🚀 Start update_item_tag api, add_item_tag_request=[{:?}], follower=[{}]", &add_item_tag_request, &self.follower);
 
         let customer_code = & match self.valid_sid_get_session() {
@@ -416,7 +420,7 @@ impl ItemDelegate {
         };
 
         // Add the tags
-        let r_add_tags = self.update_tags_on_item(&mut trans, add_item_tag_request.item_id, customer_code, &add_item_tag_request.properties);
+        let r_add_tags = self.update_tags_on_item(&mut trans, item_id, customer_code, &add_item_tag_request.properties);
         if let Err(e) = r_add_tags {
             return WebType::from_errorset(e);
         }
@@ -632,10 +636,9 @@ impl ItemDelegate {
 
     ///
     fn delete_item_tag_value(&self, mut trans: &mut SQLTransaction, item_id: i64, tag_name: &str, customer_code: &str) -> anyhow::Result<()> {
-        let sql_delete = format!(r"DELETE cs_{0}.tag_value
-                                            WHERE tag_id = (SELECT td.id FROM tag_definition td WHERE td.tag_name = :p_tag_name)
+        let sql_delete = format!(r"DELETE FROM cs_{0}.tag_value
+                                            WHERE tag_id = (SELECT td.id FROM cs_{0}.tag_definition td WHERE td.name = :p_tag_name)
                                             AND item_id = :p_item_id
-
                                                  ", customer_code);
 
         let mut params = HashMap::new();
@@ -647,6 +650,7 @@ impl ItemDelegate {
             params,
             sequence_name: "".to_string(),
         };
+        //dbg!(&query);
         let _id = query.delete(&mut trans).map_err(err_fwd!("💣 Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
         Ok(())
     }

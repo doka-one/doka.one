@@ -316,13 +316,13 @@ impl WebServer {
     ///
     /// Delete
     ///
-
     fn delete_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
             .delete(url)
             .timeout(TIMEOUT)
-            .header("token", token.clone());
+           // .header("token", token.clone());
+            .header("sid", token.clone()); // TODO check if there are cases with "Token"
 
         Self::send_request_builder(request_builder)
     }
@@ -355,9 +355,7 @@ impl WebServer {
     where T : Display {
         // let url = format!("http://{}:{}/{}/{}", &self.server.server_name, self.server.port, end_point,
         //                   refcode);
-
         let url = self.build_url_with_refcode(end_point, refcode);
-
         self.delete_data_retry(&url, token)
     }
 
@@ -540,7 +538,6 @@ impl DocumentServerClient {
 
     }
 
-
     ///
     ///
     ///
@@ -555,9 +552,11 @@ impl DocumentServerClient {
     ///
     ///
     ///
-    pub fn add_item_tag(&self, request : &AddItemTagRequest, sid: &str) -> WebResponse<AddItemTagReply> {
-        // let url = format!("http://{}:{}/document-server/item/tag", &self.server.server_name, self.server.port);
-        let url = self.server.build_url("item/tag");
+    pub fn update_item_tag(&self, item_id: i64, request : &AddItemTagRequest, sid: &str) -> WebResponse<AddItemTagReply> {
+        // http://{}:{}/document-server/item/<item_id>/tags
+
+        let end_point = format!("item/{0}/tags", item_id);
+        let url = self.server.build_url(&end_point);
 
         let headers = CustomHeaders {
             token_type: Sid(sid.to_string()),
@@ -566,7 +565,16 @@ impl DocumentServerClient {
         };
 
         self.server.post_data_retry(&url, request, &headers)
+    }
 
+    ///
+    /// TODO perform URL escaping
+    ///
+    pub fn delete_item_tag(&self, item_id : i64, tag_names: &[String], sid: &str) -> WebResponse<SimpleMessage> {
+        // http://{}:{}/document-server/item/<item_id>/tags?tag_names=<tag_names>
+        let end_point = format!("item/{0}/tags?tag_names={1}", item_id, tag_names.join(","));
+        let url = self.server.build_url(&end_point);
+        self.server.delete_data_retry(&url, &sid)
     }
 
     ///
@@ -593,9 +601,7 @@ impl DocumentServerClient {
         };
 
         self.server.post_data_retry(&url, request, &headers)
-
     }
-
 
     ///
     ///
@@ -622,17 +628,13 @@ impl DocumentServerClient {
             file_ref: file_ref.to_owned(),
             raw_text: raw_text.to_owned(),
         };
-
         let url = self.server.build_url("fulltext_indexing");
-
         let headers = CustomHeaders {
             token_type: TokenType::Sid(sid.to_string()),
             x_request_id: None,
             cek: None
         };
-
         self.server.post_data_retry(&url, &request, &headers)
-
     }
 }
 

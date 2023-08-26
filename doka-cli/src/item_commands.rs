@@ -275,11 +275,10 @@ pub(crate) fn create_item(item_name: &str, o_file_ref: Option<&str>, o_path: Opt
     }
 }
 
-pub fn prop_item(id: &str, _o_delete_prop: Option<&str>, o_add_props: Option<&str>) -> anyhow::Result<()> {
-    println!("👶 Change the item properties...");
+pub fn item_tag_update(id: &str, o_add_props: Option<&str>) -> anyhow::Result<()> {
+    println!("👶 Change the item tags...");
 
     let item_id: i64 = id.parse()?;
-    dbg!(&o_add_props);
 
     // Fill the properties vector from the "(tag[:value[:link|date|text|number]])()..."
     let properties = build_properties_from_string(o_add_props)?;
@@ -291,11 +290,43 @@ pub fn prop_item(id: &str, _o_delete_prop: Option<&str>, o_add_props: Option<&st
 
     let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
     let add_item_tag_request = AddItemTagRequest { item_id, properties };
-    let r_add_item_tag = document_server_client.add_item_tag(&add_item_tag_request, &sid);
+    let r_add_item_tag = document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
 
     match r_add_item_tag {
         Ok(_reply) => {
-            println!("😎 Tags successfully added, id : {} ", item_id);
+            println!("😎 Tags successfully added, for item id : {} ", item_id);
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow!("{}", e.message))
+        }
+    }
+}
+
+pub fn item_tag_delete(id: &str, o_delete_props: Option<&str>) -> anyhow::Result<()> {
+    println!("👶 Delete the item tags...");
+
+    let item_id: i64 = id.parse()?;
+    dbg!(&o_delete_props);
+
+    let tag_names: Vec<String> = o_delete_props.unwrap_or("")
+        .split(',')
+        .map(|tag| tag.to_string())
+        .collect();
+
+    dbg!(&tag_names);
+
+    let sid = read_session_id()?;
+    let server_host = get_prop_value("server.host")?;
+    let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
+
+    let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
+    // let add_item_tag_request = AddItemTagRequest { item_id, properties };
+    let r_add_item_tag = document_server_client.delete_item_tag(item_id, &tag_names, &sid);
+
+    match r_add_item_tag {
+        Ok(_reply) => {
+            println!("😎 Tags successfully deleted, for item id : {} ", item_id);
             Ok(())
         }
         Err(e) => {

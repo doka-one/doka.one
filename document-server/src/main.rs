@@ -9,6 +9,7 @@ use log::{error, info};
 use rocket::{Config, routes};
 use rocket::{delete, get, post};
 use rocket::config::Environment;
+use rocket::http::Status;
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 
@@ -20,7 +21,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -70,21 +71,22 @@ pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: S
 ///     Tags can be already existing in the system.
 ///
 ///
-#[post("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
-pub (crate) fn update_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
+#[post("/item/<item_id>/tags", format = "application/json", data = "<add_item_tag_request>")]
+pub (crate) fn update_item_tag(item_id: i64,add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.update_item_tag(add_item_tag_request)
+    delegate.update_item_tag(item_id,add_item_tag_request)
 }
 
 ///
 /// ✨ Update tags on an existing item
 ///     Tags can be already existing in the system.
 ///
+///  DELETE /api/documents/{item_id}/tags?tag_names=tag1,tag2,tag3
 ///
-#[delete("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
-pub (crate) fn delete_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<SimpleMessage> {
+#[delete("/item/<item_id>/tags?<tag_names>")]
+pub (crate) fn delete_item_tag(item_id: i64, tag_names: DeleteTagsRequest, session_token: SessionToken) -> WebType<SimpleMessage> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.delete_item_tag(add_item_tag_request)
+    delegate.delete_item_tag(item_id, tag_names)
 }
 
 ///
@@ -201,6 +203,7 @@ fn main() {
             get_item,
             add_item,
             update_item_tag,
+            delete_item_tag,
             get_all_tag,
             add_tag,
             delete_tag,

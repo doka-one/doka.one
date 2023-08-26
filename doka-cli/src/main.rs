@@ -12,7 +12,7 @@ use dkconfig::properties::{get_prop_value, set_prop_values};
 use crate::command_options::{Command, display_commands, load_commands, Params, parse_args};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
 use crate::file_commands::{file_download, file_upload};
-use crate::item_commands::{create_item, get_item, prop_item, search_item};
+use crate::item_commands::{create_item, get_item, item_tag_delete, item_tag_update, search_item};
 use crate::session_commands::session_login;
 use crate::token_commands::{get_target_file, token_generate};
 
@@ -150,7 +150,12 @@ fn dispatch(params : &Params, commands : &[Command]) -> u16 {
             }) ().map_err(eprint_fwd!("Error")) else {
                 return CREATE_ITEM_FAILED;
             };
-            let err = prop_item(&id, o_delete_prop.as_deref(), o_add_props.as_deref());
+
+            let err = if o_add_props.is_some() {
+                item_tag_update(&id, o_add_props.as_deref())
+            } else {
+                item_tag_delete(&id, o_delete_prop.as_deref())
+            };
             success_or_err(err, PROP_ITEM_FAILED)
         }
         ("file", "upload") => {

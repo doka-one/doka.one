@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate};
-use rocket::http::{ContentType, Status};
+use rocket::http::{ContentType, RawStr, Status};
+use rocket::request::FromFormValue;
 use rocket::response::status::Custom;
 use rocket_contrib::json::Json;
 use rocket_okapi::JsonSchema;
@@ -345,6 +346,25 @@ pub struct AddTagValue {
     pub tag_name: Option<String>,
     pub value : EnumTagValue,
 }
+
+
+#[derive(Debug)]
+pub struct DeleteTagsRequest(pub Vec<String>);
+
+// Mise en œuvre de FromFormValue pour traiter la liste de chaînes
+impl<'v> FromFormValue<'v> for DeleteTagsRequest {
+    type Error = &'v RawStr;
+
+    fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
+        let tags: Vec<String> = form_value
+            .split(',')
+            .map(|tag| tag.to_string())
+            .collect();
+
+        Ok(DeleteTagsRequest(tags))
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemReply {

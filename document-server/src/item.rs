@@ -13,17 +13,11 @@ use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorMessage, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
-use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_REQUEST, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
+use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
 use doka_cli::request_client::TokenType;
 
 use crate::{TagDelegate, WebType};
-
-// enum OpeningError<'a> {
-//     OEDatabase(ErrorSet<'a>),
-//     OEInvalidToken(ErrorSet<'a>),
-//     OETechnicalError(ErrorSet<'a>),
-// }
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,

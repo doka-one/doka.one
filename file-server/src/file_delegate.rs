@@ -234,13 +234,9 @@ impl FileDelegate {
 
         // Tika parsing
 
-        // Create the content parsing process
-        // | We know that all the blocks have been read and the mem_file contains all the data.
-        // | We don't know the state of each parts
-        // | But still we know the original_file_size (mem_file.len()) and the total_part (block_num)
+        // Parse the file
         let _r = self.serial_parse_content(file_id, &file_ref, block_count, customer_code)?;
 
-        // Rendez-vous point when all the processing if done, then update the status and clean up the original blocks
         Ok(())
     }
 
@@ -371,18 +367,15 @@ impl FileDelegate {
 
 
     fn serial_parse_content(&self, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
-
         // Build the file in memory
         let mut mem_file : Vec<u8> = vec![];
 
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx).map_err(tr_fwd!())?;
-
         let mut dataset = self.search_incoming_blocks(&mut trans, file_ref , customer_code).map_err(tr_fwd!())?;
 
         // Loop the blocks
         while dataset.next() {
-            //let block_number = dataset.get_int_32("part_number").ok_or(anyhow!("Wrong part_number col"))? as u32;
             let part_data = dataset.get_string("part_data").ok_or(anyhow!("Wrong part_data col"))?;
 
             // | Encrypt the data
@@ -396,6 +389,7 @@ impl FileDelegate {
         let total_size = mem_file.len();
 
         // Call the parser
+        // TODO  Read the metadata of the file in this routine
         let media_type = self.parse_content(&file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
 
         trans.commit().map_err(tr_fwd!())?;  //TODO pass the transaction to the routine below !
@@ -403,7 +397,6 @@ impl FileDelegate {
         // Update the file_reference table : checksum, original_file_size, total_part, media_type
         let _ =self.update_file_reference(&mut r_cnx, file_id, total_size,
                                           block_count, &media_type, customer_code).map_err(tr_fwd!())?;
-
         Ok(())
     }
 
@@ -419,7 +412,6 @@ impl FileDelegate {
                 min = *index;
             }
         }
-
         (min, max)
     }
 
@@ -553,6 +545,8 @@ impl FileDelegate {
         // Get the raw text from the original file
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
         let raw_text = tsc.parse_data(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
+
+        // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
 
         log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
             file_ref, raw_text.x_tika_content.len(), &raw_text.content_type,  &self.follower);

@@ -6,6 +6,7 @@ use log::{warn};
 use reqwest::blocking::RequestBuilder;
 use rocket::http::uri::Uri;
 use serde::{de, Serialize};
+use url::Url;
 
 use commons_error::*;
 use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
@@ -78,7 +79,7 @@ impl WebServer {
 
     fn get_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
-        let request_builder= reqwest::blocking::Client::new().get(url).timeout(TIMEOUT);
+        let request_builder= reqwest::blocking::Client::new().get(Url::parse(url)?).timeout(TIMEOUT);
         let request_builder_2 = match token {
             Token(token_value) => {
                 request_builder.header("token", token_value.clone())
@@ -121,7 +122,7 @@ impl WebServer {
 
     /// Returns the media type and the binary content and the status code
     fn get_binary_data(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<MediaBytes>> {
-        let request_builder = reqwest::blocking::Client::new().get(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().get(Url::parse(url)?).timeout(TIMEOUT);
 
         let request_builder_2 = match token {
             Token(token_value) => {
@@ -169,7 +170,9 @@ impl WebServer {
     /// Generic routine to post a message
     fn post_data< U: Serialize, V : de::DeserializeOwned>(&self, url : &str, request : &U, headers : &CustomHeaders) -> anyhow::Result<WebResponse<V>>
     {
-        let request_builder = reqwest::blocking::Client::new().post(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new()
+            .post(Url::parse(url)?)
+            .timeout(TIMEOUT);
         let request_builder_2 = match &headers.token_type {
             Token(token_value) => {
                 request_builder.header("token", token_value.clone())
@@ -234,7 +237,7 @@ impl WebServer {
     /// Generic routine to post a binary content
     fn post_bytes<V : de::DeserializeOwned>(&self, url : &str, request : Vec<u8>, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
-        let request_builder = reqwest::blocking::Client::new().post(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?).timeout(TIMEOUT);
         let request_builder_2 = match token {
             Token(token_value) => {
                 request_builder.header("token", token_value.clone())
@@ -258,7 +261,7 @@ impl WebServer {
     ///
     fn put_bytes<V : de::DeserializeOwned>(&self, url : &str, request : Vec<u8>) -> anyhow::Result<V>
     {
-        let request_builder = reqwest::blocking::Client::new().put(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().put(Url::parse(url)?).timeout(TIMEOUT);
         let r2 = request_builder.header("Accept", "application/json");
         let reply: V = r2.body(request).send()?.json()?;
         Ok(reply)
@@ -288,7 +291,7 @@ impl WebServer {
     fn patch_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
-            .patch(url)
+            .patch(Url::parse(url)?)
             .timeout(TIMEOUT)
             .header("token", token.clone());
 
@@ -319,7 +322,7 @@ impl WebServer {
     fn delete_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
-            .delete(url)
+            .delete(Url::parse(url)?)
             .timeout(TIMEOUT)
            // .header("token", token.clone());
             .header("sid", token.clone()); // TODO check if there are cases with "Token"
@@ -719,13 +722,14 @@ impl FileServerClient {
 #[cfg(test)]
 mod test
 {
+    use url::Url;
     use dkdto::TikaParsing;
 
     use crate::request_client::{DocumentServerClient, TikaServerClient};
 
     fn put_data( url : &str, request : Vec<u8>) -> anyhow::Result<TikaParsing>
     {
-        let request_builder = reqwest::blocking::Client::new().put(url);
+        let request_builder = reqwest::blocking::Client::new().put(Url::parse(url)?);
         let r2 = request_builder.header("Accept", "application/json");
         let reply: TikaParsing = r2.body(request).send()?.json()?;
         Ok(reply)
@@ -787,7 +791,7 @@ mod test
 
         let url = "http://localhost:30080/file-server/upload";
 
-        let request_builder = reqwest::blocking::Client::new().post(url)
+        let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?)
                             .header("Accept", "application/json")
                             .header("sid", "jPA93edZEA8pzJz5LvjnA1qEpWqNPf2Wsio_N9oHvQOKWDo3SwtS4hdqL2MOIb9x");
         let reply = request_builder.body(byte_buf).send()?.text()?;
@@ -811,6 +815,20 @@ mod test
         Ok(())
     }
 
+    #[test]
+    fn url_escaping() {
+        use url::Url;
+        let original_url = "https://example.com/api/endpoint?param=value with spaces&p2=with,coma";
+
+        // Parse the URL
+        let url = Url::parse(original_url).expect("Invalid URL");
+
+        // Get the encoded URL as a string
+        let encoded_url = url.as_str();
+
+        println!("Original URL: {}", original_url);
+        println!("Encoded URL: {}", encoded_url);
+    }
 
 
 }

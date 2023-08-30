@@ -289,7 +289,7 @@ pub fn item_tag_update(id: &str, o_add_props: Option<&str>) -> anyhow::Result<()
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
 
     let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
-    let add_item_tag_request = AddItemTagRequest { item_id, properties };
+    let add_item_tag_request = AddItemTagRequest { /*item_id,*/ properties };
     let r_add_item_tag = document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
 
     match r_add_item_tag {

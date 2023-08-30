@@ -9,7 +9,6 @@ use log::{error, info};
 use rocket::{Config, routes};
 use rocket::{delete, get, post};
 use rocket::config::Environment;
-use rocket::http::Status;
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 

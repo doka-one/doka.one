@@ -336,7 +336,7 @@ pub struct AddItemRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemTagRequest {
-    pub item_id : i64,
+    //pub item_id : i64,
     pub properties: Vec<AddTagValue>,
 }
 
@@ -520,6 +520,12 @@ pub struct TikaParsing {
     pub x_tika_content: String,
     #[serde(rename(deserialize  = "pdf:PDFVersion"))]
     pub pdf_version: Option<String>,
+
+    // TODO Add all the meta fields as Option is needed
+
+    #[serde(rename(deserialize  = "GPS:GPS Longitude"))]
+    pub gps_longitude: Option<String>,
+
 }
 
 #[derive(Serialize, Deserialize, Debug)]

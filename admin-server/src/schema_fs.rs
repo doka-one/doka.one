@@ -48,12 +48,12 @@ CREATE INDEX file_uploads_start_time_idx ON file_uploads (start_time_gmt);
 CREATE TABLE file_metadata (
 	id bigserial NOT NULL,
 	file_reference_id int8 NOT NULL,
-	key varchar(50) NOT NULL,
+	meta_key varchar(50) NOT NULL,
 	value varchar(200) NULL,
 	CONSTRAINT file_metadata_pkey PRIMARY KEY (id),
 	CONSTRAINT file_metadata_id_fk FOREIGN KEY (file_reference_id) REFERENCES file_reference(id)
 );
-CREATE UNIQUE INDEX ref_meta_udx ON file_parts USING btree (file_reference_id, key);
+CREATE UNIQUE INDEX ref_meta_udx ON file_metadata USING btree (file_reference_id, meta_key);
 
 
     "#;

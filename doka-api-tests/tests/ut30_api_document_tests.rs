@@ -152,11 +152,12 @@ mod api_document_tests {
         };
 
         let add_item_tag_request = AddItemTagRequest {
-            item_id: item_reply.item_id,
             properties: vec![p1,p2],
         };
 
-        let add_item_tag_reply = document_server.update_item_tag(&add_item_tag_request, &login_reply.session_id)?;
+        let add_item_tag_reply = document_server.update_item_tag(item_reply.item_id,
+                                                                 &add_item_tag_request,
+                                                                 &login_reply.session_id)?;
 
         assert_eq!(false, add_item_tag_reply.status.is_empty());
 
@@ -233,11 +234,11 @@ mod api_document_tests {
         };
 
         let add_item_tag_request = AddItemTagRequest {
-            item_id: item_reply.item_id,
             properties: vec![p1,p2],
         };
 
-        let add_item_tag_reply = document_server.update_item_tag(&add_item_tag_request, &login_reply.session_id)?;
+        let add_item_tag_reply = document_server.update_item_tag(item_reply.item_id,
+                                                                 &add_item_tag_request, &login_reply.session_id)?;
 
         assert_eq!(false, add_item_tag_reply.status.is_empty());
 

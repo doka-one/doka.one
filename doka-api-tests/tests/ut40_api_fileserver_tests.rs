@@ -34,8 +34,8 @@ mod api_fileserver_tests {
         let file_server = FileServerClient::new("localhost", 30080);
 
         // FIXME
-        // let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
-        let file_content = std::fs::read(r"C:\Users\denis\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        // let file_content = std::fs::read(r"C:\Users\denis\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
 
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
@@ -98,8 +98,8 @@ mod api_fileserver_tests {
         let file_server = FileServerClient::new("localhost", 30080);
 
         // FIXME
-        // let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
-        let file_content = std::fs::read(r"C:\Users\denis\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        // let file_content = std::fs::read(r"C:\Users\denis\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
 
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);

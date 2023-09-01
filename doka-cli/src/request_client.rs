@@ -59,38 +59,49 @@ impl WebServer {
         }
     }
 
-    fn get_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
+    /// General retry routine
+    fn retry<F, T>(&self, mut operation: F) -> anyhow::Result<T>
+        where
+            F: FnMut() -> anyhow::Result<T>,
     {
-        let mut r_reply;
         let mut count = 0;
         loop {
-            r_reply = self.get_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
+            let operation_result = operation();
+            if operation_result.is_ok() || count >= MAX_HTTP_RETRY {
+                return operation_result;
             }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+            log_warn!("Operation failed, attempt=[{}]", count);
             count += 1;
         }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+    }
+
+    fn get_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
+    {
+        let get_data = || -> anyhow::Result<WebResponse<V>> {
+            self.get_data(url, token)
+        };
+        self.retry(get_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
+
+        // let mut r_reply;
+        // let mut count = 0;
+        // loop {
+        //     r_reply = self.get_data(url, token);
+        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+        //         break;
+        //     }
+        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+        //     count += 1;
+        // }
+        // if r_reply.is_err() {
+        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
+        // }
+        // r_reply.unwrap()
     }
 
     fn get_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder= reqwest::blocking::Client::new().get(Url::parse(url)?).timeout(TIMEOUT);
-        let request_builder_2 = match token {
-            Token(token_value) => {
-                request_builder.header("token", token_value.clone())
-            }
-            Sid(sid_value) => {
-                request_builder.header("sid", sid_value.clone())
-            }
-            TokenType::None => {
-                request_builder
-            }
-        };
+        let request_builder_2 = Self::add_header(request_builder, &token);
         Self::send_request_builder(request_builder_2)
     }
 
@@ -147,20 +158,25 @@ impl WebServer {
     }
 
     fn get_binary_data_retry(&self, url : &str, token : &TokenType ) ->  WebResponse<MediaBytes> {
-       let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.get_binary_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let get_binary_data = || -> anyhow::Result<WebResponse<MediaBytes>> {
+            self.get_binary_data(url, token)
+        };
+        self.retry(get_binary_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
+
+       // let mut r_reply;
+       //  let mut count = 0;
+       //  loop {
+       //      r_reply = self.get_binary_data(url, token);
+       //      if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+       //          break;
+       //      }
+       //      log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+       //      count += 1;
+       //  }
+       //  if r_reply.is_err() {
+       //      return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
+       //  }
+       //  r_reply.unwrap()
     }
 
     ///
@@ -199,58 +215,61 @@ impl WebServer {
 
     fn post_data_retry< U: Serialize, V : de::DeserializeOwned>(&self, url : &str, request : &U, headers : &CustomHeaders ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.post_data(url, request, headers);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let post_data = || -> anyhow::Result<WebResponse<V>> {
+            self.post_data(url, request, headers)
+        };
+        self.retry(post_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
+
+        // let mut r_reply;
+        // let mut count = 0;
+        // loop {
+        //     r_reply = self.post_data(url, request, headers);
+        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+        //         break;
+        //     }
+        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+        //     count += 1;
+        // }
+        // if r_reply.is_err() {
+        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
+        // }
+        // r_reply.unwrap()
     }
 
     fn post_bytes_retry<V : de::DeserializeOwned>(&self, url : &str, request : &Vec<u8>, token : &TokenType ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
+        let post_bytes = || -> anyhow::Result<WebResponse<V>> {
             let rr = request.clone();
-            r_reply = self.post_bytes(url, rr, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+            self.post_bytes(url, rr, token)
+        };
+        self.retry(post_bytes).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
+
+        // let mut r_reply;
+        // let mut count = 0;
+        // loop {
+        //     let rr = request.clone();
+        //     r_reply = self.post_bytes(url, rr, token);
+        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+        //         break;
+        //     }
+        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+        //     count += 1;
+        // }
+        // if r_reply.is_err() {
+        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
+        // }
+        // r_reply.unwrap()
     }
 
     /// Generic routine to post a binary content
     fn post_bytes<V : de::DeserializeOwned>(&self, url : &str, request : Vec<u8>, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?).timeout(TIMEOUT);
-        let request_builder_2 = match token {
-            Token(token_value) => {
-                request_builder.header("token", token_value.clone())
-            }
-            Sid(sid_value) => {
-                request_builder.header("sid", sid_value.clone())
-            }
-            TokenType::None => {
-                request_builder
-            }
-        };
+        let request_builder_2 = Self::add_header(request_builder, &token);
         Self::send_request_builder(request_builder_2.body(request))
     }
+
+
 
     ///
     /// Put
@@ -269,83 +288,81 @@ impl WebServer {
 
     fn put_bytes_retry<V : de::DeserializeOwned>(&self, url : &str, request : &Vec<u8>) -> anyhow::Result<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
+        let put_bytes = || -> anyhow::Result<V> {
             let rr = request.clone();
-            r_reply = self.put_bytes(url, rr);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        let reply = r_reply?;
-        Ok(reply)
+            self.put_bytes(url, rr)
+        };
+        self.retry(put_bytes)
     }
 
     ///
     /// Patch
     ///
 
-    fn patch_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
+    fn patch_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
             .patch(Url::parse(url)?)
-            .timeout(TIMEOUT)
-            .header("token", token.clone());
-
-        Self::send_request_builder(request_builder)
+            .timeout(TIMEOUT);
+        Self::send_request_builder(Self::add_header(request_builder, &token))
     }
 
-    fn patch_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> WebResponse<V>
+    fn patch_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.patch_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let patch_data = || -> anyhow::Result<WebResponse<V>> {
+            self.patch_data(url, &token)
+        };
+        self.retry(patch_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
+
+        // let mut r_reply;
+        // let mut count = 0;
+        // loop {
+        //     r_reply = self.patch_data(url, token);
+        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+        //         break;
+        //     }
+        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+        //     count += 1;
+        // }
+        // if r_reply.is_err() {
+        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
+        // }
+        // r_reply.unwrap()
     }
 
     ///
     /// Delete
     ///
-    fn delete_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
+    fn delete_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
             .delete(Url::parse(url)?)
-            .timeout(TIMEOUT)
-           // .header("token", token.clone());
-            .header("sid", token.clone()); // TODO check if there are cases with "Token"
+            .timeout(TIMEOUT);
 
-        Self::send_request_builder(request_builder)
+        Self::send_request_builder(Self::add_header(request_builder, &token))
     }
 
-    fn delete_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> WebResponse<V>
+    fn delete_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.delete_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let delete_data = || -> anyhow::Result<WebResponse<V>> {
+            self.delete_data(url, token)
+        };
+        self.retry(delete_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
+
+        // let mut r_reply;
+        // let mut count = 0;
+        // loop {
+        //     r_reply = self.delete_data(url, token);
+        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
+        //         break;
+        //     }
+        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+        //     count += 1;
+        // }
+        // if r_reply.is_err() {
+        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
+        // }
+        // r_reply.unwrap()
     }
 
 
@@ -354,12 +371,12 @@ impl WebServer {
     /// url_path : ex : admin-server/tag
     /// refcode : "eb65e" or 125
     ///
-    fn delete_for_url<T>(&self, refcode: T, end_point: &str, token : &str) -> WebResponse<SimpleMessage>
+    fn delete_for_url<T>(&self, refcode: T, end_point: &str, token : &TokenType) -> WebResponse<SimpleMessage>
     where T : Display {
         // let url = format!("http://{}:{}/{}/{}", &self.server.server_name, self.server.port, end_point,
         //                   refcode);
         let url = self.build_url_with_refcode(end_point, refcode);
-        self.delete_data_retry(&url, token)
+        self.delete_data_retry(&url, &token)
     }
 
     ///
@@ -376,6 +393,20 @@ impl WebServer {
     where T : Display
     {
         format!("http://{}:{}/{}/{}/{}", &self.server_name, self.port, self.context, end_point, ref_code)
+    }
+
+    fn add_header(request_builder: RequestBuilder, token : &TokenType) -> RequestBuilder {
+        match token {
+            Token(token_value) => {
+                request_builder.header("token", token_value.clone())
+            }
+            Sid(sid_value) => {
+                request_builder.header("sid", sid_value.clone())
+            }
+            TokenType::None => {
+                request_builder
+            }
+        }
     }
 
 }
@@ -488,15 +519,12 @@ impl AdminServerClient {
         // let url = format!("http://{}:{}/admin-server/customer/removable/{}", &self.server.server_name, self.server.port,
         //                   Uri::percent_encode(customer_code) );
         let url = self.server.build_url_with_refcode("customer/removable", Uri::percent_encode(customer_code)  );
-
-        self.server.patch_data_retry(&url, token)
+        self.server.patch_data_retry(&url, &Token(token.to_owned()))
     }
-
 
     pub fn delete_customer(&self, customer_code : &str, token : &str) ->  WebResponse<SimpleMessage> {
-        self.server.delete_for_url(customer_code, "customer", token)
+        self.server.delete_for_url(customer_code, "customer", &Token(token.to_owned()))
     }
-
 
     pub fn login(&self, request : &LoginRequest) -> WebResponse<LoginReply> {
         // let url = format!("http://{}:{}/admin-server/login", &self.server.server_name, self.server.port);
@@ -577,7 +605,7 @@ impl DocumentServerClient {
         // http://{}:{}/document-server/item/<item_id>/tags?tag_names=<tag_names>
         let end_point = format!("item/{0}/tags?tag_names={1}", item_id, tag_names.join(","));
         let url = self.server.build_url(&end_point);
-        self.server.delete_data_retry(&url, &sid)
+        self.server.delete_data_retry(&url, &Sid(sid.to_owned()))
     }
 
     ///
@@ -618,8 +646,8 @@ impl DocumentServerClient {
     ///
     ///
     ///
-    pub fn delete_tag(&self, tag_id : i64, token : &str) -> WebResponse<SimpleMessage> {
-        self.server.delete_for_url(tag_id, "tag", token)
+    pub fn delete_tag(&self, tag_id : i64, sid: &str) -> WebResponse<SimpleMessage> {
+        self.server.delete_for_url(tag_id, "tag", &Sid(sid.to_owned()))
     }
 
     ///
@@ -661,6 +689,20 @@ impl TikaServerClient {
         let reply : TikaParsing = self.server.put_bytes_retry(&url, &request)?;
         Ok(reply)
     }
+
+    pub fn parse_data_json(&self, request : &Vec<u8>) -> anyhow::Result<serde_json::Value> {
+        // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
+        let url = self.server.build_url("tika/text");
+        let reply : serde_json::Value = self.server.put_bytes_retry(&url, &request)?;
+        Ok(reply)
+    }
+
+    // pub fn parse_data_as_string(&self, request : &Vec<u8>) -> anyhow::Result<String> {
+    //     // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
+    //     let url = self.server.build_url("tika/text");
+    //     let reply : String = self.server.put_bytes_as_string_retry(&url, &request)?;
+    //     Ok(reply)
+    // }
 
     ///
     /// Read meta information from the utf8 text request

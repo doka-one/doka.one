@@ -544,16 +544,24 @@ impl FileDelegate {
 
         // Get the raw text from the original file
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
-        let raw_text = tsc.parse_data(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
+        let raw_json = tsc.parse_data_json(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
+
+        let x_tika_content = raw_json["X-TIKA:content"].as_str().ok_or(anyhow!("Bad tika content"))?;
+        let content_type = raw_json["Content-Type"].as_str().ok_or(anyhow!("Bad content type"))?;
+
+        // let gps_img_direction = raw_json["GPS:GPS Img Direction"].as_str();
+        let metadata = raw_json.as_object().unwrap();
+        dbg!(&metadata);
+        // TODO self.insert_meta_data(trans, metadata);
 
         // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
 
         log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
-            file_ref, raw_text.x_tika_content.len(), &raw_text.content_type,  &self.follower);
+            file_ref, x_tika_content.len(), &content_type,  &self.follower);
 
         let document_server = DocumentServerClient::new(&document_server_host, document_server_port);
         // TODO we must also pass the  self.follower.x_request_id
-        let wr_reply = document_server.fulltext_indexing(&raw_text.x_tika_content,
+        let wr_reply = document_server.fulltext_indexing(&x_tika_content,
                                                          "no_filename_for_now",
                                                          file_ref,
                                                          &self.follower.token_type.value());
@@ -571,7 +579,7 @@ impl FileDelegate {
         }
 
         log_info!("... End of parse file content processing, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
-        Ok(raw_text.content_type)
+        Ok(content_type.to_owned())
     }
 
 

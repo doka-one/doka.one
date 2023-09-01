@@ -526,6 +526,9 @@ pub struct TikaParsing {
     #[serde(rename(deserialize  = "GPS:GPS Longitude"))]
     pub gps_longitude: Option<String>,
 
+    // "ICC:Green Colorant": "(0,292, 0,6922, 0,0419)",
+    #[serde(rename(deserialize  = "ICC:Green Colorant"))]
+    pub icc_green_colorant: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

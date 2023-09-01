@@ -100,9 +100,10 @@ pub fn init_test(test_name : &str) {
 
         // FIXME : Generate the token
         // on the box
-        // let dev_token = "EjXpe-RzQeS8tiBIEyY_OlJv35a4cY0i6Zu29Vt3drchg6O3JHBrW9v4F_6jwJPsYTfoQUZMsN_wJLGj-2vIpj3mI0ymBIwU81RUxmPiHbcP2vDFW5jGVg";
+        let dev_token = "EjXpe-RzQeS8tiBIEyY_OlJv35a4cY0i6Zu29Vt3drchg6O3JHBrW9v4F_6jwJPsYTfoQUZMsN_wJLGj-2vIpj3mI0ymBIwU81RUxmPiHbcP2vDFW5jGVg";
+
         // chacha_1 on laptop
-        let dev_token = "WEzlHVgdvHynkb3I6EHcmx_wUt50TbV0I8xjgE95OEMnSHVaM-erNxBpbC9lRBESKM8XMwT6d1KWY131HY0sMTr2Em-BNMNw3Eq74Hb4p6d1B8DqN22Ygw";
+        //let dev_token = "WEzlHVgdvHynkb3I6EHcmx_wUt50TbV0I8xjgE95OEMnSHVaM-erNxBpbC9lRBESKM8XMwT6d1KWY131HY0sMTr2Em-BNMNw3Eq74Hb4p6d1B8DqN22Ygw";
 
         let login_id = uuid_v4();
         let request = CreateCustomerRequest {
@@ -163,7 +164,6 @@ pub fn close_test(test_name : &str, test_to_run: &[&str]) {
         eprintln!("🚀 ****** All is terminated - Start the close tests process");
         eprintln!();
         let test_env = TEST_ENV.lock().unwrap();
-        // dbg!(&test_env);
 
         // Drop the new schema
         let admin_server = AdminServerClient::new("localhost", 30060);

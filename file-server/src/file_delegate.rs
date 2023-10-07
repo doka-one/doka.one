@@ -13,6 +13,7 @@ use rocket::http::{ContentType, RawStr, Status};
 use rocket::response::Content;
 use rocket::response::status::Custom;
 use rs_uuid::iso::uuid_v4;
+use serde_json::{Map, Value};
 
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
@@ -27,6 +28,9 @@ use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::{DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, UploadReply, WebType, WebTypeBuilder};
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, UPLOAD_WRONG_ITEM_INFO};
 use doka_cli::request_client::{DocumentServerClient, TikaServerClient, TokenType};
+
+const TIKA_CONTENT_META : &str = "X-TIKA:content";
+const CONTENT_TYPE_META : &str = "Content-Type";
 
 type IndexedParts = HashMap<u32, Vec<u8>>;
 
@@ -187,11 +191,8 @@ impl FileDelegate {
     ///
     ///
     ///
-    fn serial_encrypt(&self, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
+    fn serial_encrypt(&self, mut trans: &mut SQLTransaction, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
         // Query the blocks from file_upload table
-
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx)?;
 
         let mut dataset = self.search_incoming_blocks(&mut trans, file_ref , customer_code)?; //todo
         let mut row_index: u32 = 0;
@@ -220,8 +221,6 @@ impl FileDelegate {
             row_index += 1;
         }
 
-        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-
         Ok(())
     }
 
@@ -229,13 +228,18 @@ impl FileDelegate {
     fn process_file_blocks(&self, file_id: i64, file_ref: &str, _item_info_str: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
         log_info!("Process the blocks for file ref = [{}], follower=[{}]", &file_ref, &self.follower);
 
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx)?;
+
         // Read the file parts from the file_uploads table, encrypt the blocks and store the encrypted part into file_parts
-        let _ = self.serial_encrypt(file_id, file_ref, block_count, customer_code, customer_key)?;
+        let _ = self.serial_encrypt(&mut trans, file_id, file_ref, block_count, customer_code, customer_key)?;
 
-        // Tika parsing
+        // Parse the file (Tika)
+        let _r = self.serial_parse_content(&mut trans,file_id, &file_ref, block_count, customer_code)?;
 
-        // Parse the file
-        let _r = self.serial_parse_content(file_id, &file_ref, block_count, customer_code)?;
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
+        log_info!("😎 Commit success for file_ref=[{}], file_id=[{}], follower=[{}]", file_ref, file_id, &self.follower);
 
         Ok(())
     }
@@ -366,12 +370,9 @@ impl FileDelegate {
     }
 
 
-    fn serial_parse_content(&self, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
+    fn serial_parse_content(&self, mut trans: &mut SQLTransaction, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
         // Build the file in memory
         let mut mem_file : Vec<u8> = vec![];
-
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx).map_err(tr_fwd!())?;
         let mut dataset = self.search_incoming_blocks(&mut trans, file_ref , customer_code).map_err(tr_fwd!())?;
 
         // Loop the blocks
@@ -387,15 +388,10 @@ impl FileDelegate {
         }
 
         let total_size = mem_file.len();
-
-        // Call the parser
-        // TODO  Read the metadata of the file in this routine
-        let media_type = self.parse_content(&file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
-
-        trans.commit().map_err(tr_fwd!())?;  //TODO pass the transaction to the routine below !
-
+        // Read the metadata and the raw text of the file
+        let media_type = self.parse_content(&mut trans, &file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
         // Update the file_reference table : checksum, original_file_size, total_part, media_type
-        let _ =self.update_file_reference(&mut r_cnx, file_id, total_size,
+        let _ =self.update_file_reference(&mut trans, file_id, total_size,
                                           block_count, &media_type, customer_code).map_err(tr_fwd!())?;
         Ok(())
     }
@@ -533,7 +529,7 @@ impl FileDelegate {
     /// Call the document server to fulltext parse the text data
     /// return the media type
     ///
-    fn parse_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
+    fn parse_content(&self, mut trans: &mut SQLTransaction, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
 
         log_info!("Parsing file content ... ,file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
@@ -546,18 +542,20 @@ impl FileDelegate {
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
         let raw_json = tsc.parse_data_json(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
 
-        let x_tika_content = raw_json["X-TIKA:content"].as_str().ok_or(anyhow!("Bad tika content"))?;
-        let content_type = raw_json["Content-Type"].as_str().ok_or(anyhow!("Bad content type"))?;
+        let x_tika_content = raw_json[TIKA_CONTENT_META].as_str().ok_or(anyhow!("Bad tika content"))?;
+        let content_type = raw_json[CONTENT_TYPE_META].as_str().ok_or(anyhow!("Bad content type"))?;
 
-        // let gps_img_direction = raw_json["GPS:GPS Img Direction"].as_str();
         let metadata = raw_json.as_object().unwrap();
-        dbg!(&metadata);
-        // TODO self.insert_meta_data(trans, metadata);
-
-        // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
+        //dbg!(&metadata);
 
         log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
             file_ref, x_tika_content.len(), &content_type,  &self.follower);
+
+        let r = self.insert_metadata(&mut trans, &customer_code, file_ref, &metadata)?;
+
+        // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
+
+        log_info!("Metadata done for file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         let document_server = DocumentServerClient::new(&document_server_host, document_server_port);
         // TODO we must also pass the  self.follower.x_request_id
@@ -569,7 +567,7 @@ impl FileDelegate {
         match wr_reply {
             Ok(reply) => {
                 log_info!("Fulltext indexing done, number of text parts=[{}], follower=[{}]", reply.part_count, &self.follower);
-                self.set_file_reference_fulltext_indicator(file_ref, customer_code)
+                self.set_file_reference_fulltext_indicator(&mut trans, file_ref, customer_code)
                     .map_err(err_fwd!("Cannot set the file reference to fulltext parsed indicator, follower=[{}]", &self.follower))?;
             }
             Err(e) => {
@@ -582,12 +580,37 @@ impl FileDelegate {
         Ok(content_type.to_owned())
     }
 
+    fn insert_metadata(&self, mut trans: &mut SQLTransaction, customer_code: &str, file_ref: &str, metadata : &Map<String, Value>) -> anyhow::Result<()> {
+        let sql_query = format!(r"INSERT INTO fs_{0}.file_metadata ( file_reference_id, meta_key,  value )
+        VALUES ((SELECT id FROM fs_{0}.file_reference WHERE file_ref = :p_file_ref), :p_meta_key, :p_value)", customer_code);
+        let sequence_name = format!( "fs_{}.file_metadata_id_seq", customer_code );
+
+        // TODO Could be done with a specific batch insert sql routine that will build a big insert statment!
+        for (key, value) in metadata.iter() {
+            if key != TIKA_CONTENT_META {
+                let mut params: HashMap<String, CellValue> = HashMap::new();
+                params.insert("p_file_ref".to_owned(), CellValue::from_raw_str(file_ref));
+                params.insert("p_meta_key".to_owned(), CellValue::from_raw_str(key));
+                params.insert("p_value".to_owned(), CellValue::from_raw_string(value.to_string()));
+
+                let sql_insert = SQLChange {
+                    sql_query: sql_query.clone(),
+                    params,
+                    sequence_name: sequence_name.clone(),
+                };
+                let meta_id = sql_insert.insert(&mut trans)
+                    .map_err(err_fwd!("💣 Cannot insert the metadata, file_ref=[{}], key=[{}], value=[{}], follower=[{}]",
+                    file_ref, key, value.to_string(), &self.follower))?;
+
+                log_info!("Success inserting meta meta_id=[{}], file_ref=[{}], key=[{}], value=[{}], follower=[{}]",
+                    meta_id, file_ref, key, value.to_string(), &self.follower);
+            }
+        }
+        Ok(())
+    }
 
     //
-    fn set_file_reference_fulltext_indicator(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
-
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
+    fn set_file_reference_fulltext_indicator(&self, mut trans: &mut SQLTransaction, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
 
         let sql_query = format!(r"UPDATE fs_{}.file_reference
                 SET is_fulltext_parsed = true
@@ -605,9 +628,6 @@ impl FileDelegate {
         };
 
         let _ = sql_update.update(&mut trans).map_err(err_fwd!("Update failed, follower=[{}]", &self.follower))?;
-
-        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-
         log_info!("😎 Committed. Successfully set the full text indicator, file_ref=[{:?}], follower=[{}]", file_ref, &self.follower);
 
         Ok(())
@@ -1119,14 +1139,12 @@ impl FileDelegate {
     ///
     ///
     ///
-    fn update_file_reference(&self, r_cnx : &mut anyhow::Result<SQLConnection>,
+    fn update_file_reference(&self, mut trans: &mut SQLTransaction,
                              file_id : i64,
                              total_size: usize,
                              total_part: u32,
                              media_type : &str,
                              customer_code: &str) -> anyhow::Result<()> {
-
-        let mut trans = open_transaction(r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
 
         let sql_query = format!(r"UPDATE fs_{}.file_reference
                                         SET
@@ -1152,8 +1170,6 @@ impl FileDelegate {
         };
 
         let _ = sql_update.update(&mut trans).map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
-
-        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         Ok(())
     }

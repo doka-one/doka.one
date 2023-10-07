@@ -21,7 +21,6 @@ CREATE TABLE file_reference (
 	CONSTRAINT file_reference_uk UNIQUE (file_ref)
 );
 
-
 CREATE TABLE file_parts (
 	id bigserial NOT NULL,
 	file_reference_id int8 NOT NULL,
@@ -54,6 +53,5 @@ CREATE TABLE file_metadata (
 	CONSTRAINT file_metadata_id_fk FOREIGN KEY (file_reference_id) REFERENCES file_reference(id)
 );
 CREATE UNIQUE INDEX ref_meta_udx ON file_metadata USING btree (file_reference_id, meta_key);
-
 
     "#;

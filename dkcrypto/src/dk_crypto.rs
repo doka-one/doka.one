@@ -6,8 +6,11 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use bcrypt::{hash, verify};
 use log::*;
+use orion::kdf::SecretKey;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use ring::hmac::Key;
+use sha2::Sha256;
 
 use commons_error::*;
 
@@ -28,9 +31,7 @@ pub struct DkEncrypt {
 /* Public routines */
 impl DkEncrypt {
 
-
     pub fn encrypt_vec(clear_data: &Vec<u8>, key : &str  ) -> anyhow::Result<Vec<u8>>  {
-
         match MODE {
             CypherMode::AES => {
                 Err(anyhow::anyhow!("AES not supported"))
@@ -39,13 +40,11 @@ impl DkEncrypt {
                 encrypt_cc20(clear_data, key)
             }
         }
-
     }
 
     //
     //
     pub fn decrypt_vec(encrypted_data : &Vec<u8>, key : &str  ) -> anyhow::Result<Vec<u8>> {
-
         match MODE {
             CypherMode::AES => {
                 Err(anyhow::anyhow!("AES not supported"))
@@ -62,7 +61,7 @@ impl DkEncrypt {
     pub fn encrypt_str(clear_txt : &str, key : &str  ) -> anyhow::Result<String> {
         let clear_data = clear_txt.to_string().into_bytes();
         let encrypted_data = DkEncrypt::encrypt_vec(&clear_data, key)
-            .map_err( err_fwd!("Binary help in prison"))?;
+            .map_err( err_fwd!("Cannot encrypt the binary data"))?;
 
         let str = general_purpose::URL_SAFE_NO_PAD.encode(encrypted_data);
 
@@ -157,15 +156,39 @@ impl DkEncrypt {
         }
     }
 
+    ///
+    /// Hash a word with SHA256
+    ///
+    pub fn hash_word(word: &str) -> String {
+        let v = compute_sha(word);
+        general_purpose::URL_SAFE_NO_PAD.encode(&v)
+    }
+
+    pub fn hmac_word(word: &str, key: &str) -> String {
+        let v = compute_hmac(word, key);
+        general_purpose::URL_SAFE_NO_PAD.encode(&v)
+    }
+
+
 }  // trait DkEncrypt
 
 
 fn compute_sha(text: &str) -> Vec<u8> {
-    use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.write_all(text.as_bytes()).unwrap();
     let result = hasher.finalize();
     (&*result).to_vec()
+}
+
+use sha2::*;
+
+fn compute_hmac(text: &str, key: &str) -> Vec<u8> {
+    use ring::{hmac, rand};
+    // let rng = rand::SystemRandom::new();
+    // let key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
+    let key = Key::new(hmac::HMAC_SHA256, &key.as_bytes());
+    let tag = hmac::sign(&key, text.as_bytes());
+    tag.as_ref().to_vec()
 }
 
 /// Crypto Init Vector
@@ -199,6 +222,15 @@ mod tests {
         println!("Enc Token : {}", &enc_token);
         let clear = DkEncrypt::decrypt_str(&enc_token, cek).unwrap();
         println!("{:#?}", clear);
+    }
+
+    #[test]
+    fn test_compute_hmac() {
+        let clear_lex = "suprem";
+        let cek = "qYEV-MKSeQb6lSuXjqeqKH8QH7khmi0kuczzLC6j8eA";
+        let hmac_lex = DkEncrypt::hmac_word(clear_lex, cek);
+        println!("Hmac lex : {}", &hmac_lex);
+        assert_eq!("PkBE7p8xYsvmepI_wcEGtO672kG1p8jq9rT_hrL1mBI", &hmac_lex);
     }
 }
 

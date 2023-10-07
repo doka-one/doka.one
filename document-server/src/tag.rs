@@ -535,14 +535,9 @@ mod test {
 
     #[test]
     fn convert_datetime_to_iso8601_string() {
-
         let dt = Utc::now();
-
         let s = dt.to_rfc3339();
-
         dbg!(s);
-
-
     }
 
 }

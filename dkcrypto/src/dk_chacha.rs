@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, ensure, Result};
 use base64::Engine;
-use base64::engine::general_purpose;
+
 use orion::aead::SecretKey;
 use rand::{RngCore, thread_rng};
 
@@ -31,6 +31,18 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
     Ok(key)
 }
 
+use {orion::hazardous::stream::chacha20::SecretKey as XSecretKey};
+// fn get_xkey_from_password(password: &str, salt: &[u8]) -> Result<XSecretKey> {
+//     use orion::hazardous::stream::chacha20::CHACHA_KEYSIZE;
+//     use orion::kdf::{derive_key, Password, Salt};
+//     let password = Password::from_slice(password.as_bytes()).with_context(|| "Password error")?;
+//     let salt = Salt::from_slice(salt).with_context(|| "Salt is too short")?;
+//     let kdf_key = derive_key(&password, &salt, 4, 1024, CHACHA_KEYSIZE as u32)
+//         .with_context(|| "Could not derive key from password")?;
+//     let key = XSecretKey::from_slice(kdf_key.unprotected_as_bytes()).with_context(|| "Key is invalid")?;
+//     Ok(key)
+// }
+
 /// Encrypts the plaintext with the given password and returns the ciphertext. The nonce is generated at each call to strengthen the encryption.
 /// Otherwise there's a chance the key is weakened if the same nonce is used.
 /// The nonce is 24 byte (following the XCHACHA_NONCESIZE property).
@@ -47,9 +59,9 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
 ///
 /// ## Returns
 /// The ciphertext
-pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>/*, nonce: impl AsRef<[u8]>*/) -> Result<Vec<u8>> {
+pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>) -> Result<Vec<u8>> {
     use orion::hazardous::{
-        aead::xchacha20poly1305::{Nonce, seal, SecretKey as XSecretKey},
+        aead::xchacha20poly1305::{Nonce, seal},
         mac::poly1305::POLY1305_OUTSIZE,
         stream::xchacha20::XCHACHA_NONCESIZE,
     };
@@ -59,14 +71,10 @@ pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>/*, no
     let nonce = nonce().unwrap();
     // Get high-level API key
     let key = get_key_from_password(password, &nonce)?;
-
-    let key_bytes = key.unprotected_as_bytes();
-
-    let str = general_purpose::STANDARD.encode(key_bytes);
-    println!("{}", &str);
-
     // Convert high-level API key to low-level API key
     let key = XSecretKey::from_slice(key.unprotected_as_bytes()).with_context(|| "Key is invalid")?;
+
+    // let key = get_xkey_from_password(password, &nonce)?;
 
     // Create a Nonce struct from the generated nonce
     let nonce = Nonce::from_slice(&nonce).with_context(|| "Nonce is too short")?;

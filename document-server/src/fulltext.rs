@@ -89,7 +89,6 @@ impl FullTextDelegate {
     }
 
 
-
     fn indexing(&self, mut trans : &mut SQLTransaction, raw_text_request: &FullTextRequest, customer_code: &str, customer_key: &str) -> anyhow::Result<u32> {
 
         // Limit the number of languages. Build it the static way.
@@ -183,9 +182,12 @@ impl FullTextDelegate {
         let tsv = self.select_tsvector(&mut trans, Some(lang), words_text )
             .map_err(err_fwd!("Cannot build the tsvector, follower=[{}]", &self.follower))?;
 
-        // Encrypt the words of the tsvector
-        let tsv_encrypted = encrypt_tsvector(&tsv, customer_key);
+        // Encrypt the words of the tsvector, it's actually a Sha256 hash for each single word
+        let tsv_encrypted = encrypt_tsvector(&tsv, customer_key)
+            .map_err(err_fwd!("Cannot encrypt the vector, follower=[{}]", &self.follower))?;
         log_info!("Encrypted tsvector length: [{}]", tsv_encrypted.len());
+
+        // dbg!(&tsv_encrypted);
 
         // Use a stored proc to hide the TSVECTOR type from Rust
         let sql_query = format!(r"CALL cs_{}.insert_document( :p_file_ref, :p_part_no, :p_doc_text, :p_tsv, :p_lang )", customer_code);

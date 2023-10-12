@@ -644,7 +644,7 @@ impl ItemDelegate {
             params,
             sequence_name: "".to_string(),
         };
-        //dbg!(&query);
+
         let _id = query.delete(&mut trans).map_err(err_fwd!("💣 Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
         Ok(())
     }

@@ -131,9 +131,12 @@ impl FileDelegate {
 
     // Get all the encrypted parts of the file
     // ( "application/pdf", {0 : "...", 1: "...", ...} )
-    fn search_incoming_blocks(&self, mut trans: &mut SQLTransaction, file_ref : &str, customer_code : &str) -> anyhow::Result<SQLDataSet> {
+    fn search_incoming_blocks(&self,/* mut trans: &mut SQLTransaction,*/ file_ref : &str, customer_code : &str) -> anyhow::Result<SQLDataSet> {
 
         log_info!("Search the incoming blocks for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx)?;
 
         let sql_str = r"
             SELECT
@@ -159,12 +162,18 @@ impl FileDelegate {
 
         let dataset = query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
 
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
         log_info!("😎 Found incoming blocks for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         Ok(dataset)
     }
 
-    fn write_part(&self, mut trans: &mut SQLTransaction, file_id: i64, block_number: u32, enc_data: &str, customer_code: &str) -> anyhow::Result<()> {
+    fn write_part(&self,/* mut trans: &mut SQLTransaction,*/ file_id: i64, block_number: u32, enc_data: &str, customer_code: &str) -> anyhow::Result<()> {
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx)?;
+
         let sql_query = format!(r"
                     INSERT INTO fs_{}.file_parts (file_reference_id, part_number, part_data)
                     VALUES (:p_file_reference_id, :p_part_number, :p_part_data)", customer_code);
@@ -183,7 +192,7 @@ impl FileDelegate {
         };
 
         let _file_part_id = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
-
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
         log_info!("...Block inserted, block_num=[{}], follower=[{}]", block_number, &self.follower);
         Ok(())
     }
@@ -191,10 +200,10 @@ impl FileDelegate {
     ///
     ///
     ///
-    fn serial_encrypt(&self, mut trans: &mut SQLTransaction, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
+    fn serial_encrypt(&self,/* mut trans: &mut SQLTransaction, */file_id: i64, file_ref: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
         // Query the blocks from file_upload table
 
-        let mut dataset = self.search_incoming_blocks(&mut trans, file_ref , customer_code)?; //todo
+        let mut dataset = self.search_incoming_blocks(/*&mut trans,*/ file_ref , customer_code)?; //todo
         let mut row_index: u32 = 0;
 
         // Loop the blocks
@@ -216,7 +225,7 @@ impl FileDelegate {
             log_info!("Encrypted the row number=[{}/{}], enc_parts=[{}], follower=[{}]",
                                          row_index, block_count-1, &enc_data[..10] , &self.follower );
 
-            let _ = self.write_part(&mut trans, file_id, block_number, &enc_data, customer_code)?;
+            let _ = self.write_part(/*&mut trans,*/ file_id, block_number, &enc_data, customer_code)?;
 
             row_index += 1;
         }
@@ -227,20 +236,13 @@ impl FileDelegate {
 
     fn process_file_blocks(&self, file_id: i64, file_ref: &str, _item_info_str: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
         log_info!("Process the blocks for file ref = [{}], follower=[{}]", &file_ref, &self.follower);
-
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx)?;
-
         // Read the file parts from the file_uploads table, encrypt the blocks and store the encrypted part into file_parts
-        let _ = self.serial_encrypt(&mut trans, file_id, file_ref, block_count, customer_code, customer_key)?;
+        let _ = self.serial_encrypt(/*&mut trans,*/ file_id, file_ref, block_count, customer_code, customer_key)?;
 
         // Parse the file (Tika)
-        let _r = self.serial_parse_content(&mut trans,file_id, &file_ref, block_count, customer_code)?;
+        let _r = self.serial_parse_content(/*&mut trans,*/file_id, &file_ref, block_count, customer_code)?;
 
-        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-
-        log_info!("😎 Commit success for file_ref=[{}], file_id=[{}], follower=[{}]", file_ref, file_id, &self.follower);
-
+        log_info!("😎 Successful process file for file_ref=[{}], file_id=[{}], follower=[{}]", file_ref, file_id, &self.follower);
         Ok(())
     }
 
@@ -296,9 +298,7 @@ impl FileDelegate {
         };
 
         // Create an entry in file_reference
-        let mut r_cnx = SQLConnection::new();
-
-        let Ok(( file_id, file_ref )) = self.create_file_reference(&mut r_cnx, customer_code)
+        let Ok(( file_id, file_ref )) = self.create_file_reference(customer_code)
             .map_err(err_fwd!("💣 Cannot create an entry in the file reference table, follower=[{}]", &self.follower)) else {
             if cfg!(windows) {
                 self.empty_datastream(&mut file_data.open().take(u64::MAX));
@@ -321,7 +321,28 @@ impl FileDelegate {
         let local_file_ref = String::from(&file_ref);
         let local_customer_code = String::from(customer_code);
         let _th = thread::spawn( move || {
-            let _res = local_self.process_file_blocks(file_id, &local_file_ref, &local_item_info_str, block_count, &local_customer_code, &customer_key);
+            let status = local_self.process_file_blocks(file_id, &local_file_ref, &local_item_info_str, block_count, &local_customer_code, &customer_key);
+//             /// TMP START
+//             // Clean the tables : file_parts (file_id) + file_metadata (file_id)
+//             let _ = local_self.delete_from_target_table( "file_parts",  69, "601985c8");
+//             let _ = local_self.delete_from_target_table("file_metadata",  69, "601985c8");
+//             // Change the status of file_reference (file_id) : put all the values to "0" (size + total_part)
+//             let _ = local_self.update_file_reference(69, 0, 0, "text", "601985c8");
+//
+//             // Clean file_uploads (file_ref)
+//             let _ = local_self.delete_from_file_uploads("a6ca10bd-6863-40cb-22b6-8c467167bfb1", "601985c8");
+// /// TMP END
+            if status.is_err() {
+                // Clean the tables : file_parts (file_id) + file_metadata (file_id)
+                let _ = local_self.delete_from_target_table( "file_parts",  file_id, &local_customer_code);
+                let _ = local_self.delete_from_target_table("file_metadata",  file_id, &local_customer_code);
+                // Change the status of file_reference (file_id) : put all the values to "0" (size + total_part)
+                let _ = local_self.update_file_reference(file_id, 0, 0, "text", &local_customer_code);
+            }
+
+            // Clean file_uploads (file_ref)
+            let _ = local_self.delete_from_file_uploads(&local_file_ref, &local_customer_code);
+
         });
 
         // Return the file_reference
@@ -370,10 +391,10 @@ impl FileDelegate {
     }
 
 
-    fn serial_parse_content(&self, mut trans: &mut SQLTransaction, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
+    fn serial_parse_content(&self,/* mut trans: &mut SQLTransaction,*/ file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
         // Build the file in memory
         let mut mem_file : Vec<u8> = vec![];
-        let mut dataset = self.search_incoming_blocks(&mut trans, file_ref , customer_code).map_err(tr_fwd!())?;
+        let mut dataset = self.search_incoming_blocks(/*&mut trans,*/ file_ref , customer_code).map_err(tr_fwd!())?;
 
         // Loop the blocks
         while dataset.next() {
@@ -389,9 +410,9 @@ impl FileDelegate {
 
         let total_size = mem_file.len();
         // Read the metadata and the raw text of the file
-        let media_type = self.parse_content(&mut trans, &file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
+        let media_type = self.analyse_entire_content(/*&mut trans, */&file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
         // Update the file_reference table : checksum, original_file_size, total_part, media_type
-        let _ =self.update_file_reference(&mut trans, file_id, total_size,
+        let _ =self.update_file_reference(/*&mut trans,*/ file_id, total_size,
                                           block_count, &media_type, customer_code).map_err(tr_fwd!())?;
         Ok(())
     }
@@ -420,6 +441,7 @@ impl FileDelegate {
         let block_range = Self::min_max(&block_set);
 
         log_info!("Block range processing, block range=[{:?}], follower=[{}]", &block_range, &self.follower);
+        // FIXME : Get the connection from the main routine
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, block_range=[{:?}], follower=[{}]", &block_range, &self.follower))?;
 
@@ -439,8 +461,6 @@ impl FileDelegate {
                     :p_user_id, :p_item_info, :p_file_ref, :p_part_number, :p_original_part_size, :p_part_data)", &entry_session.customer_code);
 
             let mut params = HashMap::new();
-
-            // dbg!(&entry_session);
 
             params.insert("p_session_id".to_string(),CellValue::from_raw_str(&self.follower.token_type.value()));
             params.insert("p_start_time_gmt".to_string(),CellValue::from_raw_systemtime(SystemTime::now()));
@@ -462,6 +482,7 @@ impl FileDelegate {
             log_debug!("...Block inserted, block_num=[{}], follower=[{}]", block_num, &self.follower);
         }
 
+        // End of the 'pink' multiple transaction
         trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
         log_info!("😎 Committed. Block inserted, block_range=[{:?}], follower=[{}]", &block_range, &self.follower);
 
@@ -524,12 +545,12 @@ impl FileDelegate {
         Ok(())
     }
 
-    ///
+
     /// Call the tika server to parse the file and get the text data
+    /// Insert the metadata
     /// Call the document server to fulltext parse the text data
     /// return the media type
-    ///
-    fn parse_content(&self, mut trans: &mut SQLTransaction, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
+    fn analyse_entire_content(&self, /*mut trans: &mut SQLTransaction,*/ file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
 
         log_info!("Parsing file content ... ,file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
@@ -546,12 +567,11 @@ impl FileDelegate {
         let content_type = raw_json[CONTENT_TYPE_META].as_str().ok_or(anyhow!("Bad content type"))?;
 
         let metadata = raw_json.as_object().unwrap();
-        //dbg!(&metadata);
 
         log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
             file_ref, x_tika_content.len(), &content_type,  &self.follower);
 
-        let r = self.insert_metadata(&mut trans, &customer_code, file_ref, &metadata)?;
+        let r = self.insert_metadata(/*&mut trans,*/ &customer_code, file_ref, &metadata)?;
 
         // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
 
@@ -567,7 +587,7 @@ impl FileDelegate {
         match wr_reply {
             Ok(reply) => {
                 log_info!("Fulltext indexing done, number of text parts=[{}], follower=[{}]", reply.part_count, &self.follower);
-                self.set_file_reference_fulltext_indicator(&mut trans, file_ref, customer_code)
+                self.set_file_reference_fulltext_indicator(/*&mut trans,*/ file_ref, customer_code)
                     .map_err(err_fwd!("Cannot set the file reference to fulltext parsed indicator, follower=[{}]", &self.follower))?;
             }
             Err(e) => {
@@ -580,7 +600,11 @@ impl FileDelegate {
         Ok(content_type.to_owned())
     }
 
-    fn insert_metadata(&self, mut trans: &mut SQLTransaction, customer_code: &str, file_ref: &str, metadata : &Map<String, Value>) -> anyhow::Result<()> {
+    fn insert_metadata(&self, /*mut trans: &mut SQLTransaction, */customer_code: &str, file_ref: &str, metadata : &Map<String, Value>) -> anyhow::Result<()> {
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx)?;
+
         let sql_query = format!(r"INSERT INTO fs_{0}.file_metadata ( file_reference_id, meta_key,  value )
         VALUES ((SELECT id FROM fs_{0}.file_reference WHERE file_ref = :p_file_ref), :p_meta_key, :p_value)", customer_code);
         let sequence_name = format!( "fs_{}.file_metadata_id_seq", customer_code );
@@ -606,11 +630,17 @@ impl FileDelegate {
                     meta_id, file_ref, key, value.to_string(), &self.follower);
             }
         }
+
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
         Ok(())
     }
 
     //
-    fn set_file_reference_fulltext_indicator(&self, mut trans: &mut SQLTransaction, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+    fn set_file_reference_fulltext_indicator(&self, /*mut trans: &mut SQLTransaction,*/ file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx)?;
 
         let sql_query = format!(r"UPDATE fs_{}.file_reference
                 SET is_fulltext_parsed = true
@@ -628,6 +658,8 @@ impl FileDelegate {
         };
 
         let _ = sql_update.update(&mut trans).map_err(err_fwd!("Update failed, follower=[{}]", &self.follower))?;
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
         log_info!("😎 Committed. Successfully set the full text indicator, file_ref=[{:?}], follower=[{}]", file_ref, &self.follower);
 
         Ok(())
@@ -1101,9 +1133,9 @@ impl FileDelegate {
     ///
     ///
     ///
-    fn create_file_reference(&self, r_cnx : &mut anyhow::Result<SQLConnection>, customer_code: &str) -> anyhow::Result<(i64, String)> {
-
-        let mut trans = open_transaction(r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
+    fn create_file_reference(&self, customer_code: &str) -> anyhow::Result<(i64, String)> {
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
         let file_ref = uuid_v4();
 
         let sql_query = format!(r"INSERT INTO fs_{}.file_reference
@@ -1114,7 +1146,6 @@ impl FileDelegate {
 
         let mut params = HashMap::new();
         params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.clone()));
-        // TODO get the actual mime type
         params.insert("p_mime_type".to_string(), CellValue::from_raw_string(String::from("text")));
         params.insert("p_checksum".to_string(), CellValue::String(None));
         params.insert("p_original_file_size".to_string(), CellValue::Int(None));
@@ -1129,6 +1160,7 @@ impl FileDelegate {
 
         let file_id = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
 
+        // End of the 'blue' transaction
         trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         log_info!("😎 Committed. Successfully created a file reference, file_ref=[{}], follower=[{}]", &file_ref, &self.follower);
@@ -1139,12 +1171,15 @@ impl FileDelegate {
     ///
     ///
     ///
-    fn update_file_reference(&self, mut trans: &mut SQLTransaction,
+    fn update_file_reference(&self, /*mut trans: &mut SQLTransaction,*/
                              file_id : i64,
                              total_size: usize,
                              total_part: u32,
                              media_type : &str,
                              customer_code: &str) -> anyhow::Result<()> {
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
 
         let sql_query = format!(r"UPDATE fs_{}.file_reference
                                         SET
@@ -1171,8 +1206,100 @@ impl FileDelegate {
 
         let _ = sql_update.update(&mut trans).map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
 
+        // End of the 'purple' transaction
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
         Ok(())
     }
+
+    fn delete_from_target_table(&self, target_table: &str,  file_id: i64, customer_code: &str) -> anyhow::Result<()> {
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
+
+        let sql_delete = format!( "DELETE FROM fs_{}.{} WHERE file_reference_id = :p_file_id", &customer_code, &target_table );
+
+        let mut params = HashMap::new();
+        params.insert(
+            "p_file_id".to_string(),
+            CellValue::from_raw_int(file_id),
+        );
+
+        let query = SQLChange {
+            sql_query: sql_delete.to_string(),
+            params,
+            sequence_name: "".to_string(),
+        };
+
+        let _ = query
+            .delete(&mut trans)
+            .map_err(err_fwd!(
+            "💣 Query failed, [{}], , follower=[{}]",
+            &query.sql_query,
+            &self.follower
+        ))?;
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
+        Ok(())
+    }
+
+    fn delete_from_file_uploads(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, follower=[{}]", &self.follower))?;
+
+        let sql_delete = format!( "DELETE FROM fs_{}.file_uploads WHERE file_ref = :p_file_ref", &customer_code);
+
+        let mut params = HashMap::new();
+        params.insert(
+            "p_file_ref".to_string(),
+            CellValue::from_raw_str(&file_ref),
+        );
+
+        let query = SQLChange {
+            sql_query: sql_delete.to_string(),
+            params,
+            sequence_name: "".to_string(),
+        };
+
+        let _ = query
+            .delete(&mut trans)
+            .map_err(err_fwd!(
+            "💣 Query failed, [{}], , follower=[{}]",
+            &query.sql_query,
+            &self.follower
+        ))?;
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
+        Ok(())
+    }
+
+    // fn update_file_reference(&self, mut trans: &mut SQLTransaction, file_reference_id: i64) -> anyhow::Result<()> {
+    //     let sql_update = format!(
+    //         "UPDATE file_reference SET total_part = 0, original_file_size = 0, encrypted_file_size = 0 WHERE id = :p_file_reference_id"
+    //     );
+    //
+    //     let mut params = HashMap::new();
+    //     params.insert(
+    //         "p_file_reference_id".to_string(),
+    //         CellValue::from_raw_int(file_reference_id),
+    //     );
+    //
+    //     let query = SQLChange {
+    //         sql_query: sql_update.to_string(),
+    //         params,
+    //         sequence_name: "".to_string(),
+    //     };
+    //
+    //     let _id = query
+    //         .update(&mut trans)
+    //         .map_err(err_fwd!(
+    //         "💣 Query failed, [{}], , follower=[{}]",
+    //         &query.sql_query,
+    //         &self.follower
+    //     ))?;
+    //
+    //     Ok(())
+    // }
+
 
 }
 

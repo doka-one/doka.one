@@ -1,9 +1,11 @@
 use std::fmt::Display;
+use std::thread;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use log::{warn};
 use reqwest::blocking::RequestBuilder;
+use rocket::http::Status;
 use rocket::http::uri::Uri;
 use serde::{de, Serialize};
 use url::Url;
@@ -70,6 +72,8 @@ impl WebServer {
             if operation_result.is_ok() || count >= MAX_HTTP_RETRY {
                 return operation_result;
             }
+            let LAPS = Duration::from_millis(1500);
+            thread::sleep(LAPS);
             log_warn!("Operation failed, attempt=[{}]", count);
             count += 1;
         }
@@ -81,21 +85,6 @@ impl WebServer {
             self.get_data(url, token)
         };
         self.retry(get_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
-
-        // let mut r_reply;
-        // let mut count = 0;
-        // loop {
-        //     r_reply = self.get_data(url, token);
-        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-        //         break;
-        //     }
-        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-        //     count += 1;
-        // }
-        // if r_reply.is_err() {
-        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        // }
-        // r_reply.unwrap()
     }
 
     fn get_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
@@ -115,7 +104,7 @@ impl WebServer {
                 let wt = if status_code.as_u16() >= 300 {
                     let value : Result<SimpleMessage, reqwest::Error>  = v.json(); // TODO
                     let v_value = value.unwrap();
-                    WebResponse::from_simple(status_code.as_u16(), v_value)
+                    WebResponse::from_simple(status_code.as_u16(), v_value, )
                 } else {
                     let value : Result<V, reqwest::Error>  = v.json(); // TODO
                     let v_value = value.unwrap();
@@ -162,21 +151,6 @@ impl WebServer {
             self.get_binary_data(url, token)
         };
         self.retry(get_binary_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
-
-       // let mut r_reply;
-       //  let mut count = 0;
-       //  loop {
-       //      r_reply = self.get_binary_data(url, token);
-       //      if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-       //          break;
-       //      }
-       //      log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-       //      count += 1;
-       //  }
-       //  if r_reply.is_err() {
-       //      return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-       //  }
-       //  r_reply.unwrap()
     }
 
     ///
@@ -219,21 +193,6 @@ impl WebServer {
             self.post_data(url, request, headers)
         };
         self.retry(post_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
-
-        // let mut r_reply;
-        // let mut count = 0;
-        // loop {
-        //     r_reply = self.post_data(url, request, headers);
-        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-        //         break;
-        //     }
-        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-        //     count += 1;
-        // }
-        // if r_reply.is_err() {
-        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        // }
-        // r_reply.unwrap()
     }
 
     fn post_bytes_retry<V : de::DeserializeOwned>(&self, url : &str, request : &Vec<u8>, token : &TokenType ) -> WebResponse<V>
@@ -242,23 +201,14 @@ impl WebServer {
             let rr = request.clone();
             self.post_bytes(url, rr, token)
         };
-        self.retry(post_bytes).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
-
-        // let mut r_reply;
-        // let mut count = 0;
-        // loop {
-        //     let rr = request.clone();
-        //     r_reply = self.post_bytes(url, rr, token);
-        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-        //         break;
-        //     }
-        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-        //     count += 1;
-        // }
-        // if r_reply.is_err() {
-        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        // }
-        // r_reply.unwrap()
+        match self.retry(post_bytes)  {
+            Ok(v) => {
+                v
+            }
+            Err(e) => {
+                WebResponse::from_simple(Status::BadRequest.code, SimpleMessage { message: e.to_string() })
+            }
+        }
     }
 
     /// Generic routine to post a binary content
@@ -313,21 +263,6 @@ impl WebServer {
             self.patch_data(url, &token)
         };
         self.retry(patch_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
-
-        // let mut r_reply;
-        // let mut count = 0;
-        // loop {
-        //     r_reply = self.patch_data(url, token);
-        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-        //         break;
-        //     }
-        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-        //     count += 1;
-        // }
-        // if r_reply.is_err() {
-        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        // }
-        // r_reply.unwrap()
     }
 
     ///
@@ -348,21 +283,6 @@ impl WebServer {
             self.delete_data(url, token)
         };
         self.retry(delete_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
-
-        // let mut r_reply;
-        // let mut count = 0;
-        // loop {
-        //     r_reply = self.delete_data(url, token);
-        //     if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-        //         break;
-        //     }
-        //     log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-        //     count += 1;
-        // }
-        // if r_reply.is_err() {
-        //     return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        // }
-        // r_reply.unwrap()
     }
 
 
@@ -477,7 +397,6 @@ impl SessionManagerClient {
 
 
     pub fn get_session(&self, sid : &str, token : &str) -> WebResponse<SessionReply> {
-
         // let url = format!("http://{}:{}/session-manager/session/{}", &self.server.server_name, self.server.port,
         //                   Uri::percent_encode(sid) );
         let url = self.server.build_url_with_refcode("session", Uri::percent_encode(sid) );

@@ -9,12 +9,12 @@ use commons_pg::{CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransact
 use commons_services::database_lib::open_transaction;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
-use commons_services::session_lib::fetch_entry_session;
+use commons_services::session_lib::{fetch_entry_session, valid_sid_get_session};
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::{FullTextReply, FullTextRequest, WebType, WebTypeBuilder};
+use dkdto::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
 use doka_cli::request_client::{TikaServerClient, TokenType};
 
@@ -37,6 +37,25 @@ impl FullTextDelegate {
         }
     }
 
+    /// ✨ Delete the information linked to the document full text indexing information
+    /// Service called from the file-server
+    pub fn delete_text_indexing(mut self, delete_text_request: Json<DeleteFullTextRequest>) -> WebType<SimpleMessage> {
+        log_info!("🚀 Start delete_text_indexing api, follower=[{}]", &self.follower);
+
+        let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
+            Ok(cc) => { cc }
+            Err(e) => {
+                return WebType::from_errorset(e);
+            }
+        };
+
+        // TODO do your stuff with
+
+        // log_info!("😎 Generated the indexes and the document part entries, number of parts=[{}], follower=[{}]", part_count, &self.follower);
+        log_info!("🏁 End delete_text_indexing api, follower=[{}]", &self.follower);
+        WebType::from_item(Status::Ok.code,SimpleMessage { message: "Ok".to_string() })
+    }
+
 
     /// ✨ Parse the raw text data and create the document parts
     /// Service called from the file-server
@@ -44,20 +63,27 @@ impl FullTextDelegate {
 
         log_info!("🚀 Start fulltext_indexing api, follower=[{}]", &self.follower);
 
-        // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return WebType::from_errorset(INVALID_TOKEN);
-        }
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-                                                    .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+        let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
+            Ok(cc) => { cc }
+            Err(e) => {
+                return WebType::from_errorset(e);
+            }
         };
 
-        let customer_code = entry_session.customer_code.as_str();
+        // // Check if the token is valid
+        // if !self.session_token.is_valid() {
+        //     log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
+        //     return WebType::from_errorset(INVALID_TOKEN);
+        // }
+        // self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
+        //
+        // // Read the session information
+        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
+        //                                             .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
+        //     return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+        // };
+        //
+        // let customer_code = entry_session.customer_code.as_str();
 
         // Get the crypto key
 
@@ -85,7 +111,7 @@ impl FullTextDelegate {
         log_info!("😎 Generated the indexes and the document part entries, number of parts=[{}], follower=[{}]", part_count, &self.follower);
         log_info!("🏁 End fulltext_indexing api, follower=[{}]", &self.follower);
 
-        WebType::from_item(Status::Ok.code,FullTextReply { part_count  })
+        WebType::from_item(Status::Ok.code,FullTextReply { part_count })
     }
 
 
@@ -96,13 +122,11 @@ impl FullTextDelegate {
         const MAX_LANGUAGE_BUFFER_BLOCK : usize = 200_000; // TODO  > 200_000;
 
         let mut language_buffer_block: HashMap<String, Vec<String>> = HashMap::new(); // { "french", Vec<PureWord> }
-
         let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY).map_err(tr_fwd!())?;
         let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY).map_err(tr_fwd!())?
             .parse::<u16>().map_err(tr_fwd!())?;
 
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
-
         // Clean up the raw text
         let mut ftt = FTTokenizer::new(&raw_text_request.raw_text);
 
@@ -158,7 +182,6 @@ impl FullTextDelegate {
                     word_text_size = 0;
                 }
             }
-
         }
 
         Ok(part_no)

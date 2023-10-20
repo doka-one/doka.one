@@ -20,7 +20,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -130,6 +130,17 @@ pub (crate) fn fulltext_indexing(raw_text_request: Json<FullTextRequest>, sessio
     delegate.fulltext_indexing(raw_text_request)
 }
 
+///
+/// ✨ Delete the information linked to the document full text indexing information
+/// Used from file-server
+/// **NORM
+///
+#[post("/fulltext_indexing", format = "application/json", data = "<delete_text_request>")]
+pub (crate) fn delete_text_indexing(delete_text_request: Json<DeleteFullTextRequest>, session_token: SessionToken, x_request_id: XRequestID) -> WebType<SimpleMessage> {
+    let delegate = FullTextDelegate::new(session_token, x_request_id);
+    delegate.delete_text_indexing(delete_text_request)
+}
+
 fn main() {
 
     const PROGRAM_NAME: &str = "Document Server";
@@ -207,6 +218,7 @@ fn main() {
             add_tag,
             delete_tag,
             fulltext_indexing,
+            delete_text_indexing,
         ])
         .attach(Template::fairing())
         .launch();

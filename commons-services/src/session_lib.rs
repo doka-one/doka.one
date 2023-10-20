@@ -2,9 +2,12 @@ use log::error;
 use commons_error::*;
 
 use dkconfig::properties::get_prop_value;
-use dkdto::{EntrySession};
-use doka_cli::request_client::{SessionManagerClient};
+use dkdto::{EntrySession, ErrorSet};
+use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
+use doka_cli::request_client::{SessionManagerClient, TokenType};
 use crate::property_name::{ SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
+use crate::token_lib::SessionToken;
+use crate::x_request_id::Follower;
 
 
 pub fn fetch_entry_session(sid : &str) -> anyhow::Result<EntrySession> {
@@ -23,8 +26,22 @@ pub fn fetch_entry_session(sid : &str) -> anyhow::Result<EntrySession> {
             return Err(anyhow::anyhow!("{} - {}", e.http_error_code, e.message));
         }
     }
-
-
-
 }
 
+
+pub fn valid_sid_get_session(session_token: &SessionToken, follower: &mut Follower) -> Result<String, ErrorSet<'static>> {
+    // Check if the token is valid
+    if !session_token.is_valid() {
+        log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &session_token, &follower);
+        return Err(INVALID_TOKEN);
+    }
+
+    follower.token_type = TokenType::Sid(session_token.0.clone());
+
+    // Read the session information
+    let Ok(entry_session) = fetch_entry_session(&follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &follower)) else {
+        return Err(INTERNAL_TECHNICAL_ERROR);
+    };
+    let customer_code = entry_session.customer_code.as_str();
+    Ok(customer_code.to_owned())
+}

@@ -1,8 +1,7 @@
 ECHO OFF
 CLS
 
-SET ROOT_FOLDER="F:\wks-doka-one\doka.one\target\debug"
-#SET ROOT_FOLDER="C:\Users\denis\wks-doka-one\doka.one\target\debug"
+SET ROOT_FOLDER="C:\Users\denis\wks-doka-one\doka.one\target\release"
 
 echo *************************
 echo ***** KEY MANAGER *******
@@ -32,6 +31,5 @@ start "file-server" %ROOT_FOLDER%\file-server.exe
 echo *****************************
 echo ***** TIKA SERVER *******
 echo *****************************
-start "tika-server" java -jar F:\wks-poc\tika\tika-server-standard-2.2.0.jar --port 40010
-#start "tika-server" java -jar C:\Users\denis\wks-doka-one\tika\tika-server-standard-2.2.0.jar --port 40010
+start "tika-server" java -jar C:\Users\denis\wks-doka-one\tika\tika-server-standard-2.2.0.jar --port 40010
 

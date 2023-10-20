@@ -456,11 +456,13 @@ pub struct FullTextRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct FullTextReply {
-    //pub item_id : i64,
     pub part_count : u32,
 }
 
-
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct DeleteFullTextRequest {
+    pub file_ref : String,
+}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct UploadReply {

@@ -1,31 +1,31 @@
 use std::collections::HashMap;
-use std::panic::panic_any;
 use std::time::Duration;
-use log::*;
-use commons_error::*;
 use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkdto::{ErrorMessage, LoginReply, LoginRequest, UploadReply, WebResponse};
+use dkdto::{ErrorMessage, LoginReply, LoginRequest, UploadReply};
 use doka_api_tests::{Lookup, read_test_env, TestEnv};
 use doka_cli::request_client::{AdminServerClient, FileServerClient};
 
 const TEST_TO_RUN : &[&str] = &["t10_upload_mass_file"];
 
+/// Test the capacity for the file server to handle many uploads at the same time
+/// In this case, it can happen that the network buffer gets filled and some client request are rejected.
+/// In a distributed micro-services environment, this case is not supposed to happen.
+/// Anyhow, the file server must process all the incoming requests.
 fn t10_upload_mass_file() -> Result<(), ErrorMessage> {
-    let lookup = Lookup::new("t10_upload_mass_file", TEST_TO_RUN); // auto dropping
-    let test_env = read_test_env();
     let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
+    let lookup = Lookup::new("t10_upload_mass_file", TEST_TO_RUN, &props.get("token").unwrap()); // auto dropping
+    let test_env = read_test_env();
     eprintln!("test_env {:?}", &test_env);
 
     const NB_PARTS : u32 = 9;
     use std::thread;
 
-    let num_threads = 1000; // Changer le nombre de threads selon vos besoins
+    let num_threads = 1000;
     let handles: Vec<_> = (0..num_threads).map(|i| {
         eprintln!("Run {}", i);
         let local_props = props.clone();
         let local_test_env = test_env.clone();
-        let duration = Duration::from_millis(100);
-        thread::sleep(duration);
+        thread::sleep(Duration::from_millis(1000)); // prevent from network buffer overflow
         thread::spawn(move || {
             let upload_reply = send_a_files(&local_test_env, &local_props).unwrap();
             eprintln!("{:?}", upload_reply);

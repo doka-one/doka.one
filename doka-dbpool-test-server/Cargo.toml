@@ -1,0 +1,39 @@
+[package]
+name = "doka-dbpool-test-server"
+version = "0.1.0"
+edition = "2021"
+authors = ["dpapin1118 <denis.pro@isd.lu>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { workspace = true }
+rocket = { workspace = true }
+rocket_contrib = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_derive = { workspace = true }
+lazy_static = { workspace = true }
+rs-uuid = { workspace = true }
+log = { workspace = true }
+log4rs = { workspace = true }
+rocket_okapi = { workspace = true }
+schemars = { workspace = true }
+okapi = { workspace = true }
+java-properties = { workspace = true }
+#obfustring = { workspace = true }
+anyhow = { workspace = true }
+
+uuid = { workspace = true }
+#rust-crypto = { workspace = true }
+rand = { workspace = true }
+csv = { workspace = true }
+
+commons-pg = {path="../commons-pg"}
+commons-error = {path="../commons-error"}
+dkconfig = {path="../dkconfig"}
+dkcrypto = {path="../dkcrypto"}
+commons-services = {path= "../commons-services" }
+dkdto = {path="../dkdto"}
+doka-cli = {path="../doka-cli"}
+

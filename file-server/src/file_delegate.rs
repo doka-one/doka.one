@@ -322,27 +322,22 @@ impl FileDelegate {
         let local_customer_code = String::from(customer_code);
         let _th = thread::spawn( move || {
             let status = local_self.process_file_blocks(file_id, &local_file_ref, &local_item_info_str, block_count, &local_customer_code, &customer_key);
-//             /// TMP START
-//             // Clean the tables : file_parts (file_id) + file_metadata (file_id)
-//             let _ = local_self.delete_from_target_table( "file_parts",  69, "601985c8");
-//             let _ = local_self.delete_from_target_table("file_metadata",  69, "601985c8");
-//             // Change the status of file_reference (file_id) : put all the values to "0" (size + total_part)
-//             let _ = local_self.update_file_reference(69, 0, 0, "text", "601985c8");
-//
-//             // Clean file_uploads (file_ref)
-//             let _ = local_self.delete_from_file_uploads("a6ca10bd-6863-40cb-22b6-8c467167bfb1", "601985c8");
-// /// TMP END
             if status.is_err() {
+                log_info!("💣 The file processing failed. Enter the rollback process, file_ref=[{}], follower=[{}]", &file_ref, &self.follower);
                 // Clean the tables : file_parts (file_id) + file_metadata (file_id)
                 let _ = local_self.delete_from_target_table( "file_parts",  file_id, &local_customer_code);
                 let _ = local_self.delete_from_target_table("file_metadata",  file_id, &local_customer_code);
                 // Change the status of file_reference (file_id) : put all the values to "0" (size + total_part)
                 let _ = local_self.update_file_reference(file_id, 0, 0, "text", &local_customer_code);
+                // Call the document server to delete the text indexing
+                if let Ok(document_server) = Self::find_document_server_client().map_err(err_fwd!("Cannot find the document server")) {
+                    // TODO pass the file reference and the self.follower token
+                    document_server.delete_text_indexing()
+                }
             }
 
             // Clean file_uploads (file_ref)
             let _ = local_self.delete_from_file_uploads(&local_file_ref, &local_customer_code);
-
         });
 
         // Return the file_reference
@@ -546,6 +541,12 @@ impl FileDelegate {
     }
 
 
+    fn find_document_server_client() -> anyhow::Result<DocumentServerClient> {
+        let document_server_host = get_prop_value(DOCUMENT_SERVER_HOSTNAME_PROPERTY)?;
+        let document_server_port = get_prop_value(DOCUMENT_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
+        Ok(DocumentServerClient::new(&document_server_host, document_server_port))
+    }
+
     /// Call the tika server to parse the file and get the text data
     /// Insert the metadata
     /// Call the document server to fulltext parse the text data
@@ -556,34 +557,29 @@ impl FileDelegate {
 
         let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY)?;
         let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
-        let document_server_host = get_prop_value(DOCUMENT_SERVER_HOSTNAME_PROPERTY)?;
-        let document_server_port = get_prop_value(DOCUMENT_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
+
 
         // Get the raw text from the original file
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
         let raw_json = tsc.parse_data_json(&mem_file).map_err(err_fwd!("Cannot parse the original file"))?;
-
         let x_tika_content = raw_json[TIKA_CONTENT_META].as_str().ok_or(anyhow!("Bad tika content"))?;
         let content_type = raw_json[CONTENT_TYPE_META].as_str().ok_or(anyhow!("Bad content type"))?;
 
         let metadata = raw_json.as_object().unwrap();
-
         log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
             file_ref, x_tika_content.len(), &content_type,  &self.follower);
 
         let r = self.insert_metadata(/*&mut trans,*/ &customer_code, file_ref, &metadata)?;
 
         // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
-
         log_info!("Metadata done for file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
-        let document_server = DocumentServerClient::new(&document_server_host, document_server_port);
-        // TODO we must also pass the  self.follower.x_request_id
+        let document_server = Self::find_document_server_client().map_err(err_fwd!("Cannot find the document server"))?;
+        // TODO we must also pass the  self.follower.x_request_id + handle the file name
         let wr_reply = document_server.fulltext_indexing(&x_tika_content,
                                                          "no_filename_for_now",
                                                          file_ref,
                                                          &self.follower.token_type.value());
-
         match wr_reply {
             Ok(reply) => {
                 log_info!("Fulltext indexing done, number of text parts=[{}], follower=[{}]", reply.part_count, &self.follower);
@@ -1268,6 +1264,8 @@ impl FileDelegate {
             &self.follower
         ))?;
         trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
+        log_info!("😎 Committed. Successfully delete file uploads, file_ref=[{}], follower=[{}]", &file_ref, &self.follower);
 
         Ok(())
     }

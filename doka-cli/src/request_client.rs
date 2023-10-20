@@ -17,7 +17,7 @@ use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use crate::request_client::TokenType::{Sid, Token};
 
 const TIMEOUT : Duration = Duration::from_secs(60 * 60);
-const MAX_HTTP_RETRY: i32 = 5;
+const MAX_HTTP_RETRY: u32 = 5;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub struct CustomHeaders {
@@ -44,6 +44,8 @@ impl TokenType {
     }
 }
 
+const LAPS : u32 = 2_000;
+
 struct WebServer
 {
     server_name : String,
@@ -66,14 +68,15 @@ impl WebServer {
         where
             F: FnMut() -> anyhow::Result<T>,
     {
-        let mut count = 0;
+        let mut count : u32 = 0;
         loop {
             let operation_result = operation();
             if operation_result.is_ok() || count >= MAX_HTTP_RETRY {
                 return operation_result;
             }
-            let LAPS = Duration::from_millis(1500);
-            thread::sleep(LAPS);
+            let t = (LAPS) as u64;
+            eprintln!("Wait for {} ms", t);
+            thread::sleep(Duration::from_millis(t) );
             log_warn!("Operation failed, attempt=[{}]", count);
             count += 1;
         }

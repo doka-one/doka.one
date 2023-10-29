@@ -1,20 +1,23 @@
 use std::fmt::Display;
+use std::thread;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use log::{warn};
 use reqwest::blocking::RequestBuilder;
+use rocket::http::Status;
 use rocket::http::uri::Uri;
 use serde::{de, Serialize};
+use url::Url;
 
 use commons_error::*;
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 
 use crate::request_client::TokenType::{Sid, Token};
 
 const TIMEOUT : Duration = Duration::from_secs(60 * 60);
-const MAX_HTTP_RETRY: i32 = 5;
+const MAX_HTTP_RETRY: u32 = 5;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub struct CustomHeaders {
@@ -41,6 +44,8 @@ impl TokenType {
     }
 }
 
+const LAPS : u32 = 2_000;
+
 struct WebServer
 {
     server_name : String,
@@ -58,38 +63,37 @@ impl WebServer {
         }
     }
 
-    fn get_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
+    /// General retry routine
+    fn retry<F, T>(&self, mut operation: F) -> anyhow::Result<T>
+        where
+            F: FnMut() -> anyhow::Result<T>,
     {
-        let mut r_reply;
-        let mut count = 0;
+        let mut count : u32 = 0;
         loop {
-            r_reply = self.get_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
+            let operation_result = operation();
+            if operation_result.is_ok() || count >= MAX_HTTP_RETRY {
+                return operation_result;
             }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
+            let t = (LAPS) as u64;
+            eprintln!("Wait for {} ms", t);
+            thread::sleep(Duration::from_millis(t) );
+            log_warn!("Operation failed, attempt=[{}]", count);
             count += 1;
         }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+    }
+
+    fn get_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
+    {
+        let get_data = || -> anyhow::Result<WebResponse<V>> {
+            self.get_data(url, token)
+        };
+        self.retry(get_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
     }
 
     fn get_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
-        let request_builder= reqwest::blocking::Client::new().get(url).timeout(TIMEOUT);
-        let request_builder_2 = match token {
-            Token(token_value) => {
-                request_builder.header("token", token_value.clone())
-            }
-            Sid(sid_value) => {
-                request_builder.header("sid", sid_value.clone())
-            }
-            TokenType::None => {
-                request_builder
-            }
-        };
+        let request_builder= reqwest::blocking::Client::new().get(Url::parse(url)?).timeout(TIMEOUT);
+        let request_builder_2 = Self::add_header(request_builder, &token);
         Self::send_request_builder(request_builder_2)
     }
 
@@ -103,7 +107,7 @@ impl WebServer {
                 let wt = if status_code.as_u16() >= 300 {
                     let value : Result<SimpleMessage, reqwest::Error>  = v.json(); // TODO
                     let v_value = value.unwrap();
-                    WebResponse::from_simple(status_code.as_u16(), v_value)
+                    WebResponse::from_simple(status_code.as_u16(), v_value, )
                 } else {
                     let value : Result<V, reqwest::Error>  = v.json(); // TODO
                     let v_value = value.unwrap();
@@ -121,7 +125,7 @@ impl WebServer {
 
     /// Returns the media type and the binary content and the status code
     fn get_binary_data(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<MediaBytes>> {
-        let request_builder = reqwest::blocking::Client::new().get(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().get(Url::parse(url)?).timeout(TIMEOUT);
 
         let request_builder_2 = match token {
             Token(token_value) => {
@@ -146,20 +150,10 @@ impl WebServer {
     }
 
     fn get_binary_data_retry(&self, url : &str, token : &TokenType ) ->  WebResponse<MediaBytes> {
-       let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.get_binary_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let get_binary_data = || -> anyhow::Result<WebResponse<MediaBytes>> {
+            self.get_binary_data(url, token)
+        };
+        self.retry(get_binary_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
     }
 
     ///
@@ -169,7 +163,9 @@ impl WebServer {
     /// Generic routine to post a message
     fn post_data< U: Serialize, V : de::DeserializeOwned>(&self, url : &str, request : &U, headers : &CustomHeaders) -> anyhow::Result<WebResponse<V>>
     {
-        let request_builder = reqwest::blocking::Client::new().post(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new()
+            .post(Url::parse(url)?)
+            .timeout(TIMEOUT);
         let request_builder_2 = match &headers.token_type {
             Token(token_value) => {
                 request_builder.header("token", token_value.clone())
@@ -196,58 +192,37 @@ impl WebServer {
 
     fn post_data_retry< U: Serialize, V : de::DeserializeOwned>(&self, url : &str, request : &U, headers : &CustomHeaders ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.post_data(url, request, headers);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let post_data = || -> anyhow::Result<WebResponse<V>> {
+            self.post_data(url, request, headers)
+        };
+        self.retry(post_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
     }
 
     fn post_bytes_retry<V : de::DeserializeOwned>(&self, url : &str, request : &Vec<u8>, token : &TokenType ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
+        let post_bytes = || -> anyhow::Result<WebResponse<V>> {
             let rr = request.clone();
-            r_reply = self.post_bytes(url, rr, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
+            self.post_bytes(url, rr, token)
+        };
+        match self.retry(post_bytes)  {
+            Ok(v) => {
+                v
             }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
+            Err(e) => {
+                WebResponse::from_simple(Status::BadRequest.code, SimpleMessage { message: e.to_string() })
+            }
         }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
     }
 
     /// Generic routine to post a binary content
     fn post_bytes<V : de::DeserializeOwned>(&self, url : &str, request : Vec<u8>, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
-        let request_builder = reqwest::blocking::Client::new().post(url).timeout(TIMEOUT);
-        let request_builder_2 = match token {
-            Token(token_value) => {
-                request_builder.header("token", token_value.clone())
-            }
-            Sid(sid_value) => {
-                request_builder.header("sid", sid_value.clone())
-            }
-            TokenType::None => {
-                request_builder
-            }
-        };
+        let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?).timeout(TIMEOUT);
+        let request_builder_2 = Self::add_header(request_builder, &token);
         Self::send_request_builder(request_builder_2.body(request))
     }
+
+
 
     ///
     /// Put
@@ -258,7 +233,7 @@ impl WebServer {
     ///
     fn put_bytes<V : de::DeserializeOwned>(&self, url : &str, request : Vec<u8>) -> anyhow::Result<V>
     {
-        let request_builder = reqwest::blocking::Client::new().put(url).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().put(Url::parse(url)?).timeout(TIMEOUT);
         let r2 = request_builder.header("Accept", "application/json");
         let reply: V = r2.body(request).send()?.json()?;
         Ok(reply)
@@ -266,83 +241,51 @@ impl WebServer {
 
     fn put_bytes_retry<V : de::DeserializeOwned>(&self, url : &str, request : &Vec<u8>) -> anyhow::Result<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
+        let put_bytes = || -> anyhow::Result<V> {
             let rr = request.clone();
-            r_reply = self.put_bytes(url, rr);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        let reply = r_reply?;
-        Ok(reply)
+            self.put_bytes(url, rr)
+        };
+        self.retry(put_bytes)
     }
 
     ///
     /// Patch
     ///
 
-    fn patch_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
+    fn patch_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
-            .patch(url)
-            .timeout(TIMEOUT)
-            .header("token", token.clone());
-
-        Self::send_request_builder(request_builder)
+            .patch(Url::parse(url)?)
+            .timeout(TIMEOUT);
+        Self::send_request_builder(Self::add_header(request_builder, &token))
     }
 
-    fn patch_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> WebResponse<V>
+    fn patch_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.patch_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let patch_data = || -> anyhow::Result<WebResponse<V>> {
+            self.patch_data(url, &token)
+        };
+        self.retry(patch_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
     }
 
     ///
     /// Delete
     ///
-
-    fn delete_data<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> anyhow::Result<WebResponse<V>>
+    fn delete_data<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> anyhow::Result<WebResponse<V>>
     {
         let request_builder = reqwest::blocking::Client::new()
-            .delete(url)
-            .timeout(TIMEOUT)
-            .header("token", token.clone());
+            .delete(Url::parse(url)?)
+            .timeout(TIMEOUT);
 
-        Self::send_request_builder(request_builder)
+        Self::send_request_builder(Self::add_header(request_builder, &token))
     }
 
-    fn delete_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &str ) -> WebResponse<V>
+    fn delete_data_retry<V : de::DeserializeOwned>(&self, url : &str, token : &TokenType ) -> WebResponse<V>
     {
-        let mut r_reply;
-        let mut count = 0;
-        loop {
-            r_reply = self.delete_data(url, token);
-            if r_reply.is_ok() || count >= MAX_HTTP_RETRY {
-                break;
-            }
-            log_warn!("Url call failed, url=[{}], attempt=[{}]", url, count);
-            count += 1;
-        }
-        if r_reply.is_err() {
-            return WebResponse::from_errorset(HTTP_CLIENT_ERROR);
-        }
-        r_reply.unwrap()
+        let delete_data = || -> anyhow::Result<WebResponse<V>> {
+            self.delete_data(url, token)
+        };
+        self.retry(delete_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
     }
 
 
@@ -351,14 +294,12 @@ impl WebServer {
     /// url_path : ex : admin-server/tag
     /// refcode : "eb65e" or 125
     ///
-    fn delete_for_url<T>(&self, refcode: T, end_point: &str, token : &str) -> WebResponse<SimpleMessage>
+    fn delete_for_url<T>(&self, refcode: T, end_point: &str, token : &TokenType) -> WebResponse<SimpleMessage>
     where T : Display {
         // let url = format!("http://{}:{}/{}/{}", &self.server.server_name, self.server.port, end_point,
         //                   refcode);
-
         let url = self.build_url_with_refcode(end_point, refcode);
-
-        self.delete_data_retry(&url, token)
+        self.delete_data_retry(&url, &token)
     }
 
     ///
@@ -375,6 +316,20 @@ impl WebServer {
     where T : Display
     {
         format!("http://{}:{}/{}/{}/{}", &self.server_name, self.port, self.context, end_point, ref_code)
+    }
+
+    fn add_header(request_builder: RequestBuilder, token : &TokenType) -> RequestBuilder {
+        match token {
+            Token(token_value) => {
+                request_builder.header("token", token_value.clone())
+            }
+            Sid(sid_value) => {
+                request_builder.header("sid", sid_value.clone())
+            }
+            TokenType::None => {
+                request_builder
+            }
+        }
     }
 
 }
@@ -445,7 +400,6 @@ impl SessionManagerClient {
 
 
     pub fn get_session(&self, sid : &str, token : &str) -> WebResponse<SessionReply> {
-
         // let url = format!("http://{}:{}/session-manager/session/{}", &self.server.server_name, self.server.port,
         //                   Uri::percent_encode(sid) );
         let url = self.server.build_url_with_refcode("session", Uri::percent_encode(sid) );
@@ -453,7 +407,6 @@ impl SessionManagerClient {
     }
 
 }
-
 
 
 ///
@@ -487,15 +440,12 @@ impl AdminServerClient {
         // let url = format!("http://{}:{}/admin-server/customer/removable/{}", &self.server.server_name, self.server.port,
         //                   Uri::percent_encode(customer_code) );
         let url = self.server.build_url_with_refcode("customer/removable", Uri::percent_encode(customer_code)  );
-
-        self.server.patch_data_retry(&url, token)
+        self.server.patch_data_retry(&url, &Token(token.to_owned()))
     }
-
 
     pub fn delete_customer(&self, customer_code : &str, token : &str) ->  WebResponse<SimpleMessage> {
-        self.server.delete_for_url(customer_code, "customer", token)
+        self.server.delete_for_url(customer_code, "customer", &Token(token.to_owned()))
     }
-
 
     pub fn login(&self, request : &LoginRequest) -> WebResponse<LoginReply> {
         // let url = format!("http://{}:{}/admin-server/login", &self.server.server_name, self.server.port);
@@ -540,7 +490,6 @@ impl DocumentServerClient {
 
     }
 
-
     ///
     ///
     ///
@@ -555,9 +504,11 @@ impl DocumentServerClient {
     ///
     ///
     ///
-    pub fn add_item_tag(&self, request : &AddItemTagRequest, sid: &str) -> WebResponse<AddItemTagReply> {
-        // let url = format!("http://{}:{}/document-server/item/tag", &self.server.server_name, self.server.port);
-        let url = self.server.build_url("item/tag");
+    pub fn update_item_tag(&self, item_id: i64, request : &AddItemTagRequest, sid: &str) -> WebResponse<AddItemTagReply> {
+        // http://{}:{}/document-server/item/<item_id>/tags
+
+        let end_point = format!("item/{0}/tags", item_id);
+        let url = self.server.build_url(&end_point);
 
         let headers = CustomHeaders {
             token_type: Sid(sid.to_string()),
@@ -566,7 +517,16 @@ impl DocumentServerClient {
         };
 
         self.server.post_data_retry(&url, request, &headers)
+    }
 
+    ///
+    /// TODO perform URL escaping
+    ///
+    pub fn delete_item_tag(&self, item_id : i64, tag_names: &[String], sid: &str) -> WebResponse<SimpleMessage> {
+        // http://{}:{}/document-server/item/<item_id>/tags?tag_names=<tag_names>
+        let end_point = format!("item/{0}/tags?tag_names={1}", item_id, tag_names.join(","));
+        let url = self.server.build_url(&end_point);
+        self.server.delete_data_retry(&url, &Sid(sid.to_owned()))
     }
 
     ///
@@ -593,9 +553,7 @@ impl DocumentServerClient {
         };
 
         self.server.post_data_retry(&url, request, &headers)
-
     }
-
 
     ///
     ///
@@ -609,8 +567,8 @@ impl DocumentServerClient {
     ///
     ///
     ///
-    pub fn delete_tag(&self, tag_id : i64, token : &str) -> WebResponse<SimpleMessage> {
-        self.server.delete_for_url(tag_id, "tag", token)
+    pub fn delete_tag(&self, tag_id : i64, sid: &str) -> WebResponse<SimpleMessage> {
+        self.server.delete_for_url(tag_id, "tag", &Sid(sid.to_owned()))
     }
 
     ///
@@ -622,17 +580,29 @@ impl DocumentServerClient {
             file_ref: file_ref.to_owned(),
             raw_text: raw_text.to_owned(),
         };
-
         let url = self.server.build_url("fulltext_indexing");
-
         let headers = CustomHeaders {
             token_type: TokenType::Sid(sid.to_string()),
             x_request_id: None,
             cek: None
         };
-
         self.server.post_data_retry(&url, &request, &headers)
+    }
 
+    ///
+    ///
+    ///
+    pub fn delete_text_indexing(&self, file_ref: &str, sid: &str) -> WebResponse<SimpleMessage> {
+        let request = DeleteFullTextRequest {
+            file_ref: file_ref.to_owned(),
+        };
+        let url = self.server.build_url("delete_text_indexing");
+        let headers = CustomHeaders {
+            token_type: TokenType::Sid(sid.to_string()),
+            x_request_id: None,
+            cek: None
+        };
+        self.server.post_data_retry(&url, &request, &headers)
     }
 }
 
@@ -657,11 +627,25 @@ impl TikaServerClient {
         Ok(reply)
     }
 
+    pub fn parse_data_json(&self, request : &Vec<u8>) -> anyhow::Result<serde_json::Value> {
+        // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
+        let url = self.server.build_url("tika/text");
+        let reply : serde_json::Value = self.server.put_bytes_retry(&url, &request)?;
+        Ok(reply)
+    }
+
+    // pub fn parse_data_as_string(&self, request : &Vec<u8>) -> anyhow::Result<String> {
+    //     // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
+    //     let url = self.server.build_url("tika/text");
+    //     let reply : String = self.server.put_bytes_as_string_retry(&url, &request)?;
+    //     Ok(reply)
+    // }
+
     ///
     /// Read meta information from the utf8 text request
     ///
     pub fn read_meta(&self, request : &str) ->  anyhow::Result<TikaMeta> {
-        // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
+        // curl -T birdy_tickets.pdf  http://localhost:9998/meta --header "Accept: application/json"
         let url = self.server.build_url("meta");
 
         let bytes = request.as_bytes().to_vec();
@@ -717,13 +701,14 @@ impl FileServerClient {
 #[cfg(test)]
 mod test
 {
+    use url::Url;
     use dkdto::TikaParsing;
 
     use crate::request_client::{DocumentServerClient, TikaServerClient};
 
     fn put_data( url : &str, request : Vec<u8>) -> anyhow::Result<TikaParsing>
     {
-        let request_builder = reqwest::blocking::Client::new().put(url);
+        let request_builder = reqwest::blocking::Client::new().put(Url::parse(url)?);
         let r2 = request_builder.header("Accept", "application/json");
         let reply: TikaParsing = r2.body(request).send()?.json()?;
         Ok(reply)
@@ -785,7 +770,7 @@ mod test
 
         let url = "http://localhost:30080/file-server/upload";
 
-        let request_builder = reqwest::blocking::Client::new().post(url)
+        let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?)
                             .header("Accept", "application/json")
                             .header("sid", "jPA93edZEA8pzJz5LvjnA1qEpWqNPf2Wsio_N9oHvQOKWDo3SwtS4hdqL2MOIb9x");
         let reply = request_builder.body(byte_buf).send()?.text()?;
@@ -809,6 +794,20 @@ mod test
         Ok(())
     }
 
+    #[test]
+    fn url_escaping() {
+        use url::Url;
+        let original_url = "https://example.com/api/endpoint?param=value with spaces&p2=with,coma";
+
+        // Parse the URL
+        let url = Url::parse(original_url).expect("Invalid URL");
+
+        // Get the encoded URL as a string
+        let encoded_url = url.as_str();
+
+        println!("Original URL: {}", original_url);
+        println!("Encoded URL: {}", encoded_url);
+    }
 
 
 }

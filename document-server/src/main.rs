@@ -5,7 +5,6 @@
 use std::path::Path;
 use std::process::exit;
 
-use anyhow::anyhow;
 use log::{error, info};
 use rocket::{Config, routes};
 use rocket::{delete, get, post};
@@ -21,8 +20,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DType, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType, WebTypeBuilder};
-use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INVALID_CEK};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -34,27 +32,6 @@ mod fulltext;
 mod ft_tokenizer;
 mod language;
 
-///
-/// ✨ Test Http Erreur Code
-/// **NORM
-///
-#[get("/get_bonj")]
-pub fn get_bonj() -> WebType<DType> {
-    let res = process_bonj();
-    res
-}
-
-fn process_bonj() -> WebType<DType> {
-    let Ok(_r) = dummy_sub_routine().map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", "kkk".to_string())) else {
-        return WebType::from_errorset(INVALID_CEK)
-    };
-    WebType::from_errorset(INCORRECT_CHAR_TAG_NAME)
-}
-
-fn dummy_sub_routine() -> anyhow::Result<()> {
-    Err(anyhow!("Sub routine erreur"))
-}
-/////////////////////////////////////////////
 
 ///
 /// ✨ Find all the items at page [start_page]
@@ -89,14 +66,26 @@ pub (crate) fn add_item(add_item_request: Json<AddItemRequest>, session_token: S
 }
 
 ///
-/// ✨ Add tags on an existing item
+/// ✨ Update tags on an existing item
 ///     Tags can be already existing in the system.
 ///
 ///
-#[post("/item/tag", format = "application/json", data = "<add_item_tag_request>")]
-pub (crate) fn add_item_tag(add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
+#[post("/item/<item_id>/tags", format = "application/json", data = "<add_item_tag_request>")]
+pub (crate) fn update_item_tag(item_id: i64,add_item_tag_request: Json<AddItemTagRequest>, session_token: SessionToken) -> WebType<AddItemTagReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.add_item_tag(add_item_tag_request)
+    delegate.update_item_tag(item_id,add_item_tag_request)
+}
+
+///
+/// ✨ Update tags on an existing item
+///     Tags can be already existing in the system.
+///
+///  DELETE /api/documents/{item_id}/tags?tag_names=tag1,tag2,tag3
+///
+#[delete("/item/<item_id>/tags?<tag_names>")]
+pub (crate) fn delete_item_tag(item_id: i64, tag_names: DeleteTagsRequest, session_token: SessionToken) -> WebType<SimpleMessage> {
+    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.delete_item_tag(item_id, tag_names)
 }
 
 ///
@@ -139,6 +128,17 @@ pub (crate) fn add_tag(add_tag_request: Json<AddTagRequest>, session_token: Sess
 pub (crate) fn fulltext_indexing(raw_text_request: Json<FullTextRequest>, session_token: SessionToken, x_request_id: XRequestID) -> WebType<FullTextReply> {
     let delegate = FullTextDelegate::new(session_token, x_request_id);
     delegate.fulltext_indexing(raw_text_request)
+}
+
+///
+/// ✨ Delete the information linked to the document full text indexing information
+/// Used from file-server
+/// **NORM
+///
+#[post("/delete_text_indexing", format = "application/json", data = "<delete_text_request>")]
+pub (crate) fn delete_text_indexing(delete_text_request: Json<DeleteFullTextRequest>, session_token: SessionToken, x_request_id: XRequestID) -> WebType<SimpleMessage> {
+    let delegate = FullTextDelegate::new(session_token, x_request_id);
+    delegate.delete_text_indexing(delete_text_request)
 }
 
 fn main() {
@@ -209,15 +209,16 @@ fn main() {
 
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
-            get_bonj,
             get_all_item,
             get_item,
             add_item,
-            add_item_tag,
+            update_item_tag,
+            delete_item_tag,
             get_all_tag,
             add_tag,
             delete_tag,
             fulltext_indexing,
+            delete_text_indexing,
         ])
         .attach(Template::fairing())
         .launch();

@@ -1,9 +1,38 @@
-use log::{debug, warn};
+use std::collections::HashMap;
+
+use anyhow::anyhow;
+use chrono::Utc;
+use log::{debug};
+
+use rayon::prelude::*;
+use rayon::iter::IntoParallelRefIterator;
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
 use commons_error::*;
 use dkcrypto::dk_crypto::DkEncrypt;
+use crate::ft_tokenizer::WordType::WordToEncrypt;
 
+#[derive(Debug, Clone)]
+enum WordType {
+    WordToEncrypt(u64),
+    PureText(String),
+}
+
+fn concat(phrase: &[WordType]) -> String {
+    let mut result = String::new();
+
+    for word in phrase {
+        match word {
+            WordType::WordToEncrypt(_) => {}
+            WordType::PureText(text) => {
+                result.push_str(&text);
+            }
+        }
+    }
+    result
+}
+
+#[derive(Debug)]
 enum CharType {
     SEPARATOR,
     LEXEME,
@@ -203,11 +232,7 @@ impl <'a> FTTokenizer<'a> {
 
 }
 
-///
-///
-///
-pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
-
+fn parse_vector(tsvector : &str) -> (Vec<WordType>, HashMap::<u64,String>) {
     #[derive(Debug, PartialEq)]
     enum Mode {
         Word, // A lexeme is started, all char is part of the lexeme until  QUOTE+SEMI
@@ -216,37 +241,28 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
     }
 
     let graphemes = tsvector.graphemes(true);
-
-    let mut phrase: Vec<String> = vec![];
+    let mut phrase: Vec<WordType> = vec![];
     let mut lexeme: Vec<String> = vec![];
     let mut mode : Mode = Mode::Clear;
 
+    let mut words_to_encrypt = HashMap::<u64,String>::new();
+    let mut word_order = 0;
+
     for g in graphemes {
         match g {
-
             ":" => {
                 //println!("Char  => SEMICOL");
                 match mode {
                     Mode::PendingEnd => {
-                        //println!("Pending --> Clear");
                         let w: String = lexeme.concat();
+                        words_to_encrypt.insert(word_order, w.clone());
+                        // The LEXEME will be replaced with the encrypted value
+                        // of the word 32 in the words_to_encrypt
+                        phrase.push(WordToEncrypt(word_order));
+                        word_order += 1;
+                        phrase.push( WordType::PureText("'".to_string()) );
+                        phrase.push( WordType::PureText(":".to_string()) );
 
-                        let r_encrypted_word: anyhow::Result<String> = DkEncrypt::encrypt_str(&w, customer_key);
-                        let word_encrypted = match r_encrypted_word {
-                            Ok(ew) => {
-                                ew
-                            }
-                            Err(_) => {
-                                log_warn!("Cannot encrypt the word: [{}]", w);
-                                "".to_string()
-                            }
-                        };
-
-                        phrase.push(format!("{}", &word_encrypted));
-                        // phrase.push(format!("[{}]", &word_encrypted));
-                        phrase.push("'".to_string());
-                        phrase.push(":".to_string());
-                        // lexemes.push("'".to_string());
                         mode = Mode::Clear;
                     }
                     Mode::Word => {
@@ -260,8 +276,6 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
                 }
             }
             "'" => {
-                // println!("Char  => QUOTE");
-
                 match mode {
                     Mode::Word => {
                         // println!("Word --> Pending");
@@ -277,7 +291,7 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
                         // println!("Clear --> Word");
                         mode = Mode::Word;
                         lexeme.clear();
-                        phrase.push("'".to_string());
+                        phrase.push( WordType::PureText("'".to_string()) );
                     }
                 }
 
@@ -301,21 +315,144 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> String {
                         }
                     }
                     Mode::Clear => {
-                        phrase.push(c.to_string());
+                        phrase.push( WordType::PureText(c.to_string()) );
                     }
                 }
             }
         }
     }
-    phrase.concat()
+    (phrase, words_to_encrypt)
 }
 
+///
+/// Deprecated - Use  encrypt_words_rayon instead
+/// Unused
+///
+fn _encrypt_words(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
+    let mut encrypted_words = HashMap::<u64, String>::new();
+    for (k,w) in words_to_encrypt {
+        let encrypted_word = DkEncrypt::encrypt_str(&w, customer_key)
+            .map_err( err_fwd!("Cannot encrypt the word: [{}]", w))?;
+        encrypted_words.insert(*k,encrypted_word);
+    }
+    Ok(encrypted_words)
+}
+
+///
+/// Unused
+///
+fn _encrypt_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
+    let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
+        .map(|(key, value)| {
+            let encrypted_value = DkEncrypt::encrypt_str(value, &customer_key)
+                .map_err( err_fwd!("Cannot encrypt the word: [{}]", value))?;
+            Ok((*key, encrypted_value))
+        }).collect();
+    encrypted_words
+}
+
+fn hash_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
+    let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
+        .map(|(key, value)| {
+            let encrypted_value = DkEncrypt::hmac_word(value, customer_key);
+            Ok((*key, encrypted_value))
+        }).collect();
+    encrypted_words
+}
+
+fn replace_words_in_phrase(mut phrase: Vec<WordType>, encrypted_words: &HashMap<u64, String> ) -> anyhow::Result<String> {
+   for w in &mut phrase {
+        match w {
+            WordToEncrypt(order) => {
+                let r = encrypted_words.get(order).ok_or(anyhow!("Wrong index: {}", order))?;
+                *w = WordType::PureText(r.clone());
+            }
+            WordType::PureText(_) => {}
+        }
+    }
+    Ok(concat(&phrase))
+}
+
+///
+///
+///
+pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> anyhow::Result<String> {
+
+    let timestamp_start_0 = Utc::now().timestamp_millis();
+    let (phrase, words_to_encrypt) = parse_vector(&tsvector);
+    let timestamp_end_0 = Utc::now().timestamp_millis();
+    println!("parse_vector :: diff [{}] ms", timestamp_end_0 - timestamp_start_0);
+
+    // dbg!(&phrase.len(), &words_to_encrypt);
+
+    let timestamp_start_1 = Utc::now().timestamp_millis();
+    let encrypted_words = hash_words_rayon(&words_to_encrypt, &customer_key)?;
+    let timestamp_end_1 = Utc::now().timestamp_millis();
+    println!("encrypt_words :: diff [{}] ms", timestamp_end_1 - timestamp_start_1);
+
+    //dbg!(&encrypted_words);
+
+    let timestamp_start_2 = Utc::now().timestamp_millis();
+    let complete_phrase = replace_words_in_phrase(phrase, &encrypted_words)?;
+    let timestamp_end_2 = Utc::now().timestamp_millis();
+    println!("replace_words_in_phrase :: diff [{}] ms", timestamp_end_2 - timestamp_start_2);
+
+    Ok(complete_phrase)
+}
 
 #[cfg(test)]
 mod file_server_test {
+    use std::collections::HashMap;
+    use chrono::Utc;
     use unicode_segmentation::UnicodeSegmentation;
 
-    use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
+    use crate::ft_tokenizer::{encrypt_tsvector, encrypt_words, encrypt_words_rayon, FTTokenizer};
+
+    const KEY: &str = "fqYVyce-Nh0HwpPQ7ZGZLog5s7PBLnwFMAW2OMnNPUs";
+
+    #[test]
+    fn crypto_perf() -> anyhow::Result<()> {
+
+        let phrases = [
+            "1. Hello, how are you?",
+            "2. I love coding in Rust.",
+            "3. The quick brown fox jumps over the lazy dog.",
+            "4. Rust is a systems programming language.",
+            "5. OpenAI's GPT-3.5 is an amazing language model.",
+            "6. I enjoy helping people with their questions.",
+            "7. Rustaceans are a friendly community.",
+            "8. Programming is fun and challenging.",
+            "9. The beach is a great place to relax.",
+            "10. I like to read books in my free time.",
+            "11. Learning new things is always exciting.",
+            "12. Rust is known for its memory safety features.",
+            "13. I'm excited to see what the future holds.",
+            "14. The mountains are majestic and beautiful.",
+            "15. I enjoy playing musical instruments.",
+            "16. Coding allows us to create amazing things.",
+            "17. Rust's syntax is elegant and expressive.",
+            "18. I believe in lifelong learning.",
+            "19. The stars are mesmerizing at night.",
+            "20. Rust enables high-performance software development.",
+        ];
+
+        let mut words_to_encrypt: HashMap<u64, String> = HashMap::new();
+        for (index, &phrase) in phrases.iter().enumerate() {
+            words_to_encrypt.insert(index as u64, String::from(phrase));
+        }
+
+        let timestamp_start_1 = Utc::now().timestamp_millis();
+        let encrypted_words = encrypt_words(&words_to_encrypt, KEY)?;
+        let timestamp_end_1 = Utc::now().timestamp_millis();
+        println!("encrypt_words :: diff [{}] ms", timestamp_end_1 - timestamp_start_1);
+
+        let timestamp_start_0 = Utc::now().timestamp_millis();
+        let encrypted_words = encrypt_words_rayon(&words_to_encrypt, KEY)?;
+        let timestamp_end_0 = Utc::now().timestamp_millis();
+        println!("encrypt_words_rayon :: diff [{}] ms", timestamp_end_0 - timestamp_start_0);
+
+        Ok(())
+    }
 
     #[test]
     fn tokenize_garbage() {
@@ -527,7 +664,7 @@ mod file_server_test {
                 'approv':93,168,523,598 'apromot':12,442 'arriv':318,748 'artist':234,250,664,680
                 'ateli':4,27,224,391,400,403,408,414,426,434,457,654,821,830,833"#;
 
-        let phrase = encrypt_tsvector(s, "O27AYTdNPNbG-7olPOUxDNb6GNnVzZpbGRa4qkhJ4BU");
+        let phrase = encrypt_tsvector(s, "O27AYTdNPNbG-7olPOUxDNb6GNnVzZpbGRa4qkhJ4BU").unwrap();
         // println!("Replaced text => {:?}", &phrase);
         const answer : &str = "'M5hDh3VMofIppBHf9EBD_Q':25,455 'vEKDWsb2dWg1mI3c3ITzYw':  20,450  'y4Xz7bhGLFy0-8GQYSgrYA':352,782 '5Yer_1-nc2OUrcuAw3aqUQ':182,612 '3xL1pw4_mRbEmPU7gt6Uvg':3,269,347,433,699\n                'M5hDh3VMofIppBHf9EBD_Q':25,455 'vEKDWsb2dWg1mI3c3ITzYw':20,450 '7M5J_RSBqGPYi28j2IqYRw':29,459 'bpWkx6yuRgkAwJd0taJfYw':16,446 'wgBlRoXLT4o6Tvand6md8A':22,452 't5CUUqP-ziWsqI3FbN5yhg':430\n                'y4Xz7bhGLFy0-8GQYSgrYA':352,782 'F_R2ii0jfT4ic-MIhUJcgA':182,612 '3xL1pw4_mRbEmPU7gt6Uvg':3,269,347,433,699,777 'gq-C64RMa_TTNTCjmZgpoQ':83,513 'uqciXabIwW28cwZiXdcUFg':355,785 '2snqO33FM_vS_7sZzPLtKQ':221,651\n                'Y9Zs9lyBqNYnexzwWyoeCQ':114,544 'IKmk_2KfyFYXfcnQwd1Yvg':54,59,108,484,489,538 'NN7kK878xz4O4WFEyYTRqw':36,466 'Zu2bpAPCfh7k3YqWol1mYg':385,815 'OMKMWAy0zXuAZ55EfjiM3A':415 'DT9HsozbRftjpqRMTfNnTg':354,784\n                'j50I-gdtnb3tQ3bI9nCzeg':93,168,523,598 '00Sf_xBNSgOYrL3EWKSPVQ':12,442 'jJvbNIz-zH1xPXHm65ucZQ':318,748 'e6GQ16s4bIXL5u2LdgHQkA':234,250,664,680\n                'nge4RtBow5mXobBiPk-wuQ':4,27,224,391,400,403,408,414,426,434,457,654,821,830,833";
         assert_eq!(answer, &phrase);

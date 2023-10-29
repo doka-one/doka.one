@@ -11,8 +11,8 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
-schemars = { workspace = true }
 rocket = {workspace = true}
 rocket_okapi = { workspace = true }
 rocket_contrib = { workspace = true }
 bytes = { workspace = true }
+schemars = { workspace = true }

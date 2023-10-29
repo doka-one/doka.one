@@ -10,24 +10,23 @@ pub enum TestStatus {
     DONE,
 }
 
-
+#[allow(dead_code)]
 pub struct Lookup<'a> {
     test_name: String,
     test_to_run :  &'a[&'a str],
+    token: String,
 }
 
 impl  <'a> Lookup <'a> {
-    pub fn new(test_name : &str, test_to_run: &'a [&'a str]) -> Self {
-        init_test(test_name);
+    pub fn new(test_name : &str, test_to_run: &'a [&'a str], dev_token: &str) -> Self {
+        init_test(test_name, &dev_token);
         Lookup {
             test_name: test_name.to_string(),
-            test_to_run: test_to_run,
+            test_to_run,
+            token: dev_token.to_string(),
         }
     }
-    // TODO REF_TAG : UNIFORMIZE_INIT
-    pub fn props() -> HashMap<String, String> {
-        HashMap::new()
-    }
+
     pub fn close(&self) {
         eprintln!("Closing the lookup: {}", self.test_name);
     }
@@ -37,13 +36,12 @@ impl  <'a> Lookup <'a> {
 /// It ensure the database will be cleared of data after the UT ends.
 impl <'a> Drop for Lookup<'a> {
     fn drop(&mut self) {
-        close_test(&self.test_name, self.test_to_run);
+        // close_test(&self.test_name, self.test_to_run);
         eprintln!("Dropping MyStruct with data: {}", self.test_name);
     }
 }
 
 
-// TODO REF_TAG : UNIFORMIZE_INIT
 #[derive(Debug, Clone)]
 pub struct TestEnv {
     pub token: String,
@@ -79,7 +77,7 @@ lazy_static! {
         });
 }
 
-pub fn init_test(test_name : &str) {
+pub fn init_test(test_name : &str, dev_token: &str) {
     {
         let mut test_list = TEST_LIST.lock().unwrap();
         test_list.insert(test_name.to_string(), TestStatus::INIT); // means the test has started
@@ -99,15 +97,12 @@ pub fn init_test(test_name : &str) {
         // Init : Create the schema (if not exist), create the admin user (if not exist)
         let admin_server = AdminServerClient::new("localhost", 30060);
 
-        // TODO REF_TAG : UNIFORMIZE_INIT
         // This value should depend on the environment we want to run the test.
         // Please refer to the CEK documents to clarify the call of "protected" routines on various environments
         // let r = token_generate("D:/doka.one/doka-configs/dev_6/key-manager/keys/cek.key");
 
-        // FIXME : Generate the token
-        // TODO REF_TAG : UNIFORMIZE_INIT
         // on the box
-        let dev_token = "EjXpe-RzQeS8tiBIEyY_OlJv35a4cY0i6Zu29Vt3drchg6O3JHBrW9v4F_6jwJPsYTfoQUZMsN_wJLGj-2vIpj3mI0ymBIwU81RUxmPiHbcP2vDFW5jGVg";
+        // let dev_token = "EjXpe-RzQeS8tiBIEyY_OlJv35a4cY0i6Zu29Vt3drchg6O3JHBrW9v4F_6jwJPsYTfoQUZMsN_wJLGj-2vIpj3mI0ymBIwU81RUxmPiHbcP2vDFW5jGVg";
 
         // chacha_1 on laptop
         //let dev_token = "WEzlHVgdvHynkb3I6EHcmx_wUt50TbV0I8xjgE95OEMnSHVaM-erNxBpbC9lRBESKM8XMwT6d1KWY131HY0sMTr2Em-BNMNw3Eq74Hb4p6d1B8DqN22Ygw";

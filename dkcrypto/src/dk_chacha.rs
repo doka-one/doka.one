@@ -1,8 +1,8 @@
 use anyhow::{bail, Context, ensure, Result};
-use base64::Engine;
-use base64::engine::general_purpose;
 use orion::aead::SecretKey;
 use rand::{RngCore, thread_rng};
+
+use orion::hazardous::stream::chacha20::SecretKey as XSecretKey;
 
 // Inspired by the great doc over here https://github.com/Internet-of-People/iop-rs/tree/develop/keyvault
 
@@ -47,9 +47,9 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
 ///
 /// ## Returns
 /// The ciphertext
-pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>/*, nonce: impl AsRef<[u8]>*/) -> Result<Vec<u8>> {
+pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>) -> Result<Vec<u8>> {
     use orion::hazardous::{
-        aead::xchacha20poly1305::{Nonce, seal, SecretKey as XSecretKey},
+        aead::xchacha20poly1305::{Nonce, seal},
         mac::poly1305::POLY1305_OUTSIZE,
         stream::xchacha20::XCHACHA_NONCESIZE,
     };
@@ -59,12 +59,6 @@ pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>/*, no
     let nonce = nonce().unwrap();
     // Get high-level API key
     let key = get_key_from_password(password, &nonce)?;
-
-    let key_bytes = key.unprotected_as_bytes();
-
-    let str = general_purpose::STANDARD.encode(key_bytes);
-    println!("{}", &str);
-
     // Convert high-level API key to low-level API key
     let key = XSecretKey::from_slice(key.unprotected_as_bytes()).with_context(|| "Key is invalid")?;
 
@@ -87,7 +81,6 @@ pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>/*, no
 
     Ok(output)
 }
-
 
 /// Decrypts the ciphertext with the given password and returns the plaintext.
 ///
@@ -125,7 +118,6 @@ mod tests {
         let password = "my_super_password";
 
         let r = encrypt_cc20(bytes, password/*, nonce*/).unwrap();
-        // println!("{:#?}", r);
         let str = general_purpose::STANDARD.encode(&r);
         println!("{}", &str);
         let bb = decrypt_cc20(r, password).unwrap();

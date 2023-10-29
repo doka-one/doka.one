@@ -1,11 +1,12 @@
 mod test_lib;
 
-const TEST_TO_RUN : &[&str] = &["t01_upload_file", "t02_upload_download_file"];
+const TEST_TO_RUN : &[&str] = &["t10_upload_file", "t20_upload_download_file"];
 
 #[cfg(test)]
 mod api_fileserver_tests {
     use std::thread;
     use core::time::Duration;
+    use dkconfig::conf_reader::{read_config, read_doka_env};
     use dkdto::{ErrorMessage, LoginRequest};
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
     use crate::test_lib::{Lookup, read_test_env};
@@ -14,11 +15,17 @@ mod api_fileserver_tests {
     const NB_PARTS : u32 = 9;
 
     #[test]
-    fn t01_upload_file() -> Result<(), ErrorMessage> {
-        let lookup = Lookup::new("t01_upload_file", TEST_TO_RUN); // auto dropping
-        let test_env = read_test_env();
+    fn t10_upload_file() -> Result<(), ErrorMessage> {
+        // TODO REF_TAG : UNIFORMIZE_INIT : put all the test configuration in the Lookup trait
+        //                  Merge the TestEnv struct with the props HashMap...
+        let lookup = Lookup::new("t10_upload_file", TEST_TO_RUN); // auto dropping
 
+        let test_env = read_test_env();
         eprintln!("test_env {:?}", &test_env);
+
+        let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
+
+        // dbg!(&props);
 
         // Login
         let admin_server = AdminServerClient::new("localhost", 30060);
@@ -33,7 +40,9 @@ mod api_fileserver_tests {
         // Upload the document
         let file_server = FileServerClient::new("localhost", 30080);
 
-        let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        let file_name = format!(r"{}\111-Bright_Snow.jpg", &props.get("file.path").unwrap() );
+
+        let file_content = std::fs::read(file_name).unwrap();
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
         assert_eq!(NB_PARTS, upload_reply.block_count);
@@ -75,11 +84,13 @@ mod api_fileserver_tests {
     }
 
     #[test]
-    fn t02_upload_download_file() -> Result<(), ErrorMessage> {
-        let lookup = Lookup::new("t02_upload_download_file", TEST_TO_RUN); // auto dropping
+    fn t20_upload_download_file() -> Result<(), ErrorMessage> {
+        let lookup = Lookup::new("t20_upload_download_file", TEST_TO_RUN); // auto dropping
         let test_env = read_test_env();
 
         eprintln!("test_env {:?}", &test_env);
+
+        let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
 
         // Login
         let admin_server = AdminServerClient::new("localhost", 30060);
@@ -94,7 +105,8 @@ mod api_fileserver_tests {
         // Upload the document
         let file_server = FileServerClient::new("localhost", 30080);
 
-        let file_content = std::fs::read(r"F:\Dropbox\Upload\111-Bright_Snow.jpg").unwrap();
+        let file_name = format!(r"{}\111-Bright_Snow.jpg", &props.get("file.path").unwrap() );
+        let file_content = std::fs::read(file_name).unwrap();
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
         assert_eq!(NB_PARTS, upload_reply.block_count);

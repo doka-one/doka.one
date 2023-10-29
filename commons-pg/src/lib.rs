@@ -608,6 +608,7 @@ fn parse_query<'a>(string_template: &str, params: &'a HashMap<String, CellValue>
 }
 
 // For Update and insert
+#[derive(Debug)]
 pub struct SQLChange {
     pub sql_query: String,
     pub params: HashMap<String, CellValue>,
@@ -774,7 +775,7 @@ mod tests {
         let mut data_set = query.execute(&mut trans).unwrap();
 
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return ();
         }
 
         while data_set.next() {
@@ -815,7 +816,7 @@ mod tests {
 
         let id = query.insert(&mut trans).unwrap();
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return ();
         }
 
         assert!(id > 10)
@@ -851,7 +852,7 @@ mod tests {
         }
 
         if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return ();
         }
     }
 

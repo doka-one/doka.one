@@ -3,6 +3,9 @@ mod test_lib;
 
 const TEST_TO_RUN : &[&str] = &["t10_login_ok", "t20_login_fail", "t30_login_fail"];
 
+
+/// cargo test  --package doka-api-tests --test ut10_api_login_tests --  --nocapture --test-threads=1
+
 #[cfg(test)]
 pub mod api_login_tests {
 

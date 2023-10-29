@@ -12,7 +12,7 @@ use dkconfig::properties::{get_prop_value, set_prop_values};
 use crate::command_options::{Command, display_commands, load_commands, Params, parse_args};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
 use crate::file_commands::{file_download, file_upload};
-use crate::item_commands::{create_item, get_item, prop_item, search_item};
+use crate::item_commands::{create_item, get_item, item_tag_delete, item_tag_update, search_item};
 use crate::session_commands::session_login;
 use crate::token_commands::{get_target_file, token_generate};
 
@@ -35,6 +35,7 @@ const PROP_ITEM_FAILED: u16 = 101;
 const FILE_UPLOAD_FAILED : u16 = 110;
 const FILE_DOWNLOAD_FAILED: u16 = 120;
 const SUCCESS: u16 = 0;
+
 
 fn read_configuration_file() -> anyhow::Result<()> {
     let config_path = get_target_file("config/application.properties")?;
@@ -139,17 +140,22 @@ fn dispatch(params : &Params, commands : &[Command]) -> u16 {
             let err = get_item(&id);
             success_or_err(err, GET_ITEM_FAILED)
         }
-        ("item", "prop") => {
+        ("item", "tag") => {
             let Ok((id, o_delete_prop, o_add_props))
                 = (|| -> anyhow::Result<(String, Option<String>, Option<String>)> {
                 Ok((extract_mandatory_option( &params.options, "-id")?,
                     extract_option( &params.options, "-d")?,
-                    extract_option( &params.options, "-a")?)
+                    extract_option( &params.options, "-u")?)
                 )
             }) ().map_err(eprint_fwd!("Error")) else {
                 return CREATE_ITEM_FAILED;
             };
-            let err = prop_item(&id, o_delete_prop.as_deref(), o_add_props.as_deref());
+
+            let err = if o_add_props.is_some() {
+                item_tag_update(&id, o_add_props.as_deref())
+            } else {
+                item_tag_delete(&id, o_delete_prop.as_deref())
+            };
             success_or_err(err, PROP_ITEM_FAILED)
         }
         ("file", "upload") => {
@@ -224,71 +230,6 @@ fn main() -> () {
 
     let exit_code = dispatch(&params, &commands);
     exit_program(exit_code as i32);
-
-    // match params.object.as_str() {
-    //     "token" => {
-    //         match token_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //                 exit_code = 70;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "customer" => {
-    //         match customer_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //                 exit_code = 80;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "session" => {
-    //         match session_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //
-    //                 exit_code = 90;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "item" => {
-    //         match item_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //
-    //                 exit_code = 120;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     "file" => {
-    //         match file_command(&params) {
-    //             Ok(_) => {
-    //                 exit_code = 0;
-    //             }
-    //             Err(e) => {
-    //
-    //                 exit_code = 140;
-    //                 eprintln!("💣 Error {exit_code} : {}", e);
-    //             }
-    //         }
-    //     }
-    //     _ => {
-    //
-    //     }
-    // }
-
 
 }
 

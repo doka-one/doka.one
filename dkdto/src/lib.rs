@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDate};
-use rocket::http::{ContentType, Status};
+use chrono::{DateTime, NaiveDate, Utc};
+use rocket::http::{ContentType, RawStr, Status};
+use rocket::request::FromFormValue;
 use rocket::response::status::Custom;
 use rocket_contrib::json::Json;
 use rocket_okapi::JsonSchema;
@@ -335,7 +336,7 @@ pub struct AddItemRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemTagRequest {
-    pub item_id : i64,
+    //pub item_id : i64,
     pub properties: Vec<AddTagValue>,
 }
 
@@ -345,6 +346,25 @@ pub struct AddTagValue {
     pub tag_name: Option<String>,
     pub value : EnumTagValue,
 }
+
+
+#[derive(Debug)]
+pub struct DeleteTagsRequest(pub Vec<String>);
+
+// Mise en œuvre de FromFormValue pour traiter la liste de chaînes
+impl<'v> FromFormValue<'v> for DeleteTagsRequest {
+    type Error = &'v RawStr;
+
+    fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
+        let tags: Vec<String> = form_value
+            .split(',')
+            .map(|tag| tag.to_string())
+            .collect();
+
+        Ok(DeleteTagsRequest(tags))
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemReply {
@@ -436,11 +456,13 @@ pub struct FullTextRequest {
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct FullTextReply {
-    //pub item_id : i64,
     pub part_count : u32,
 }
 
-
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct DeleteFullTextRequest {
+    pub file_ref : String,
+}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct UploadReply {
@@ -482,11 +504,28 @@ pub struct GetFileInfoReply {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct ListOfUploadInfoReply {
+    pub list_of_upload_info: Vec<UploadInfoReply>
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct UploadInfoReply {
+    pub start_date_time : DateTime<Utc>,
+    pub item_info :  String, // Is a non unique string to make link with the item element during the initial phase of upload.
+    pub file_reference : String,
+    pub session_number : String, // Only the first letters of the session id
+    pub encrypted_count : i64, // Number of encrypted parts
+    pub uploaded_count : i64, // Number of block simply loaded
+}
+
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GetFileInfoShortReply {
     pub file_ref : String,
     pub original_file_size: u64,
     pub block_count : u32,
     pub encrypted_count : i64,
+    pub uploaded_count : i64,
     pub fulltext_indexed_count : i64,
     pub preview_generated_count : i64,
 }
@@ -500,6 +539,15 @@ pub struct TikaParsing {
     pub x_tika_content: String,
     #[serde(rename(deserialize  = "pdf:PDFVersion"))]
     pub pdf_version: Option<String>,
+
+    // TODO Add all the meta fields as Option is needed
+
+    #[serde(rename(deserialize  = "GPS:GPS Longitude"))]
+    pub gps_longitude: Option<String>,
+
+    // "ICC:Green Colorant": "(0,292, 0,6922, 0,0419)",
+    #[serde(rename(deserialize  = "ICC:Green Colorant"))]
+    pub icc_green_colorant: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

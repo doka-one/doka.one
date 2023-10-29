@@ -9,13 +9,13 @@ use commons_pg::{CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransact
 use commons_services::database_lib::open_transaction;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
-use commons_services::session_lib::fetch_entry_session;
+use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::{FullTextReply, FullTextRequest, WebType, WebTypeBuilder};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
+use dkdto::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use doka_cli::request_client::{TikaServerClient, TokenType};
 
 use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
@@ -37,6 +37,46 @@ impl FullTextDelegate {
         }
     }
 
+    /// ✨ Delete the information linked to the document full text indexing information
+    /// Service called from the file-server
+    pub fn delete_text_indexing(mut self, delete_text_request: Json<DeleteFullTextRequest>) -> WebType<SimpleMessage> {
+        log_info!("🚀 Start delete_text_indexing api, follower=[{}]", &self.follower);
+
+        let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
+            Ok(es) => { es.customer_code }
+            Err(e) => {
+                return WebType::from_errorset(e);
+            }
+        };
+
+        // Delete all the document related to the file reference
+        let _ = self.delete_document(&delete_text_request.file_ref, &customer_code);
+
+        log_info!("😎 Deleted the document part entries, follower=[{}]", &self.follower);
+        log_info!("🏁 End delete_text_indexing api, follower=[{}]", &self.follower);
+        WebType::from_item(Status::Ok.code,SimpleMessage { message: "Ok".to_string() })
+    }
+
+    ///
+    fn delete_document(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower))?;
+        let sql_delete = format!(r"DELETE FROM cs_{0}.document WHERE file_ref = :p_file_ref", customer_code);
+
+        let mut params = HashMap::new();
+        params.insert("p_file_ref".to_string(), CellValue::from_raw_str(file_ref));
+
+        let query = SQLChange {
+            sql_query: sql_delete.to_string(),
+            params,
+            sequence_name: "".to_string(),
+        };
+
+        let _id = query.delete(&mut trans).map_err(err_fwd!("💣 Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        Ok(())
+    }
 
     /// ✨ Parse the raw text data and create the document parts
     /// Service called from the file-server
@@ -44,22 +84,12 @@ impl FullTextDelegate {
 
         log_info!("🚀 Start fulltext_indexing api, follower=[{}]", &self.follower);
 
-        // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return WebType::from_errorset(INVALID_TOKEN);
-        }
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-                                                    .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+        let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
+            Ok(es) => { es.customer_code }
+            Err(e) => {
+                return WebType::from_errorset(e);
+            }
         };
-
-        let customer_code = entry_session.customer_code.as_str();
-
-        // Get the crypto key
 
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
                                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
@@ -85,9 +115,8 @@ impl FullTextDelegate {
         log_info!("😎 Generated the indexes and the document part entries, number of parts=[{}], follower=[{}]", part_count, &self.follower);
         log_info!("🏁 End fulltext_indexing api, follower=[{}]", &self.follower);
 
-        WebType::from_item(Status::Ok.code,FullTextReply { part_count  })
+        WebType::from_item(Status::Ok.code,FullTextReply { part_count })
     }
-
 
 
     fn indexing(&self, mut trans : &mut SQLTransaction, raw_text_request: &FullTextRequest, customer_code: &str, customer_key: &str) -> anyhow::Result<u32> {
@@ -97,13 +126,11 @@ impl FullTextDelegate {
         const MAX_LANGUAGE_BUFFER_BLOCK : usize = 200_000; // TODO  > 200_000;
 
         let mut language_buffer_block: HashMap<String, Vec<String>> = HashMap::new(); // { "french", Vec<PureWord> }
-
         let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY).map_err(tr_fwd!())?;
         let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY).map_err(tr_fwd!())?
             .parse::<u16>().map_err(tr_fwd!())?;
 
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
-
         // Clean up the raw text
         let mut ftt = FTTokenizer::new(&raw_text_request.raw_text);
 
@@ -159,7 +186,6 @@ impl FullTextDelegate {
                     word_text_size = 0;
                 }
             }
-
         }
 
         Ok(part_no)
@@ -183,9 +209,12 @@ impl FullTextDelegate {
         let tsv = self.select_tsvector(&mut trans, Some(lang), words_text )
             .map_err(err_fwd!("Cannot build the tsvector, follower=[{}]", &self.follower))?;
 
-        // Encrypt the words of the tsvector
-        let tsv_encrypted = encrypt_tsvector(&tsv, customer_key);
+        // Encrypt the words of the tsvector, it's actually a Sha256 hash for each single word
+        let tsv_encrypted = encrypt_tsvector(&tsv, customer_key)
+            .map_err(err_fwd!("Cannot encrypt the vector, follower=[{}]", &self.follower))?;
         log_info!("Encrypted tsvector length: [{}]", tsv_encrypted.len());
+
+        // dbg!(&tsv_encrypted);
 
         // Use a stored proc to hide the TSVECTOR type from Rust
         let sql_query = format!(r"CALL cs_{}.insert_document( :p_file_ref, :p_part_no, :p_doc_text, :p_tsv, :p_lang )", customer_code);

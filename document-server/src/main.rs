@@ -135,7 +135,7 @@ pub (crate) fn fulltext_indexing(raw_text_request: Json<FullTextRequest>, sessio
 /// Used from file-server
 /// **NORM
 ///
-#[post("/fulltext_indexing", format = "application/json", data = "<delete_text_request>")]
+#[post("/delete_text_indexing", format = "application/json", data = "<delete_text_request>")]
 pub (crate) fn delete_text_indexing(delete_text_request: Json<DeleteFullTextRequest>, session_token: SessionToken, x_request_id: XRequestID) -> WebType<SimpleMessage> {
     let delegate = FullTextDelegate::new(session_token, x_request_id);
     delegate.delete_text_indexing(delete_text_request)

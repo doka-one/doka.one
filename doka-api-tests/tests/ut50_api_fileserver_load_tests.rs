@@ -43,23 +43,8 @@ mod api_fileserver_load_tests {
 
         let duration = Duration::from_secs(20*60);
         thread::sleep(duration);
-
-/*        let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
-        let upload_reply = send_a_files(&test_env, &props).unwrap();
-        assert_eq!(NB_PARTS, upload_reply.block_count);
-
-        let upload_reply2 = send_a_files(&test_env, &props).unwrap();
-        assert_eq!(NB_PARTS, upload_reply2.block_count);
-*/
-
-
+        // TODO use the routine below to know when the processing is finished
         // wait_until_file_processing_complete(&file_server, &upload_reply.file_ref, &login_reply.session_id,upload_reply.block_count);
-        //
-        // // Get the information of the file
-        // let info_reply = file_server.info(&upload_reply.file_ref, &login_reply.session_id)?;
-        //
-        // eprintln!("Info reply [{:?}]", &info_reply);
-        // assert_eq!("image/jpeg", info_reply.media_type.unwrap());
 
         lookup.close();
         Ok(())

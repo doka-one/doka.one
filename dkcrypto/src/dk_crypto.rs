@@ -6,11 +6,10 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use bcrypt::{hash, verify};
 use log::*;
-use orion::kdf::SecretKey;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use ring::hmac::Key;
-use sha2::Sha256;
+use sha2::*;
 
 use commons_error::*;
 
@@ -180,10 +179,8 @@ fn compute_sha(text: &str) -> Vec<u8> {
     (&*result).to_vec()
 }
 
-use sha2::*;
-
 fn compute_hmac(text: &str, key: &str) -> Vec<u8> {
-    use ring::{hmac, rand};
+    use ring::hmac;
     // let rng = rand::SystemRandom::new();
     // let key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
     let key = Key::new(hmac::HMAC_SHA256, &key.as_bytes());

@@ -16,9 +16,11 @@ mod api_fileserver_tests {
 
     #[test]
     fn t10_upload_file() -> Result<(), ErrorMessage> {
+        // TODO REF_TAG : UNIFORMIZE_INIT : put all the test configuration in the Lookup trait
+        //                  Merge the TestEnv struct with the props HashMap...
         let lookup = Lookup::new("t10_upload_file", TEST_TO_RUN); // auto dropping
-        let test_env = read_test_env();
 
+        let test_env = read_test_env();
         eprintln!("test_env {:?}", &test_env);
 
         let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));

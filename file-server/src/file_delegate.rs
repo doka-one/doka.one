@@ -1,5 +1,5 @@
 use std::{io, thread};
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::io::Read;
 use std::thread::JoinHandle;
@@ -16,16 +16,16 @@ use rs_uuid::iso::uuid_v4;
 use serde_json::{Map, Value};
 
 use commons_error::*;
-use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
+use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock};
 use commons_services::database_lib::open_transaction;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY, TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
-use commons_services::session_lib::fetch_entry_session;
+use commons_services::session_lib::{fetch_entry_session, valid_sid_get_session};
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::{DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, UploadReply, WebType, WebTypeBuilder};
+use dkdto::{DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType, WebTypeBuilder};
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, UPLOAD_WRONG_ITEM_INFO};
 use doka_cli::request_client::{DocumentServerClient, TikaServerClient, TokenType};
 
@@ -41,7 +41,6 @@ pub(crate) struct FileDelegate {
 }
 
 impl FileDelegate {
-
     const BLOCK_SIZE : usize = 1_048_576;
 
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
@@ -58,14 +57,11 @@ impl FileDelegate {
         // Create parts
         log_info!("Start creating clear parts in the database, follower=[{}]", &self.follower);
 
-        //const BLOCK_SIZE: usize = Self::BLOCK_SIZE;
         const INSERT_GROUP_SIZE: usize = 10;
         let mut block_set: HashMap<u32, Vec<u8>> = HashMap::with_capacity(INSERT_GROUP_SIZE);
 
         let mut total_size: usize = 0;
         let mut block_num: u32 = 0;
-
-        // let mut mem_file: Vec<u8> = Vec::new();
 
         let mut buf: [u8; Self::BLOCK_SIZE] = [0; Self::BLOCK_SIZE];
         let mut buf_pos: usize = 0;
@@ -131,10 +127,9 @@ impl FileDelegate {
 
     // Get all the encrypted parts of the file
     // ( "application/pdf", {0 : "...", 1: "...", ...} )
-    fn search_incoming_blocks(&self,/* mut trans: &mut SQLTransaction,*/ file_ref : &str, customer_code : &str) -> anyhow::Result<SQLDataSet> {
+    fn search_incoming_blocks(&self, file_ref : &str, customer_code : &str) -> anyhow::Result<SQLDataSet> {
 
         log_info!("Search the incoming blocks for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
-
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx)?;
 
@@ -149,7 +144,6 @@ impl FileDelegate {
             ORDER BY fu.file_ref, fu.part_number";
 
         let sql_query = sql_str.replace("{customer_code}", customer_code);
-
         let mut params = HashMap::new();
         params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.to_string()));
 
@@ -161,15 +155,13 @@ impl FileDelegate {
         };
 
         let dataset = query.execute(&mut trans).map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
-
         trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-
         log_info!("😎 Found incoming blocks for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         Ok(dataset)
     }
 
-    fn write_part(&self,/* mut trans: &mut SQLTransaction,*/ file_id: i64, block_number: u32, enc_data: &str, customer_code: &str) -> anyhow::Result<()> {
+    fn write_part(&self, file_id: i64, block_number: u32, enc_data: &str, customer_code: &str) -> anyhow::Result<()> {
 
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx)?;
@@ -193,17 +185,17 @@ impl FileDelegate {
 
         let _file_part_id = sql_insert.insert(&mut trans).map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
         trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-        log_info!("...Block inserted, block_num=[{}], follower=[{}]", block_number, &self.follower);
+        log_info!("Encrypted block inserted as a part, block_num=[{}], follower=[{}]", block_number, &self.follower);
         Ok(())
     }
 
     ///
     ///
     ///
-    fn serial_encrypt(&self,/* mut trans: &mut SQLTransaction, */file_id: i64, file_ref: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
+    fn serial_encrypt(&self, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
         // Query the blocks from file_upload table
 
-        let mut dataset = self.search_incoming_blocks(/*&mut trans,*/ file_ref , customer_code)?; //todo
+        let mut dataset = self.search_incoming_blocks(file_ref , customer_code)?; //todo
         let mut row_index: u32 = 0;
 
         // Loop the blocks
@@ -224,8 +216,7 @@ impl FileDelegate {
             let enc_data = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&encrypted_block);
             log_info!("Encrypted the row number=[{}/{}], enc_parts=[{}], follower=[{}]",
                                          row_index, block_count-1, &enc_data[..10] , &self.follower );
-
-            let _ = self.write_part(/*&mut trans,*/ file_id, block_number, &enc_data, customer_code)?;
+            let _ = self.write_part(file_id, block_number, &enc_data, customer_code)?;
 
             row_index += 1;
         }
@@ -237,11 +228,10 @@ impl FileDelegate {
     fn process_file_blocks(&self, file_id: i64, file_ref: &str, _item_info_str: &str, block_count: u32, customer_code: &str, customer_key: &str) -> anyhow::Result<()> {
         log_info!("Process the blocks for file ref = [{}], follower=[{}]", &file_ref, &self.follower);
         // Read the file parts from the file_uploads table, encrypt the blocks and store the encrypted part into file_parts
-        let _ = self.serial_encrypt(/*&mut trans,*/ file_id, file_ref, block_count, customer_code, customer_key)?;
+        let _ = self.serial_encrypt(file_id, file_ref, block_count, customer_code, customer_key)?;
 
         // Parse the file (Tika)
-        let _r = self.serial_parse_content(/*&mut trans,*/file_id, &file_ref, block_count, customer_code)?;
-
+        let _r = self.serial_parse_content(file_id, &file_ref, block_count, customer_code)?;
         log_info!("😎 Successful process file for file_ref=[{}], file_id=[{}], follower=[{}]", file_ref, file_id, &self.follower);
         Ok(())
     }
@@ -316,14 +306,30 @@ impl FileDelegate {
         };
 
         // Phase 2 : Run a thread to perform all the other operations (encrypt, tika parse, ...)
+        self.thread_processing_block(&item_info_str, file_id, &file_ref, customer_code,  &customer_key, block_count);
+
+
+        // Return the file_reference
+
+        log_info!("🏁 End upload api, follower=[{}]", &self.follower);
+
+        WebType::from_item(Status::Ok.code, UploadReply {
+            file_ref: file_ref.clone(),
+            size : total_size,
+            block_count,
+        })
+    }
+
+    fn thread_processing_block(&self, item_info_str: &str, file_id: i64, file_ref: &str, customer_code: &str, customer_key: &str, block_count: u32) {
         let local_self = self.clone();
         let local_item_info_str = String::from(item_info_str);
-        let local_file_ref = String::from(&file_ref);
+        let local_file_ref = String::from(file_ref);
         let local_customer_code = String::from(customer_code);
+        let local_customer_key = String::from(customer_key);
         let _th = thread::spawn( move || {
-            let status = local_self.process_file_blocks(file_id, &local_file_ref, &local_item_info_str, block_count, &local_customer_code, &customer_key);
+            let status = local_self.process_file_blocks(file_id, &local_file_ref, &local_item_info_str, block_count, &local_customer_code, &local_customer_key);
             if status.is_err() {
-                log_info!("💣 The file processing failed. Enter the rollback process, file_ref=[{}], follower=[{}]", &file_ref, &self.follower);
+                log_info!("💣 The file processing failed. Enter the rollback process, file_ref=[{}], follower=[{}]", &local_file_ref, &local_self.follower);
                 // Clean the tables : file_parts (file_id) + file_metadata (file_id)
                 let _ = local_self.delete_from_target_table( "file_parts",  file_id, &local_customer_code);
                 let _ = local_self.delete_from_target_table("file_metadata",  file_id, &local_customer_code);
@@ -331,26 +337,14 @@ impl FileDelegate {
                 let _ = local_self.update_file_reference(file_id, 0, 0, "text", &local_customer_code);
                 // Call the document server to delete the text indexing
                 if let Ok(document_server) = Self::find_document_server_client().map_err(err_fwd!("Cannot find the document server")) {
-                    // TODO pass the file reference and the self.follower token
-                    document_server.delete_text_indexing()
+                    let _ = document_server.delete_text_indexing( &local_file_ref, &local_self.follower.token_type.value());
                 }
             }
 
             // Clean file_uploads (file_ref)
             let _ = local_self.delete_from_file_uploads(&local_file_ref, &local_customer_code);
         });
-
-        // Return the file_reference
-
-        log_info!("🏁 End upload api, follower=[{}]", &self.follower);
-
-        WebType::from_item(Status::Ok.code, UploadReply {
-            file_ref,
-            size : total_size,
-            block_count,
-        })
     }
-
 
     // Windows only
     fn empty_datastream(&self, reader : &mut dyn Read) {
@@ -405,9 +399,9 @@ impl FileDelegate {
 
         let total_size = mem_file.len();
         // Read the metadata and the raw text of the file
-        let media_type = self.analyse_entire_content(/*&mut trans, */&file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
+        let media_type = self.analyse_entire_content(&file_ref, mem_file, &customer_code).map_err(tr_fwd!())?;
         // Update the file_reference table : checksum, original_file_size, total_part, media_type
-        let _ =self.update_file_reference(/*&mut trans,*/ file_id, total_size,
+        let _ =self.update_file_reference(file_id, total_size,
                                           block_count, &media_type, customer_code).map_err(tr_fwd!())?;
         Ok(())
     }
@@ -436,7 +430,7 @@ impl FileDelegate {
         let block_range = Self::min_max(&block_set);
 
         log_info!("Block range processing, block range=[{:?}], follower=[{}]", &block_range, &self.follower);
-        // FIXME : Get the connection from the main routine
+
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("Open transaction error, block_range=[{:?}], follower=[{}]", &block_range, &self.follower))?;
 
@@ -551,13 +545,12 @@ impl FileDelegate {
     /// Insert the metadata
     /// Call the document server to fulltext parse the text data
     /// return the media type
-    fn analyse_entire_content(&self, /*mut trans: &mut SQLTransaction,*/ file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
+    fn analyse_entire_content(&self, file_ref: &str, mem_file : Vec<u8>, customer_code: &str) -> anyhow::Result<String> {
 
         log_info!("Parsing file content ... ,file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY)?;
         let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
-
 
         // Get the raw text from the original file
         let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
@@ -569,7 +562,7 @@ impl FileDelegate {
         log_info!("Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
             file_ref, x_tika_content.len(), &content_type,  &self.follower);
 
-        let r = self.insert_metadata(/*&mut trans,*/ &customer_code, file_ref, &metadata)?;
+        let _ = self.insert_metadata(&customer_code, file_ref, &metadata)?;
 
         // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
         log_info!("Metadata done for file_ref=[{}], follower=[{}]", file_ref, &self.follower);
@@ -583,7 +576,7 @@ impl FileDelegate {
         match wr_reply {
             Ok(reply) => {
                 log_info!("Fulltext indexing done, number of text parts=[{}], follower=[{}]", reply.part_count, &self.follower);
-                self.set_file_reference_fulltext_indicator(/*&mut trans,*/ file_ref, customer_code)
+                self.set_file_reference_fulltext_indicator(file_ref, customer_code)
                     .map_err(err_fwd!("Cannot set the file reference to fulltext parsed indicator, follower=[{}]", &self.follower))?;
             }
             Err(e) => {
@@ -596,7 +589,7 @@ impl FileDelegate {
         Ok(content_type.to_owned())
     }
 
-    fn insert_metadata(&self, /*mut trans: &mut SQLTransaction, */customer_code: &str, file_ref: &str, metadata : &Map<String, Value>) -> anyhow::Result<()> {
+    fn insert_metadata(&self, customer_code: &str, file_ref: &str, metadata : &Map<String, Value>) -> anyhow::Result<()> {
 
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx)?;
@@ -605,9 +598,9 @@ impl FileDelegate {
         VALUES ((SELECT id FROM fs_{0}.file_reference WHERE file_ref = :p_file_ref), :p_meta_key, :p_value)", customer_code);
         let sequence_name = format!( "fs_{}.file_metadata_id_seq", customer_code );
 
-        // TODO Could be done with a specific batch insert sql routine that will build a big insert statment!
+        // TODO Could be done with a specific batch insert sql routine that will build a big insert statement!
         for (key, value) in metadata.iter() {
-            if key != TIKA_CONTENT_META {
+            if key != TIKA_CONTENT_META && value.to_string().len() < 200 {
                 let mut params: HashMap<String, CellValue> = HashMap::new();
                 params.insert("p_file_ref".to_owned(), CellValue::from_raw_str(file_ref));
                 params.insert("p_meta_key".to_owned(), CellValue::from_raw_str(key));
@@ -633,7 +626,7 @@ impl FileDelegate {
     }
 
     //
-    fn set_file_reference_fulltext_indicator(&self, /*mut trans: &mut SQLTransaction,*/ file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+    fn set_file_reference_fulltext_indicator(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
 
         let mut r_cnx = SQLConnection::new();
         let mut trans = open_transaction(&mut r_cnx)?;
@@ -755,21 +748,115 @@ impl FileDelegate {
         wt_file_info
     }
 
+    ///
+    /// ✨ Get the information about the files being loaded
+    ///
+    /// Get all the upload information. Only the session id is required to identify the (customer id/user id)
+    ///
+    /// All the current uploads will be extracted for the current user and a then a list of information will be returned
+    ///
+    /// * start_date_time :
+    /// * item_info :  Is a non unique string to make link with the item element during the initial phase of upload (ex: the file name)
+    /// * file_reference :
+    /// * session_number :
+    ///
+    pub fn file_loading(&mut self) -> WebType<ListOfUploadInfoReply> {
+
+        log_info!("🚀 Start file_loading api, follower=[{}]", &self.follower);
+
+        let entry_session = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
+            Ok(es) => { es }
+            Err(e) => {
+                return WebType::from_errorset(e);
+            }
+        };
+
+        log_info!("😎 We read the session information, customer_code=[{}], user_id=[{}], follower=[{}]", &entry_session.customer_code,
+            &entry_session.user_id, &self.follower);
+
+        let sql_query = format!(r"SELECT current_uploads.file_ref,
+                            current_uploads.session_id,
+                            current_uploads.start_time,
+                            current_uploads.item_info,
+                            current_uploads.count_uploaded,
+                            (SELECT count(*)
+                                FROM  fs_{0}.file_parts
+                                WHERE file_reference_id = (SELECT id FROM fs_{0}.file_reference
+                                                                    WHERE file_ref = current_uploads.file_ref)
+                                ) count_encrypted
+                        FROM
+                            (SELECT file_ref, session_id,
+                                     MIN(start_time_gmt) start_time,
+                                     user_id, item_info ,
+                                     COUNT(*) count_uploaded
+                             FROM fs_{0}.file_uploads
+                             WHERE user_id = :p_user_id
+                             GROUP BY file_ref, session_id, user_id, item_info ) current_uploads", entry_session.customer_code);
+
+        let r_data_set : anyhow::Result<SQLDataSet> = (|| {
+            let mut r_cnx = SQLConnection::new();
+            let mut trans = open_transaction(&mut r_cnx)?;
+
+            let mut params = HashMap::new();
+            params.insert("p_user_id".to_string(), CellValue::from_raw_int(entry_session.user_id));
+
+            let query = SQLQueryBlock {
+                sql_query,
+                start: 0,
+                length: None,
+                params,
+            };
+
+            let dataset = query.execute(&mut trans)?;
+            trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
+            Ok(dataset)
+        })();
+
+        let Ok(mut data_set) = r_data_set else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        // inner function
+        fn build_loading_info_item(data_set: &mut SQLDataSet) -> anyhow::Result<UploadInfoReply> {
+            let file_reference = data_set.get_string("file_ref").ok_or(anyhow!("Wrong file_ref col"))?;
+            let session_number = data_set.get_string("session_id").ok_or(anyhow!("Wrong session_id col"))?;
+            let item_info = data_set.get_string("item_info").ok_or(anyhow!("Wrong item_info col"))?;
+            let start_date_time = data_set.get_timestamp_as_datetime("start_time").ok_or(anyhow!("Wrong start_time col"))?;
+            let encrypted_count = data_set.get_int("count_encrypted").ok_or(anyhow!("Wrong count_encrypted col"))?;
+            let uploaded_count = data_set.get_int("count_uploaded").ok_or(anyhow!("Wrong count_uploaded col"))?;
+
+            let limit = min(session_number.len()-2, 22);
+            Ok(UploadInfoReply{
+                start_date_time,
+                item_info,
+                file_reference,
+                session_number: format!("{}...", session_number[..limit].to_owned()),
+                encrypted_count,
+                uploaded_count,
+            })
+        }
+
+        let mut list_of_upload_info : Vec<UploadInfoReply> = vec![];
+        while data_set.next() {
+            let Ok(loading_info_item) = build_loading_info_item(&mut data_set).map_err(err_fwd!("Build loading info item failed, follower=[{}]", &self.follower)) else {
+                return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            };
+            list_of_upload_info.push(loading_info_item);
+        }
+
+        log_info!("😎 Successfully read the loading info, follower=[{}]", &self.follower);
+
+        let upload_info = ListOfUploadInfoReply {
+            list_of_upload_info
+        };
+
+        log_info!("🏁 End file_loading api, follower=[{}]", &self.follower);
+        WebType::from_item(Status::Ok.code,upload_info)
+    }
 
     ///
     /// ✨ Get the information about the loading status of the [file_ref]
-    ///
-    /// REF_TAG : FILE_UPLOAD
-    /// v2 : Get all the upload information. Only the session id is required, to identify the (customer id/user id)
-    ///
-    /// All the current uploads will be analysed for a given user and a list of information is sent back
-    ///
-    /// customer/user :
-    /// start_date_time :
-    /// item_info :  Is a non unique string to make link with the item element during the initial phase of upload.
-    /// file_reference :
-    /// session_number :
-    /// + to be merged with GetFileInfoShortReply
     ///
     pub fn file_stats(&mut self, file_ref: &RawStr) -> WebType<GetFileInfoShortReply> {
 
@@ -796,7 +883,8 @@ impl FileDelegate {
                 (SELECT count(*)
                 FROM  fs_{0}.file_parts
                 WHERE file_reference_id = (SELECT id FROM fs_{0}.file_reference WHERE file_ref = :p_file_ref)
-                AND is_encrypted = true) count_encrypted
+                ) count_encrypted,
+                (SELECT  count(*) from fs_{0}.file_uploads WHERE file_ref = :p_file_ref) count_uploaded
             FROM fs_{0}.file_reference fr
             WHERE file_ref = :p_file_ref"
             , customer_code);
@@ -825,14 +913,14 @@ impl FileDelegate {
             return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
-
         // inner function
         fn build_file_info(data_set: &mut SQLDataSet, file_ref: &str) -> anyhow::Result<GetFileInfoShortReply> {
             let _mime_type = data_set.get_string("mime_type").unwrap_or("".to_string()); // optional
             let _checksum = data_set.get_string("checksum").unwrap_or("".to_string()); // optional
             let original_file_size = data_set.get_int("original_file_size")/*.ok_or(anyhow!("Wrong original_file_size col"))?*/;
             let total_part = data_set.get_int_32("total_part")/*.ok_or(anyhow!("Wrong total_part col"))?*/;
-            let encrypted_count = data_set.get_int("count_encrypted").ok_or(anyhow!("Wrong encrypted col"))?;
+            let encrypted_count = data_set.get_int("count_encrypted").ok_or(anyhow!("Wrong count_encrypted col"))?;
+            let uploaded_count = data_set.get_int("count_uploaded").ok_or(anyhow!("Wrong count_uploaded col"))?;
             let fulltext_indexed_count = data_set.get_int_32("fulltext").ok_or(anyhow!("Wrong fulltext col"))?;
             let preview_generated_count = data_set.get_int_32("preview").ok_or(anyhow!("Wrong preview col"))?;
 
@@ -841,6 +929,7 @@ impl FileDelegate {
                 block_count: total_part.unwrap_or(0) as u32,
                 original_file_size : original_file_size.unwrap_or(0i64) as u64,
                 encrypted_count,
+                uploaded_count,
                 fulltext_indexed_count : fulltext_indexed_count as i64,
                 preview_generated_count: preview_generated_count as i64,
             })

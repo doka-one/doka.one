@@ -17,7 +17,6 @@ fn t10_upload_mass_file() -> Result<(), ErrorMessage> {
     let test_env = read_test_env();
     eprintln!("test_env {:?}", &test_env);
 
-    const NB_PARTS : u32 = 9;
     use std::thread;
 
     let num_threads = 1000;
@@ -99,7 +98,7 @@ fn send_a_files(test_env: &TestEnv, props: &HashMap<String, String>) -> Result<U
 }
 
 
-fn simple_login(i: i32, test_env: &TestEnv, props: &HashMap<String, String>) -> Result<LoginReply, ErrorMessage> {
+fn _simple_login(i: i32, test_env: &TestEnv, _props: &HashMap<String, String>) -> Result<LoginReply, ErrorMessage> {
     // Login
     let admin_server = AdminServerClient::new("localhost", 30060);
     let login_request = LoginRequest {

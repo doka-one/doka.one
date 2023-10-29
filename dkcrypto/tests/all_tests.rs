@@ -61,23 +61,6 @@ mod tests {
         assert_eq!(&clear, &new_clear);
     }
 
-    // Decrypt some text with a specific key
-    // Encrypt the result back
-    // Compare with the original
-    // Disabled : the chacha20 does not produce the same result after an cypher
-    // #[test]
-    // pub fn a30_decrypt_encrypt() {
-    //     if LOG_ENABLE {init_log()};
-    //     // let encrypted = "5eftIdP8d4MFUU4KVUn-VQ3Tu_SACE47R01xt9KOhVCxGyVVRSn19yWnbXjOmg-cao6SW4itOM4cRUz33ZgQP_Ae5VtTmk-NsXtg5StaYlGX4QCljpO914xJkocNW_0TZCLvqzaNsTZKGzbPGXJlFMWy8JunbKMR1omkze5-w17Yxr2Gg1SpHU57SeqBCpvbkj5rMyF6skxp4LWMQzEBSj121n7VpXkmndtP-y4n7QOeQjTpW2tmXMhqpTyr-B5mhO7PXsMcNoIcWr7FCpGws14m_I8PNRaCN3nfpviXV5l1TbBa1noeE5HH0AFOs8IxqMLRmikA6bY8Av6IipDYnbZ7d2TO6SjGcE40Yvl3Z_e963Y4GLrbpnwj_9_V4_wNmUFROtj9AO5uRPzwEQdlKcGmiqfluTow-jG4ROJTnaggiCkaTEyFpcjhAye8VNahjo1rKBxecWzC1bp6SrH1-g-jFnMT5yrC7rko3fYvuN2LBpIldDziaJ3ahy3rRWIkelYIHigx6Zu__BZXSAkoKioQ6kvldsVDvFi1_NUISk3b9TOs5pNcopVJKhBEiJHoSUonICPj7UzxauyArh-RzNQQoZV19D03hXFNgXYJvPuXJ3upIpgFMaLC59NcAGZj0Q3H3uztAmkvpICr5Uv05FrmdiLKpN0lhKS0ETr2gVwuY_MRNTmI_V5Ud7SY6tutnLQtjrOFPNckPMQ1Yjyq_2b3FrClJ5fvunvfAEDh0RSKOx62GatWWtiuH7HDhkU_0pRC6QfnIL9W0W6YLnvlTKq_HaaVECuhp-PMRN6PQxkg5TOWOtjQ1IyvIosKfgBXhjyp5AhKlYevoOZqRyo0YxycviyCZUAq4-k5KzTaacDPMx_HYcpg0waPVIsE4DPtgLNQjDl2RaEGUKYntu89bYn47lFj3CP1j0umrWwJuJhznr5NtU7oxZ4Rlznq3lEjqNKkHnvUWD3Z8l68XWicvHWaZ9itH6IznD9GMksQYA-YbumI9wh4BIP1u1T-A9pHWRbWjpJP2sNVKMgLeIZhCy5go8uHDPIwNqTZFQLM59DtTrWCEJHQIP4KMabwHNDTBHvVQtn-EOQZP9kF7kMtYKsnmMlx12mS-fdG4qT_ko5zceYctXwiICT-DpWiRhfI2C29zRZqPLj0s3iuMo1xopL1fDX9b6gG2RywFZwZRtjEhiFi-lfpR-P7Jck61qu2V4sBx_OYNa78epKwelp6gwtSgmzOJjnPULmif9AL9HE";
-    //     let encrypted = "2LvOn_uS8NEQ3Ry0R2crclmhIdUQ1cu4WeZhG5O89ZS3rniyAyOPHCwRafBm_CNayHNFfHh71EMwR7f_9ymKxzSXHHQlIQ61EMfHgsrt0dXtwPehsmn03O0Z-HtzxZjEZ5te6Byt6JBcQ9t7iuuKhZlHBRR5sNGCkntqz15UIfm6DFvyyV8LwQJxFKZjzPsI8uouVq4WPGl81zPy9kh-9PkT50fZJnWhc_JjlVwXg2tiWCFIoAmitFPHyqsBNVKGO8iyHER4BgFreRQVKakVBRsspfaAps1p5ijxXBhJCCI_5Z3yFDrSvplTU5edzgV02tHSYG_YxLSXxOCVmNJAyl6-VDM5vv35LRI25ET2mkcaF3TqB1cNO1WoHRjMZ0KoQcw3wU8oHiWaZYKC5kQfHcrHoilGve6hgjdTU8sRwWZCJXpvVInL5ifzmdvg2i10N7JiA-CsZTF93pbEWVnYt4DacHSOfzySh6guY_UluoOOvIJr9370HJWh0p9PoiaRMdCToN_ulTeamnvjhmPBO2CW7bxg2g52H-oCuiAAT9FRW1_aBUMeRBMLCJ5XwCUDOiczHkit3wTSnRGybpuC30Yk8nOdiKnlPqaNJX-TwF8oGMJHxnisTffLRF0bBNJ-VMi_F6Vc4HJ19H5NVi2Ydi4DEDGfWf3A2l-rpkD0x2gJ7Nq2_n3_WD8UIME_fdm8CYqqptuVKtYkBo9JYSxeF8RoAQ6MSkHtJJubr3XHv0GaIF9Qf1jsM-8TAuv-8agJ7AnpaCprWlt5l7kfRryWL1t7o31jRn06w_LfGEghWpkb3Pq57E1F08nXgve70E8O86BARuQTLv6I4_X7oGwJgilMF9TOzug22zdptyzBq8wmW7tTsUDiz1lK_qraGUIdCcCAuVmX8UD2LWAWVSPeFjtqg7jIbxuiHTlp69RWAy2an6uaL_1L4KpB02UPaCnI83pX6vwVRv99nxqnGSu-1iGFqeyLesgM03hPn4n9sFdjJbLCcpSLVbiX2R_oX4V2wj29WHZsdBlYVjSlIMj1j1JfaSCCdQGaQrseKljrKgF1KukDEvCyO4JJhdJE4JeYJNBVgF2tVcGCLV2EuFUzOebOnmTnHzA-931pvt8TPsqOf-IWUZOqx18HizfC10aIe6HVSZDiGiooEYNMmVXzW7twnCdg8BDeAulRob_-98rRdFVq8d_gN5xv6-xBJToP1R7PDwMpVa7kpRG_oA6DOQhdi-rmvTdM7AaZCkMokK4NcjMkJv3NPSZUlveZq7ydlTjsDAOxm69l9Rs";
-    //
-    //     let clear = DkEncrypt::decrypt_str(encrypted, "363QFiE6wXcDk7izhhQXvwlPJeCYNJG0EKtdHqxMgDg").unwrap();
-    //     dbg!(&clear);
-    //     let new_encrypted = DkEncrypt::encrypt_str(&clear, "363QFiE6wXcDk7izhhQXvwlPJeCYNJG0EKtdHqxMgDg").unwrap();
-    //
-    //     // dbg!(&new_encrypted);
-    //     assert_eq!(&encrypted, &new_encrypted);
-    // }
 
     #[test]
     fn b10_hash_password() {

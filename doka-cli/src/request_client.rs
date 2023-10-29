@@ -11,7 +11,7 @@ use serde::{de, Serialize};
 use url::Url;
 
 use commons_error::*;
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 
 use crate::request_client::TokenType::{Sid, Token};
@@ -409,7 +409,6 @@ impl SessionManagerClient {
 }
 
 
-
 ///
 ///
 ///
@@ -582,6 +581,22 @@ impl DocumentServerClient {
             raw_text: raw_text.to_owned(),
         };
         let url = self.server.build_url("fulltext_indexing");
+        let headers = CustomHeaders {
+            token_type: TokenType::Sid(sid.to_string()),
+            x_request_id: None,
+            cek: None
+        };
+        self.server.post_data_retry(&url, &request, &headers)
+    }
+
+    ///
+    ///
+    ///
+    pub fn delete_text_indexing(&self, file_ref: &str, sid: &str) -> WebResponse<SimpleMessage> {
+        let request = DeleteFullTextRequest {
+            file_ref: file_ref.to_owned(),
+        };
+        let url = self.server.build_url("delete_text_indexing");
         let headers = CustomHeaders {
             token_type: TokenType::Sid(sid.to_string()),
             x_request_id: None,

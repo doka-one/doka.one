@@ -31,9 +31,7 @@ pub fn d10_performance() {
     ];
 
     for phrase in phrases.iter() {
-        //println!("{}", phrase);
         let encrypted = DkEncrypt::encrypt_str(phrase, KEY).unwrap();
-        //println!("{}", encrypted);
     }
 }
 
@@ -52,7 +50,6 @@ fn fibonacci(n: u64) -> u64 {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    //c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
     c.bench_function("encrypt 1", |b| b.iter(|| d10_performance() ));
 }
 

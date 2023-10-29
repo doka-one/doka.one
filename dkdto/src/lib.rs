@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDate};
+use chrono::{DateTime, NaiveDate, Utc};
 use rocket::http::{ContentType, RawStr, Status};
 use rocket::request::FromFormValue;
 use rocket::response::status::Custom;
@@ -504,11 +504,28 @@ pub struct GetFileInfoReply {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct ListOfUploadInfoReply {
+    pub list_of_upload_info: Vec<UploadInfoReply>
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct UploadInfoReply {
+    pub start_date_time : DateTime<Utc>,
+    pub item_info :  String, // Is a non unique string to make link with the item element during the initial phase of upload.
+    pub file_reference : String,
+    pub session_number : String, // Only the first letters of the session id
+    pub encrypted_count : i64, // Number of encrypted parts
+    pub uploaded_count : i64, // Number of block simply loaded
+}
+
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GetFileInfoShortReply {
     pub file_ref : String,
     pub original_file_size: u64,
     pub block_count : u32,
     pub encrypted_count : i64,
+    pub uploaded_count : i64,
     pub fulltext_indexed_count : i64,
     pub preview_generated_count : i64,
 }

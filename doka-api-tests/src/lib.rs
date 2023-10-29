@@ -10,7 +10,7 @@ pub enum TestStatus {
     DONE,
 }
 
-
+#[allow(dead_code)]
 pub struct Lookup<'a> {
     test_name: String,
     test_to_run :  &'a[&'a str],
@@ -22,7 +22,7 @@ impl  <'a> Lookup <'a> {
         init_test(test_name, &dev_token);
         Lookup {
             test_name: test_name.to_string(),
-            test_to_run: test_to_run,
+            test_to_run,
             token: dev_token.to_string(),
         }
     }

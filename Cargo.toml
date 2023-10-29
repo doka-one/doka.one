@@ -32,7 +32,7 @@ rs-uuid = "^0.4"
 log = "^0.4"
 log4rs = "^1.2"
 rocket_okapi = "^0.5"
-schemars = "^0.7"  #because of okapi
+schemars = { version = "^0.7", features = ["chrono"] } #because of okapi
 okapi = { version = "^0.4", features = ["derive_json_schema"] }
 java-properties = "^1.2"
 #obfustring = "^0.5"

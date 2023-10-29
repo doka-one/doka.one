@@ -1,8 +1,8 @@
 use anyhow::{bail, Context, ensure, Result};
-use base64::Engine;
-
 use orion::aead::SecretKey;
 use rand::{RngCore, thread_rng};
+
+use orion::hazardous::stream::chacha20::SecretKey as XSecretKey;
 
 // Inspired by the great doc over here https://github.com/Internet-of-People/iop-rs/tree/develop/keyvault
 
@@ -30,18 +30,6 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
         .with_context(|| "Could not convert key")?;
     Ok(key)
 }
-
-use {orion::hazardous::stream::chacha20::SecretKey as XSecretKey};
-// fn get_xkey_from_password(password: &str, salt: &[u8]) -> Result<XSecretKey> {
-//     use orion::hazardous::stream::chacha20::CHACHA_KEYSIZE;
-//     use orion::kdf::{derive_key, Password, Salt};
-//     let password = Password::from_slice(password.as_bytes()).with_context(|| "Password error")?;
-//     let salt = Salt::from_slice(salt).with_context(|| "Salt is too short")?;
-//     let kdf_key = derive_key(&password, &salt, 4, 1024, CHACHA_KEYSIZE as u32)
-//         .with_context(|| "Could not derive key from password")?;
-//     let key = XSecretKey::from_slice(kdf_key.unprotected_as_bytes()).with_context(|| "Key is invalid")?;
-//     Ok(key)
-// }
 
 /// Encrypts the plaintext with the given password and returns the ciphertext. The nonce is generated at each call to strengthen the encryption.
 /// Otherwise there's a chance the key is weakened if the same nonce is used.
@@ -74,8 +62,6 @@ pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>) -> R
     // Convert high-level API key to low-level API key
     let key = XSecretKey::from_slice(key.unprotected_as_bytes()).with_context(|| "Key is invalid")?;
 
-    // let key = get_xkey_from_password(password, &nonce)?;
-
     // Create a Nonce struct from the generated nonce
     let nonce = Nonce::from_slice(&nonce).with_context(|| "Nonce is too short")?;
 
@@ -95,7 +81,6 @@ pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>) -> R
 
     Ok(output)
 }
-
 
 /// Decrypts the ciphertext with the given password and returns the plaintext.
 ///
@@ -133,7 +118,6 @@ mod tests {
         let password = "my_super_password";
 
         let r = encrypt_cc20(bytes, password/*, nonce*/).unwrap();
-        // println!("{:#?}", r);
         let str = general_purpose::STANDARD.encode(&r);
         println!("{}", &str);
         let bb = decrypt_cc20(r, password).unwrap();

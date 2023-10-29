@@ -29,7 +29,7 @@ pub fn fetch_entry_session(sid : &str) -> anyhow::Result<EntrySession> {
 }
 
 
-pub fn valid_sid_get_session(session_token: &SessionToken, follower: &mut Follower) -> Result<String, ErrorSet<'static>> {
+pub fn valid_sid_get_session(session_token: &SessionToken, follower: &mut Follower) -> Result<EntrySession, ErrorSet<'static>> {
     // Check if the token is valid
     if !session_token.is_valid() {
         log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &session_token, &follower);
@@ -42,6 +42,6 @@ pub fn valid_sid_get_session(session_token: &SessionToken, follower: &mut Follow
     let Ok(entry_session) = fetch_entry_session(&follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &follower)) else {
         return Err(INTERNAL_TECHNICAL_ERROR);
     };
-    let customer_code = entry_session.customer_code.as_str();
-    Ok(customer_code.to_owned())
+    //let customer_code = entry_session.customer_code.as_str();
+    Ok(entry_session)
 }

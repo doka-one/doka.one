@@ -25,7 +25,7 @@ mod dbpool_delegate;
 ///
 #[get("/session/grab_ctx/<duration>")]
 fn grab_ctx(duration: u32) -> WebType<String> {
-    let mut delegate = DbPoolDelegate::new();
+    let delegate = DbPoolDelegate::new();
     delegate.grab_ctx(duration)
 }
 

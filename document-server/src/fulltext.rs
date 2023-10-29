@@ -9,13 +9,13 @@ use commons_pg::{CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransact
 use commons_services::database_lib::open_transaction;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
-use commons_services::session_lib::{fetch_entry_session, valid_sid_get_session};
+use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use doka_cli::request_client::{TikaServerClient, TokenType};
 
 use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
@@ -43,19 +43,40 @@ impl FullTextDelegate {
         log_info!("🚀 Start delete_text_indexing api, follower=[{}]", &self.follower);
 
         let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
-            Ok(cc) => { cc }
+            Ok(es) => { es.customer_code }
             Err(e) => {
                 return WebType::from_errorset(e);
             }
         };
 
-        // TODO do your stuff with
+        // Delete all the document related to the file reference
+        let _ = self.delete_document(&delete_text_request.file_ref, &customer_code);
 
-        // log_info!("😎 Generated the indexes and the document part entries, number of parts=[{}], follower=[{}]", part_count, &self.follower);
+        log_info!("😎 Deleted the document part entries, follower=[{}]", &self.follower);
         log_info!("🏁 End delete_text_indexing api, follower=[{}]", &self.follower);
         WebType::from_item(Status::Ok.code,SimpleMessage { message: "Ok".to_string() })
     }
 
+    ///
+    fn delete_document(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+
+        let mut r_cnx = SQLConnection::new();
+        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower))?;
+        let sql_delete = format!(r"DELETE FROM cs_{0}.document WHERE file_ref = :p_file_ref", customer_code);
+
+        let mut params = HashMap::new();
+        params.insert("p_file_ref".to_string(), CellValue::from_raw_str(file_ref));
+
+        let query = SQLChange {
+            sql_query: sql_delete.to_string(),
+            params,
+            sequence_name: "".to_string(),
+        };
+
+        let _id = query.delete(&mut trans).map_err(err_fwd!("💣 Query failed, [{}], , follower=[{}]", &query.sql_query, &self.follower))?;
+        trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        Ok(())
+    }
 
     /// ✨ Parse the raw text data and create the document parts
     /// Service called from the file-server
@@ -64,28 +85,11 @@ impl FullTextDelegate {
         log_info!("🚀 Start fulltext_indexing api, follower=[{}]", &self.follower);
 
         let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
-            Ok(cc) => { cc }
+            Ok(es) => { es.customer_code }
             Err(e) => {
                 return WebType::from_errorset(e);
             }
         };
-
-        // // Check if the token is valid
-        // if !self.session_token.is_valid() {
-        //     log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-        //     return WebType::from_errorset(INVALID_TOKEN);
-        // }
-        // self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-        //
-        // // Read the session information
-        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-        //                                             .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-        //     return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
-        // };
-        //
-        // let customer_code = entry_session.customer_code.as_str();
-
-        // Get the crypto key
 
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
                                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {

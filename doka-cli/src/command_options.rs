@@ -213,18 +213,6 @@ mod tests {
     }
 
 
-    // #[test]
-    // fn test_find_options() {
-    //     let json_str = include_str!("../commands.json");
-    //     let commands: Vec<Command> = serde_json::from_str(json_str).unwrap();
-    //     let r = find_option(&commands, "customer", "create", "--name");
-    //     println!("{:#?}", &r);
-    //     let r = find_option(&commands, "customer", "create", "-t");
-    //     println!("{:#?}", &r);
-    //     let r = find_option(&commands, "customer", "crate", "--name");
-    //     println!("{:#?}", &r);
-    // }
-
     #[test]
     fn test_parse_args() {
         let my_args = vec![

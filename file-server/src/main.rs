@@ -21,7 +21,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{DownloadReply, GetFileInfoReply, GetFileInfoShortReply, UploadReply, WebType};
+use dkdto::{DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfUploadInfoReply, UploadReply, WebType};
 
 use crate::file_delegate::FileDelegate;
 
@@ -37,6 +37,14 @@ pub fn upload2(item_info: &RawStr, file_data: Data, session_token : SessionToken
     delegate.upload2(item_info, file_data)
 }
 
+///
+/// ✨ Get the information about the files being loaded
+///
+#[get("/loading")]
+pub fn file_loading(session_token : SessionToken) -> WebType<ListOfUploadInfoReply> {
+    let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.file_loading()
+}
 
 ///
 /// ✨ Get the information about the composition of a file [file_ref]
@@ -162,6 +170,7 @@ fn main() {
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
             upload2,
+            file_loading,
             file_info,
             file_stats,
             download,

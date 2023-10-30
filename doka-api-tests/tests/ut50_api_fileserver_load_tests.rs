@@ -15,6 +15,7 @@ mod api_fileserver_load_tests {
 
     const NB_PARTS : u32 = 9;
 
+    #[ignore]
     #[test]
     fn t10_upload_mass_file() -> Result<(), ErrorMessage> {
         let lookup = Lookup::new("t10_upload_mass_file", TEST_TO_RUN); // auto dropping

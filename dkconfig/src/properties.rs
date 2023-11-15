@@ -18,9 +18,6 @@ lazy_static! {
 // "app.customerfile"
 pub fn get_prop_value(prop_name : &str) -> anyhow::Result<String> {
     // https://doc.rust-lang.org/std/sync/struct.RwLock.html
-    // let s = PROPS.read().unwrap().deref().get(&0).unwrap().deref()
-    //     .get(prop_name).unwrap().to_owned();
-
     let v = PROPS.read().unwrap().deref().get(&0).ok_or(anyhow!("Shared map not found: [{}]", prop_name))?.deref()
         .get(prop_name).ok_or(anyhow!("Prop not found: [{}]", prop_name))?.trim().to_owned();
     Ok(v)

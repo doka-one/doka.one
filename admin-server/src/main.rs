@@ -79,7 +79,6 @@ pub fn create_customer(customer_request: Json<CreateCustomerRequest>, security_t
 /// **NORM
 #[delete("/customer/<customer_code>")]
 pub fn delete_customer(customer_code: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<SimpleMessage> {
-    // delete_customer_delegate(customer_code, security_token, x_request_id)
     let delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.delete_customer(customer_code)
 }

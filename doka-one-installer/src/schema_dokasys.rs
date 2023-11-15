@@ -1,7 +1,6 @@
 
 pub (crate) const SCHEMA_DOKASYS : &str = r#"
-CREATE SCHEMA dokasys
-    AUTHORIZATION postgres;
+CREATE SCHEMA dokasys AUTHORIZATION doka;
 
 DROP TABLE IF EXISTS dokasys.sessions CASCADE;
 
@@ -21,8 +20,7 @@ CREATE TABLE dokasys.sessions
         )
     TABLESPACE pg_default;
 
-ALTER TABLE dokasys.sessions
-    OWNER to denis;
+ALTER TABLE dokasys.sessions OWNER to doka;
 
 
 CREATE INDEX idx_customer_code

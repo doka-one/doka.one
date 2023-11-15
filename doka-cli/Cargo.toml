@@ -24,6 +24,7 @@ tokio = { workspace = true }
 bytes = { workspace = true }
 colored = "2.0.0"
 regex = "1.7.1"
+url = "2.2"
 
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}

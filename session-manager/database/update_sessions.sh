@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# 0 */2 * * *  $HOME/doka_one_scheduled/update_sessions.sh
+# 0 */2 * * *  $HOME/doka_one_scheduled/connection_history.ddl
 #
 psql -d p2_prod_2 -U denis << SQL
 UPDATE dokasys.sessions

@@ -1,8 +1,7 @@
 
 pub (crate) const FS_SCHEMA: &str =  r#"
 
-CREATE SCHEMA {customer_schema}
-       AUTHORIZATION postgres;
+CREATE SCHEMA {customer_schema} AUTHORIZATION doka;
 
 SET search_path = {customer_schema}, pg_catalog;
 
@@ -21,7 +20,6 @@ CREATE TABLE file_reference (
 	CONSTRAINT file_reference_uk UNIQUE (file_ref)
 );
 
-
 CREATE TABLE file_parts (
 	id bigserial NOT NULL,
 	file_reference_id int8 NOT NULL,
@@ -31,7 +29,6 @@ CREATE TABLE file_parts (
 	CONSTRAINT file_reference_id_fk FOREIGN KEY (file_reference_id) REFERENCES file_reference(id)
 );
 CREATE UNIQUE INDEX ref_part_udx ON file_parts USING btree (file_reference_id, part_number);
-
 
 CREATE TABLE file_uploads (
     session_id varchar(200) NOT NULL,
@@ -45,5 +42,15 @@ CREATE TABLE file_uploads (
 );
 CREATE UNIQUE INDEX file_uploads_customer_user_idx ON file_uploads (file_ref, part_number);
 CREATE INDEX file_uploads_start_time_idx ON file_uploads (start_time_gmt);
+
+CREATE TABLE file_metadata (
+	id bigserial NOT NULL,
+	file_reference_id int8 NOT NULL,
+	meta_key varchar(50) NOT NULL,
+	value varchar(200) NULL,
+	CONSTRAINT file_metadata_pkey PRIMARY KEY (id),
+	CONSTRAINT file_metadata_id_fk FOREIGN KEY (file_reference_id) REFERENCES file_reference(id)
+);
+CREATE UNIQUE INDEX ref_meta_udx ON file_metadata USING btree (file_reference_id, meta_key);
 
     "#;

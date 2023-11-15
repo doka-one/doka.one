@@ -338,9 +338,6 @@ impl TagDelegate {
         params.insert("p_string_tag_length".to_string(), length);
         params.insert("p_default_value".to_string(), default_value);
 
-        dbg!(&sql_query);
-        dbg!(&params);
-
         let sql_insert = SQLChange {
             sql_query,
             params,
@@ -535,14 +532,9 @@ mod test {
 
     #[test]
     fn convert_datetime_to_iso8601_string() {
-
         let dt = Utc::now();
-
         let s = dt.to_rfc3339();
-
         dbg!(s);
-
-
     }
 
 }

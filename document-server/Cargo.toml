@@ -19,8 +19,8 @@ rocket_okapi = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
-
 unicode-segmentation = { workspace = true }
+rayon = { workspace = true }
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}

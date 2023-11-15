@@ -1,4 +1,4 @@
-CREATE SCHEMA keymanager AUTHORIZATION postgres;
+CREATE SCHEMA keymanager AUTHORIZATION doka;
 
 CREATE TABLE keymanager.customer_keys (
 	id bigserial NOT NULL,

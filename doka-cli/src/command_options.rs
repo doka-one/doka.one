@@ -203,7 +203,7 @@ fn _validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a Pa
 
 #[cfg(test)]
 mod tests {
-    use crate::command_options::{Command, find_option, parse_args};
+    use crate::command_options::{Command, parse_args};
 
     #[test]
     fn get_data() {
@@ -212,18 +212,6 @@ mod tests {
         println!("{:#?}", commands);
     }
 
-
-    #[test]
-    fn test_find_options() {
-        let json_str = include_str!("../commands.json");
-        let commands: Vec<Command> = serde_json::from_str(json_str).unwrap();
-        let r = find_option(&commands, "customer", "create", "--name");
-        println!("{:#?}", &r);
-        let r = find_option(&commands, "customer", "create", "-t");
-        println!("{:#?}", &r);
-        let r = find_option(&commands, "customer", "crate", "--name");
-        println!("{:#?}", &r);
-    }
 
     #[test]
     fn test_parse_args() {

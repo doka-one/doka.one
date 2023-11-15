@@ -1,7 +1,6 @@
 
 
-CREATE SCHEMA dokasys
-    AUTHORIZATION postgres;
+CREATE SCHEMA dokasys AUTHORIZATION doka;
 
 DROP TABLE IF EXISTS dokasys.sessions CASCADE;
 

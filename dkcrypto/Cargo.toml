@@ -18,10 +18,23 @@ schemars = { workspace = true }
 #rust-crypto = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }
+rayon = "1.6"
 
 anyhow = { workspace = true }
 bcrypt = { workspace = true }
-sha2 = "0.10.6"
+sha2 = "^0.10"
+ring = "^0.16"
 orion = "0.17.4"
 
 commons-error = {path="../commons-error"}
+
+#test only
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports"] }
+
+[[bench]]
+name = "my_benchmark"
+harness = false
+
+
+

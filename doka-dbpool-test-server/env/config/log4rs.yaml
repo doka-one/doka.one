@@ -1,0 +1,29 @@
+refresh_rate: 10 seconds
+
+appenders:
+  console:
+    kind: console
+    encoder:
+      pattern: "{d(%+)(local)} [{t}] {h({l})} [{M}] {m} [EOL] {n}"
+#     https://docs.rs/log4rs/0.11.0/log4rs/encode/pattern/index.html
+    filters:
+      - kind: threshold
+        level: info
+  file:
+    kind: file
+    path: {{DOKA_ENV}}/{{PROJECT_CODE}}/logs/{{PROJECT_CODE}}.log
+    encoder:
+      pattern: "{d(%+)(local)} [{t}] {h({l})} [{M}] {m} [EOL] {n}"
+
+root:
+  level: debug
+  appenders:
+    - console
+    - file
+
+loggers:
+  test::a:
+    level: debug
+    appenders:
+      - file
+    additive: true

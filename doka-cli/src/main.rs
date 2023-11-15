@@ -199,7 +199,7 @@ fn success_or_err(err: anyhow::Result<()>, err_code: u16) -> u16 {
 /// They are potentially on different servers and ports
 ///
 fn main() -> () {
-    println!("doka-cli version 0.1.0");
+    println!("doka-cli version 0.3.0");
 
     let args: Vec<String> = env::args().collect();
     let commands = load_commands();

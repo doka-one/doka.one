@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use commons_error::*;
 use crate::{step_println};
-use crate::config::Config;
+use crate::config::{Config, OperatingSystem};
 
 const TIMEOUT : Duration = Duration::from_secs(60 * 60); // 60 min
 
@@ -17,9 +17,7 @@ fn get_binary_data( url : &str) -> anyhow::Result<bytes::Bytes> {
 
 /// Download the artefact into the <install_dir>/artefacts  folder
 fn download_file(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
-
     println!("Downloading artefacts {artefact_name}");
-
     let zip_file = format!("{}.zip", artefact_name);
     let p = Path::new(&config.installation_path ).join("artefacts").join(&config.release_number).join(&zip_file);
 
@@ -38,11 +36,8 @@ fn download_file(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
             std::io::copy(&mut content, &mut file)?;
         }
     }
-
     Ok(())
 }
-
-
 fn unzip(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
 
     println!("Decompress artefacts {artefact_name}");
@@ -82,13 +77,20 @@ pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
     download_file(&config,  "doka-cli")?;
 
     // Download the extra artefacts
-    // | serman : https://www.dropbox.com/s/i7gptd0l289250t/serman.zip?dl=0
-    download_file(&config,  "serman")?;
-    // // | tika : https://www.dropbox.com/s/ftsf0elcal7pyqj/tika-server.zip?dl=0
-    download_file(&config,  "tika-server")?;
-    // // | jdk
-    download_file(&config,  "jdk-17")?;
 
+    // // | tika : https://www.dropbox.com/s/ftsf0elcal7pyqj/tika-server.zip?dl=0
+    download_file(&config, "tika-server")?;
+
+    match &config.operating_system {
+        OperatingSystem::WINDOWS => {
+            // | serman : https://www.dropbox.com/s/i7gptd0l289250t/serman.zip?dl=0
+            download_file(&config, "serman")?;
+            download_file(&config, "jdk-17")?;
+        }
+        OperatingSystem::LINUX => {
+            download_file(&config, "jdk-17-linux")?;
+        }
+    }
 
     // Unzip artefacts
     unzip(&config,  "key-manager")?;
@@ -97,9 +99,17 @@ pub(crate) fn download_artefacts(config: &Config) -> anyhow::Result<()> {
     unzip(&config,  "document-server")?;
     unzip(&config,  "file-server")?;
     unzip(&config,  "doka-cli")?;
-    unzip(&config,  "serman")?;
     unzip(&config,  "tika-server")?;
-    unzip(&config,  "jdk-17")?;
+
+    match &config.operating_system {
+        OperatingSystem::WINDOWS => {
+            unzip(&config, "serman")?;
+            unzip(&config, "jdk-17")?;
+        }
+        OperatingSystem::LINUX => {
+            unzip(&config, "jdk-17-linux")?;
+        }
+    }
 
     Ok(())
 }

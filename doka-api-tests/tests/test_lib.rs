@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use dkdto::{CreateCustomerRequest};
+use dkdto::{CreateCustomerRequest, LoginRequest};
 use doka_cli::request_client::AdminServerClient;
 use lazy_static::*;
 use std::sync::{Mutex, MutexGuard};
@@ -218,3 +218,9 @@ fn is_all_terminated(list : MutexGuard<HashMap<String, TestStatus>>, test_to_run
     }
 }
 
+pub fn get_login_request(props: &HashMap<String, String>) -> LoginRequest {
+    LoginRequest {
+        login: props.get("login").unwrap().to_owned(),
+        password: props.get("password").unwrap().to_owned(),
+    }
+}

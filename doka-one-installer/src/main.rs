@@ -1,5 +1,3 @@
-
-
 mod templates;
 mod artefacts;
 mod config;
@@ -23,7 +21,7 @@ use commons_error::*;
 use crate::application_properties::generate_all_app_properties;
 use crate::artefacts::download_artefacts;
 use crate::color_text::{end_println, main_println, step_println};
-use crate::config::{Config};
+use crate::config::{Config, OperatingSystem};
 use crate::databases::{create_all_admin_schemas, create_databases, test_db_connection};
 use crate::ports::{find_service_port, Ports};
 use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
@@ -63,6 +61,8 @@ fn read_basic_install_info(args: InstallArgs) -> anyhow::Result<Config> {
 
     println!("Done. Install information.");
 
+    let os = current_os(&args.release_number);
+
     Ok(Config {
         installation_path : args.installation_path,
         db_host : args.db_host,
@@ -71,7 +71,16 @@ fn read_basic_install_info(args: InstallArgs) -> anyhow::Result<Config> {
         db_user_password,
         instance_name : args.instance_name,
         release_number : args.release_number,
+        operating_system: os,
     })
+}
+
+fn current_os(release_number: &str) -> OperatingSystem {
+    if release_number.ends_with("linux") {
+        OperatingSystem::LINUX
+    } else {
+        OperatingSystem::WINDOWS
+    }
 }
 
 fn create_std_doka_service_folders(config: &Config, service_id: &str) -> anyhow::Result<()> {
@@ -250,10 +259,11 @@ fn install(args: InstallArgs) {
     };
 
     // Phase 3a : Uninstall Windows services
-
-    let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
-        exit(25);
-    };
+    if cfg!(windows) {
+        let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
+            exit(25);
+        };
+    }
 
     // Phase 3b : Download artefacts
 
@@ -262,18 +272,15 @@ fn install(args: InstallArgs) {
         exit(30);
     };
 
-
     // Phase 4 : Initialization
 
     let Ok(ports) = find_service_port().map_err(eprint_fwd!("Port search failed")) else {
         exit(40);
     };
 
-
     let Ok(_) = create_all_admin_schemas(&config).map_err(eprint_fwd!("Admin schema creation failed")) else {
         exit(42);
     };
-
 
     let Ok(_) = generate_all_app_properties(&config, &ports).map_err(eprint_fwd!("")) else {
         exit(45);
@@ -285,10 +292,11 @@ fn install(args: InstallArgs) {
     };
 
     // Phase 5 : Start up services
-
-    let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
-        exit(60);
-    };
+    if cfg!(windows) {
+        let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
+            exit(60);
+        };
+    }
 
     let _ = end_println("Doka installed with success");
 }
@@ -301,7 +309,8 @@ fn uninstall(args: UninstallArgs) {
         db_user_name: "".to_string(),
         db_user_password: "".to_string(),
         instance_name: "".to_string(),
-        release_number: "".to_string()
+        release_number: "".to_string(),
+        operating_system: OperatingSystem::LINUX,
     };
     let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
         exit(25);

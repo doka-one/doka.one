@@ -1,4 +1,8 @@
-
+#[derive(Debug)]
+pub enum OperatingSystem {
+    WINDOWS,
+    LINUX
+}
 #[derive(Debug)]
 pub(crate) struct Config {
     pub installation_path: String,
@@ -8,6 +12,7 @@ pub(crate) struct Config {
     pub db_user_password: String,
     pub instance_name: String,
     pub release_number: String,
+    pub operating_system: OperatingSystem,
 }
 
 

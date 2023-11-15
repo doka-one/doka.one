@@ -7,10 +7,9 @@ mod api_fileserver_load_tests {
     use std::thread;
     use core::time::Duration;
     use std::collections::HashMap;
-    use dkconfig::conf_reader::{read_config, read_doka_env};
-    use dkdto::{ErrorMessage, LoginRequest, UploadReply};
+    use dkdto::{ErrorMessage, UploadReply};
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
-    use crate::test_lib::{Lookup, read_test_env, TestEnv};
+    use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
 
     const NB_PARTS : u32 = 9;
@@ -19,11 +18,7 @@ mod api_fileserver_load_tests {
     #[test]
     fn t10_upload_mass_file() -> Result<(), ErrorMessage> {
         let lookup = Lookup::new("t10_upload_mass_file", TEST_TO_RUN); // auto dropping
-        let test_env = read_test_env();
-
-        let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
-
-        eprintln!("test_env {:?}", &test_env);
+        let props = lookup.props();
 
         use std::thread;
 
@@ -31,9 +26,9 @@ mod api_fileserver_load_tests {
 
         let handles: Vec<_> = (0..num_threads).map(|_| {
             let local_props = props.clone();
-            let local_test_env = test_env.clone();
+            // let local_test_env = test_env.clone();
             thread::spawn(move || {
-                let upload_reply = send_a_files(&local_test_env, &local_props).unwrap();
+                let upload_reply = send_a_files(&local_props).unwrap();
                 assert_eq!(NB_PARTS, upload_reply.block_count);
             })
         }).collect();
@@ -51,14 +46,11 @@ mod api_fileserver_load_tests {
         Ok(())
     }
 
-    fn send_a_files(test_env: &TestEnv, props: &HashMap<String, String>) -> Result<UploadReply, ErrorMessage> {
+    fn send_a_files(props: &HashMap<String, String>) -> Result<UploadReply, ErrorMessage> {
 
         // Login
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login.to_owned(),
-            password: test_env.password.to_owned(),
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
         eprintln!("login_reply {:?}", &login_reply);
 

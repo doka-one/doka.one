@@ -1,4 +1,3 @@
-
 use std::fs;
 use std::ops::Deref;
 use std::path::Path;
@@ -274,12 +273,22 @@ fn generate_cek_file(config: &Config, service_name: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
+
 fn generate_doka_cli_env_var(config: &Config) -> anyhow::Result<()> {
-    use winreg::{enums::*, RegKey};
     let my_env = format!(r#"{}\doka-configs\{}"#, &config.installation_path, &config.instance_name);
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let (env, _) = hkcu.create_subkey("Environment")?; // create_subkey opens with write permissions
-    env.set_value("DOKA_CLI_ENV", &my_env)?;
+
+    #[cfg(target_os = "windows")] {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (env, _) = hkcu.create_subkey("Environment")?; // create_subkey opens with write permissions
+        env.set_value(&var_name, &my_env)?;
+    }
+
+    #[cfg(target_os = "linux")] {
+        println!("TODO add a environment variable for linux...");
+    }
+
     println!("Created the DOKA_CLI_ENV with value {}", &my_env);
     // D:\test_install\doka.one\bin\doka-cli
 
@@ -289,6 +298,7 @@ fn generate_doka_cli_env_var(config: &Config) -> anyhow::Result<()> {
 
     Ok(())
 }
+
 
 pub (crate) fn generate_all_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
 

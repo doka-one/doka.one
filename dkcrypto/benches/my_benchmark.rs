@@ -2,10 +2,6 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use dkcrypto::dk_crypto::DkEncrypt;
 
 pub fn d10_performance() {
-    use criterion::Criterion;
-
-    // if LOG_ENABLE {init_log()};
-
     let phrases = [
         "Hello, how are you?",
         "I love coding in Rust.",
@@ -31,7 +27,7 @@ pub fn d10_performance() {
     ];
 
     for phrase in phrases.iter() {
-        let encrypted = DkEncrypt::encrypt_str(phrase, KEY).unwrap();
+        let _encrypted = DkEncrypt::encrypt_str(phrase, KEY).unwrap();
     }
 }
 

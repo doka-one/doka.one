@@ -1,8 +1,7 @@
 
 pub (crate) const FS_SCHEMA: &str =  r#"
 
-CREATE SCHEMA {customer_schema}
-       AUTHORIZATION postgres;
+CREATE SCHEMA {customer_schema} AUTHORIZATION doka;
 
 SET search_path = {customer_schema}, pg_catalog;
 

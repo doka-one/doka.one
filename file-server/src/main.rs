@@ -1,6 +1,4 @@
 #![feature(proc_macro_hygiene, decl_macro)]
-//#![feature(let_else)]
-
 
 use std::path::Path;
 use std::process::exit;

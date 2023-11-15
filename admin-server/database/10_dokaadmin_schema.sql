@@ -1,5 +1,4 @@
-CREATE SCHEMA dokaadmin
-    AUTHORIZATION postgres;
+CREATE SCHEMA dokaadmin AUTHORIZATION doka;
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;

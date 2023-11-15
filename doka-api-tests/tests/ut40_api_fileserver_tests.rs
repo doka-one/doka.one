@@ -4,35 +4,25 @@ const TEST_TO_RUN : &[&str] = &["t10_upload_file", "t20_upload_download_file"];
 
 #[cfg(test)]
 mod api_fileserver_tests {
-    use std::thread;
     use core::time::Duration;
-    use dkconfig::conf_reader::{read_config, read_doka_env};
+    use std::thread;
+
     use dkdto::{ErrorMessage, LoginRequest};
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
-    use crate::test_lib::{Lookup, read_test_env};
+
+    use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
 
     const NB_PARTS : u32 = 9;
 
     #[test]
     fn t10_upload_file() -> Result<(), ErrorMessage> {
-        // TODO REF_TAG : UNIFORMIZE_INIT : put all the test configuration in the Lookup trait
-        //                  Merge the TestEnv struct with the props HashMap...
         let lookup = Lookup::new("t10_upload_file", TEST_TO_RUN); // auto dropping
-
-        let test_env = read_test_env();
-        eprintln!("test_env {:?}", &test_env);
-
-        let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
-
-        // dbg!(&props);
-
+        let props = lookup.props();
+        eprintln!("props {:?}", &props);
         // Login
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login,
-            password: test_env.password,
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
         eprintln!("login_reply {:?}", &login_reply);
@@ -40,7 +30,9 @@ mod api_fileserver_tests {
         // Upload the document
         let file_server = FileServerClient::new("localhost", 30080);
 
-        let file_name = format!(r"{}\111-Bright_Snow.jpg", &props.get("file.path").unwrap() );
+        let file_name = format!(r"{}/111-Bright_Snow.jpg", &props.get("file.path").unwrap() );
+
+        eprintln!("file name : {}", &file_name);
 
         let file_content = std::fs::read(file_name).unwrap();
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
@@ -67,7 +59,9 @@ mod api_fileserver_tests {
             match file_server.stats(&file_ref, &session_id) {
                 Ok(stats_reply) => {
                     eprintln!("Stats reply [{:?}]", &stats_reply);
-                    if stats_reply.encrypted_count == block_count as i64 {
+                    // The exit conditions : cyphered blocks is the total number of blocks
+                    // and the uploaded information have been cleaned up (count is zero)
+                    if stats_reply.encrypted_count == block_count as i64 && stats_reply.uploaded_count == 0  {
                         break;
                     }
                 }
@@ -86,18 +80,11 @@ mod api_fileserver_tests {
     #[test]
     fn t20_upload_download_file() -> Result<(), ErrorMessage> {
         let lookup = Lookup::new("t20_upload_download_file", TEST_TO_RUN); // auto dropping
-        let test_env = read_test_env();
-
-        eprintln!("test_env {:?}", &test_env);
-
-        let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"));
+        let props = lookup.props();
 
         // Login
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login,
-            password: test_env.password,
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
         eprintln!("login_reply {:?}", &login_reply);
@@ -105,7 +92,7 @@ mod api_fileserver_tests {
         // Upload the document
         let file_server = FileServerClient::new("localhost", 30080);
 
-        let file_name = format!(r"{}\111-Bright_Snow.jpg", &props.get("file.path").unwrap() );
+        let file_name = format!(r"{}/111-Bright_Snow.jpg", &props.get("file.path").unwrap() );
         let file_content = std::fs::read(file_name).unwrap();
         let upload_reply = file_server.upload( "bright snow", &file_content,  &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);

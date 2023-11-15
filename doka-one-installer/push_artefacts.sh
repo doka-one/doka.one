@@ -9,8 +9,8 @@ read -s -p "Enter the password for the user of the web server machine (ex: iiss.
 
 clear
 
-DOKA_SERVICE_SOURCE_FOLDER='/mnt/c/Users/denis/.cargo/bin'
-PUBLIC_SOURCE_FOLDER='/mnt/c/Users/denis/Dropbox/public/doka_common'
+DOKA_SERVICE_SOURCE_FOLDER='/home/denis/.cargo/bin'
+PUBLIC_SOURCE_FOLDER='/home/denis/Dropbox/public/doka_common'
 TARGET_FOLDER="$USER_NAME@$SERVER_NAME:/$USER_NAME/doka.one/content/artefacts/$VERSION/"
 
 echo "Create the remote artefacts folder"
@@ -20,28 +20,28 @@ echo "Upload key-manager"
 rm $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip
 # zip -r key-manager.zip key-manager.exe
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip  ./key-manager.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip  ./key-manager
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/key-manager.zip $TARGET_FOLDER
 echo "Done"
 
 echo "Upload session-manager"
 rm $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip  ./session-manager.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip  ./session-manager
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/session-manager.zip $TARGET_FOLDER
 echo "Done"
 
 echo "Upload admin-server"
 rm $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip  ./admin-server.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip  ./admin-server
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/admin-server.zip $TARGET_FOLDER
 echo "Done"
 
 echo "Upload document-server"
 rm $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip  ./document-server.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip  ./document-server
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/document-server.zip $TARGET_FOLDER
 echo "Done"
 
@@ -49,14 +49,14 @@ echo "Done"
 echo "Upload file-server"
 rm $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip  ./file-server.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip  ./file-server
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/file-server.zip $TARGET_FOLDER
 echo "Done"
 
 echo "Upload doka-cli"
 rm $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip  ./doka-cli.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip  ./doka-cli
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/doka-cli.zip $TARGET_FOLDER
 echo "Done"
 
@@ -64,7 +64,7 @@ echo "Done"
 echo "Upload doka-one-installer"
 rm $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip
 cd $DOKA_SERVICE_SOURCE_FOLDER
-zip $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip  ./doka-one-installer.exe
+zip $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip  ./doka-one-installer
 sshpass -p $PASS scp $DOKA_SERVICE_SOURCE_FOLDER/doka-one-installer.zip $TARGET_FOLDER
 echo "Done"
 
@@ -78,6 +78,10 @@ if [ "$1" == "ALL" ]; then
 
   echo "Upload jdk-17"
   sshpass -p $PASS scp $PUBLIC_SOURCE_FOLDER/jdk-17.zip $TARGET_FOLDER
+  echo "Done"
+
+  echo "Upload jdk-17-linux"
+  sshpass -p $PASS scp $PUBLIC_SOURCE_FOLDER/jdk-17-linux.zip $TARGET_FOLDER
   echo "Done"
 
   echo "Upload serman"

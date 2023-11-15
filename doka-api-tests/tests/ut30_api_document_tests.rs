@@ -7,9 +7,9 @@ const TEST_TO_RUN : &[&str] = &["t10_create_document", "t20_create_document_with
 mod api_document_tests {
     use anyhow::anyhow;
     use rand::Rng;
-    use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, ErrorMessage, GetItemReply, LoginRequest};
+    use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, ErrorMessage, GetItemReply};
     use doka_cli::request_client::{AdminServerClient, DocumentServerClient};
-    use crate::test_lib::{Lookup, read_test_env};
+    use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
 
     ///
@@ -18,17 +18,10 @@ mod api_document_tests {
     #[test]
     fn t10_create_document() -> Result<(), ErrorMessage>  {
         let lookup = Lookup::new("t10_create_document", TEST_TO_RUN); // auto dropping
-
-        // Login
-        let test_env = read_test_env();
-
-        eprintln!("{:?}", &test_env);
+        let props = lookup.props();
 
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login,
-            password: test_env.password,
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
         let request = AddItemRequest {
@@ -54,17 +47,10 @@ mod api_document_tests {
     #[test]
     fn t20_create_document_with_props() -> Result<(), ErrorMessage>  {
         let lookup = Lookup::new("t20_create_document_with_props", TEST_TO_RUN); // auto dropping
-
-        // Login
-        let test_env = read_test_env();
-
-        eprintln!("{:?}", &test_env);
+        let props = lookup.props();
 
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login,
-            password: test_env.password,
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
         let prop1 = generate_random_tag(); // Unique tag name
@@ -112,15 +98,10 @@ mod api_document_tests {
     #[test]
     fn t30_add_props() -> Result<(), ErrorMessage>  {
         let lookup = Lookup::new("t30_add_props", TEST_TO_RUN); // auto dropping
-
-        // Login
-        let test_env = read_test_env();
+        let props = lookup.props();
 
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login,
-            password: test_env.password,
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
         // Create an item
@@ -182,15 +163,10 @@ mod api_document_tests {
     #[test]
     fn t40_modify_tags() -> Result<(), ErrorMessage>  {
         let lookup = Lookup::new("t40_modify_tags", TEST_TO_RUN); // auto dropping
-
-        // Login
-        let test_env = read_test_env();
+        let props = lookup.props();
 
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: test_env.login,
-            password: test_env.password,
-        };
+        let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
         // Create an item with tags

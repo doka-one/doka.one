@@ -504,6 +504,11 @@ pub struct GetFileInfoReply {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct ListOfFileInfoReply {
+    pub list_of_files : Vec<GetFileInfoReply>
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct ListOfUploadInfoReply {
     pub list_of_upload_info: Vec<UploadInfoReply>
 }

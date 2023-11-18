@@ -34,8 +34,6 @@ fn read_session(session_id: &RawStr, security_token: SecurityToken, x_request_id
     delegate.read_session(session_id)
 }
 
-
-
 ///
 /// 🔑 Open a new session for the group and user
 /// It's usually called by the Login end point using the session_id as a security_token

@@ -11,7 +11,7 @@ use serde::{de, Serialize};
 use url::Url;
 
 use commons_error::*;
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder};
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 
 use crate::request_client::TokenType::{Sid, Token};
@@ -25,15 +25,12 @@ pub struct CustomHeaders {
     x_request_id : Option<u32>,
     cek : Option<String>,
 }
-
-
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum TokenType {
     Token(String),
     Sid(String),
     None,
 }
-
 impl TokenType {
     pub fn value(&self) -> String {
         String::from(match self {
@@ -43,9 +40,7 @@ impl TokenType {
         })
     }
 }
-
 const LAPS : u32 = 2_000;
-
 struct WebServer
 {
     server_name : String,
@@ -54,7 +49,6 @@ struct WebServer
 }
 
 impl WebServer {
-
     pub fn new(server_name : &str, port : u16, context: &str) -> Self {
         Self {
             server_name : server_name.to_owned(),
@@ -222,8 +216,6 @@ impl WebServer {
         Self::send_request_builder(request_builder_2.body(request))
     }
 
-
-
     ///
     /// Put
     ///
@@ -288,7 +280,6 @@ impl WebServer {
         self.retry(delete_data).unwrap_or_else(|_| WebResponse::from_errorset(HTTP_CLIENT_ERROR))
     }
 
-
     ///
     /// Generic implementation of a delete action
     /// url_path : ex : admin-server/tag
@@ -331,7 +322,6 @@ impl WebServer {
             }
         }
     }
-
 }
 
 pub struct KeyManagerClient {
@@ -692,6 +682,19 @@ impl FileServerClient {
     pub fn stats(&self, file_ref: &str, sid: &str) -> WebResponse<GetFileInfoShortReply> {
         // let url = format!("http://{}:{}/file-server/stats/{}", &self.server.server_name, self.server.port);
         let url = self.server.build_url_with_refcode("stats", &file_ref);
+        // let url = self.server.build_url("stats/1ABH234");
+        self.server.get_data_retry(&url, &Sid(sid.to_string()))
+    }
+
+    pub fn loading(&self, sid: &str) -> WebResponse<ListOfUploadInfoReply> {
+        // let url = format!("http://{}:{}/file-server/loading/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url("loading");
+        self.server.get_data_retry(&url, &Sid(sid.to_string()))
+    }
+
+    pub fn list(&self, pattern: &str, sid: &str) -> WebResponse<ListOfFileInfoReply> {
+        // let url = format!("http://{}:{}/file-server/stats/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("list", &pattern);
         // let url = self.server.build_url("stats/1ABH234");
         self.server.get_data_retry(&url, &Sid(sid.to_string()))
     }

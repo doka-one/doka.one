@@ -11,7 +11,7 @@ use dkconfig::properties::{get_prop_value, set_prop_values};
 
 use crate::command_options::{Command, display_commands, load_commands, Params, parse_args};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
-use crate::file_commands::{file_download, file_upload};
+use crate::file_commands::{file_download, file_info, file_list, file_loading, file_upload};
 use crate::item_commands::{create_item, get_item, item_tag_delete, item_tag_update, search_item};
 use crate::session_commands::session_login;
 use crate::token_commands::{get_target_file, token_generate};
@@ -176,6 +176,28 @@ fn dispatch(params : &Params, commands : &[Command]) -> u16 {
                 return PARAMETER_ERROR;
             };
             let err = file_download(&path, &file_ref);
+            success_or_err(err, FILE_DOWNLOAD_FAILED)
+        }
+        ("file", "info") => {
+            let Ok(file_ref) = (|| -> anyhow::Result<String> {
+                Ok(extract_mandatory_option( &params.options, "-fr")?)
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return PARAMETER_ERROR;
+            };
+            let err = file_info(&file_ref);
+            success_or_err(err, FILE_DOWNLOAD_FAILED)
+        }
+        ("file", "list") => {
+            let Ok(pattern) = (|| -> anyhow::Result<String> {
+                Ok(extract_mandatory_option( &params.options, "-m")?)
+            }) ().map_err(eprint_fwd!("Error")) else {
+                return PARAMETER_ERROR;
+            };
+            let err = file_list(&pattern);
+            success_or_err(err, FILE_DOWNLOAD_FAILED)
+        }
+        ("file", "loading") => {
+            let err = file_loading();
             success_or_err(err, FILE_DOWNLOAD_FAILED)
         }
         (_, _) => {

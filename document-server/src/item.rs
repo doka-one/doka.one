@@ -24,8 +24,6 @@ pub(crate) struct ItemDelegate {
     pub follower: Follower,
 }
 
-
-
 impl ItemDelegate {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
 
@@ -295,6 +293,7 @@ impl ItemDelegate {
     pub fn delete_item_tag(mut self, item_id: i64, tag_names: DeleteTagsRequest) -> WebType<SimpleMessage> {
         log_info!("🚀 Start delete_item_tag api, item_id=[{}], tag_names=[{:?}], follower=[{}]", item_id, &tag_names, &self.follower);
 
+        // TODO use the correct routine and the try_or_return macro
         let customer_code = & match self.valid_sid_get_session() {
             Ok(cc) => { cc }
             Err(e) => {
@@ -431,7 +430,7 @@ impl ItemDelegate {
     }
 
 
-    //
+    // TODO deprecated
     fn valid_sid_get_session(&mut self) -> Result<String, ErrorSet<'static>> {
         // Check if the token is valid
         if !self.session_token.is_valid() {
@@ -445,7 +444,6 @@ impl ItemDelegate {
         // Read the session information
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
             return Err(INTERNAL_TECHNICAL_ERROR);
-            // return Json(AddItemReply::internal_technical_error_reply())
         };
         let customer_code = entry_session.customer_code.as_str();
         Ok(customer_code.to_owned())
@@ -485,8 +483,7 @@ impl ItemDelegate {
 
         // | Insert all the properties
         if let Some(properties) = &add_item_request.properties {
-            let r_add_tags = self.update_tags_on_item(&mut trans, item_id, customer_code, properties);
-            if let Err(e) = r_add_tags {
+            if let Err(e) = self.update_tags_on_item(&mut trans, item_id, customer_code, properties) {
                 return WebType::from_errorset(e);
             }
         }

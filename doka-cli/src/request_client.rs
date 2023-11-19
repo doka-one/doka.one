@@ -357,9 +357,7 @@ impl KeyManagerClient {
         let url = self.server.build_url_with_refcode("key", customer_code);
         self.server.get_data_retry(&url, &Token(token.to_string()))
     }
-
 }
-
 
 ///
 ///
@@ -387,7 +385,6 @@ impl SessionManagerClient {
 
         self.server.post_data_retry(&url, request, &headers)
     }
-
 
     pub fn get_session(&self, sid : &str, token : &str) -> WebResponse<SessionReply> {
         // let url = format!("http://{}:{}/session-manager/session/{}", &self.server.server_name, self.server.port,

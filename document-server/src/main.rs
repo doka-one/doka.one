@@ -20,7 +20,8 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters, QueryFilters2, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -31,9 +32,10 @@ mod tag;
 mod fulltext;
 mod ft_tokenizer;
 mod language;
+mod expression_filter_parser;
 
 
-///
+///  deprecated
 /// ✨ Find all the items at page [start_page]
 /// **NORM
 ///
@@ -43,6 +45,16 @@ pub fn get_all_item(start_page : Option<u32>, page_size : Option<u32>, session_t
     delegate.get_all_item(start_page, page_size)
 }
 
+///
+/// ✨ Find all the items at page [start_page]
+/// **NORM
+///
+#[get("/search?<start_page>&<page_size>&<filters>")]
+pub fn search_item(start_page : Option<u32>, page_size : Option<u32>, filters: QueryFilters2, session_token: SessionToken) -> WebType<GetItemReply> {
+    //let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    dbg!(filters);
+    WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+}
 
 ///
 /// ✨  Find a item from its item id
@@ -210,6 +222,7 @@ fn main() {
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
             get_all_item,
+            search_item,
             get_item,
             add_item,
             update_item_tag,

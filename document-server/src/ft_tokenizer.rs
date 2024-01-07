@@ -328,7 +328,7 @@ fn parse_vector(tsvector : &str) -> (Vec<WordType>, HashMap::<u64,String>) {
 /// Deprecated - Use  encrypt_words_rayon instead
 /// Unused
 ///
-fn _encrypt_words(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
+fn encrypt_words(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
     let mut encrypted_words = HashMap::<u64, String>::new();
     for (k,w) in words_to_encrypt {
         let encrypted_word = DkEncrypt::encrypt_str(&w, customer_key)
@@ -341,7 +341,7 @@ fn _encrypt_words(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -
 ///
 /// Unused
 ///
-fn _encrypt_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
+fn encrypt_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
     let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
         .map(|(key, value)| {
             let encrypted_value = DkEncrypt::encrypt_str(value, &customer_key)

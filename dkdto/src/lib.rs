@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rocket::http::{ContentType, RawStr, Status};
-use rocket::request::FromFormValue;
+use rocket::request::{FormItems, FromForm, FromFormValue};
 use rocket::response::status::Custom;
 use rocket_contrib::json::Json;
 use rocket_okapi::JsonSchema;
@@ -365,6 +365,49 @@ impl<'v> FromFormValue<'v> for DeleteTagsRequest {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct FilterCondition {
+    pub tag : String,
+    pub op: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct QueryFilters2(pub String);
+
+impl<'v> FromFormValue<'v> for QueryFilters2 {
+    type Error = &'v RawStr;
+
+    fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
+        // TODO : We could do a base64url decoding instead ....
+        let s=  form_value.percent_decode().unwrap().to_string();
+        dbg!(&s);
+        Ok(QueryFilters2(s))
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct QueryFilters {
+    pub conditions : Vec<String>,
+}
+
+// Mise en œuvre de FromFormValue pour traiter la liste de chaînes
+impl<'v> FromFormValue<'v> for QueryFilters {
+    type Error = &'v RawStr;
+
+    fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
+
+        // TODO : We could do a base64url decoding instead ....
+        let s=  form_value.percent_decode().unwrap().to_string();
+
+        dbg!(&s);
+
+        dbg!(&form_value);
+        let q = serde_json::from_str(&s).unwrap(); // TODO
+        Ok(q)
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemReply {

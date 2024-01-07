@@ -13,7 +13,7 @@ use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorSet, GetItemReply, ItemElement, QueryFilters, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
 use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
 use doka_cli::request_client::TokenType;
 
@@ -37,6 +37,16 @@ impl ItemDelegate {
     }
 
     ///
+    /// ✨ Find all the items at page [start_page]
+    ///
+    pub fn search_item(mut self, start_page : Option<u32>, page_size : Option<u32>, filter: QueryFilters) -> WebType<GetItemReply> {
+        log_info!("🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]", start_page, page_size, &self.follower);
+
+        WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+    }
+
+
+    /// Deprecated - replace it with search_item
     /// ✨ Find all the items at page [start_page]
     ///
     pub fn get_all_item(mut self, start_page : Option<u32>, page_size : Option<u32>) -> WebType<GetItemReply> {

@@ -20,7 +20,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters, QueryFilters2, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters2, SimpleMessage, WebType, WebTypeBuilder};
 use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
 
 use crate::fulltext::FullTextDelegate;
@@ -32,7 +32,9 @@ mod tag;
 mod fulltext;
 mod ft_tokenizer;
 mod language;
-mod expression_filter_parser;
+mod filter_token_parser;
+mod char_lib;
+mod filter_lexem_parser;
 
 
 ///  deprecated

@@ -6,7 +6,7 @@ use rocket::http::Status;
 use rocket_contrib::json::Json;
 
 use commons_error::*;
-use commons_pg::{CellValue, iso_to_date, iso_to_datetime, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
+use commons_pg::{CellValue, iso_to_datetime, iso_to_naivedate, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
@@ -14,6 +14,7 @@ use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::{AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagElement, WebType, WebTypeBuilder};
 use dkdto::error_codes::{INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE, INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, STILL_IN_USE};
 use doka_cli::request_client::TokenType;
+use crate::char_lib::has_not_printable_char;
 
 pub(crate) struct TagDelegate {
     pub session_token: SessionToken,
@@ -358,7 +359,7 @@ impl TagDelegate {
         log_info!("Check the tag definition, add_tag_request=[{:?}], follower=[{}]", add_tag_request, &self.follower);
 
         // Check the tag name
-        if Self::has_not_printable_char(&add_tag_request.name) {
+        if has_not_printable_char(&add_tag_request.name) {
             return Err(INCORRECT_CHAR_TAG_NAME);
         }
 
@@ -410,7 +411,7 @@ impl TagDelegate {
             TAG_TYPE_DATE => {
                 if let Some(d_str) = &add_tag_request.default_value {
                     // Check if the default is a valid date  ISO8601 1977-04-22
-                    if iso_to_date(d_str).is_err() {
+                    if iso_to_naivedate(d_str).is_err() {
                         return Err(INCORRECT_DEFAULT_DATE_VALUE);
                     }
                 }
@@ -431,31 +432,6 @@ impl TagDelegate {
         Ok(())
     }
 
-
-    fn has_not_printable_char(tag_name: &str) -> bool {
-        use unicode_segmentation::UnicodeSegmentation;
-        let mut g_str = tag_name.graphemes(true);
-
-        loop {
-            let o_s = g_str.next();
-            match o_s {
-                None => {
-                    break;
-                }
-                Some(c) => {
-                    for cc in  c.chars() {
-                        let val = cc as u32;
-                        if  val == 32 || val <= 15 {
-                            return true;
-                        }
-                    }
-
-                }
-            }
-        }
-        false
-    }
-
 }
 
 
@@ -464,7 +440,7 @@ impl TagDelegate {
 mod test {
     use chrono::{Datelike, DateTime, Timelike, Utc};
 
-    use commons_pg::{iso_to_date, iso_to_datetime};
+    use commons_pg::{iso_to_datetime, iso_to_naivedate};
 
     #[test]
     fn is_valid_datetime_test() {
@@ -484,13 +460,13 @@ mod test {
     #[test]
     fn is_valid_date_test() {
 
-        assert!(iso_to_date("1977-04-22").is_ok());
-        assert!(iso_to_date("2000-02-29").is_ok());
+        assert!(iso_to_naivedate("1977-04-22").is_ok());
+        assert!(iso_to_naivedate("2000-02-29").is_ok());
 
-        assert!(iso_to_date("1977-13-26").is_err());
-        assert!(iso_to_date("1977-02-32").is_err());
-        assert!(iso_to_date("1977-02-29").is_err());
-        assert!(iso_to_date("1977-02").is_err());
+        assert!(iso_to_naivedate("1977-13-26").is_err());
+        assert!(iso_to_naivedate("1977-02-32").is_err());
+        assert!(iso_to_naivedate("1977-02-29").is_err());
+        assert!(iso_to_naivedate("1977-02").is_err());
     }
 
     #[test]

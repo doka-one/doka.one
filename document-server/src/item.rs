@@ -8,7 +8,7 @@ use rocket::http::Status;
 use rocket_contrib::json::Json;
 
 use commons_error::*;
-use commons_pg::{CellValue, date_time_to_iso, date_to_iso, iso_to_date, iso_to_datetime, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
+use commons_pg::{CellValue, date_time_to_iso, iso_to_datetime, iso_to_naivedate, naivedate_to_iso, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
 use commons_services::session_lib::fetch_entry_session;
 use commons_services::token_lib::SessionToken;
@@ -211,8 +211,10 @@ impl ItemDelegate {
                     Ok(EnumTagValue::Double(value_double))
                 }
                 TAG_TYPE_DATE => {
-                    let value_date = sql_result.get_naivedate_as_date("value_date");
-                    let opt_iso_d_str = value_date.as_ref().map(|x| date_to_iso(x));
+                    // Changed to simply get the naive date and change it to iso string, no need of "Date"
+                    let value_naivedate = sql_result.get_naivedate("value_date");
+                    //let value_date = sql_result.get_naivedate_as_date("value_date");
+                    let opt_iso_d_str = value_naivedate.as_ref().map(|x| naivedate_to_iso(x));
                     Ok(EnumTagValue::SimpleDate(opt_iso_d_str))
                 }
                 TAG_TYPE_DATETIME => {
@@ -857,9 +859,8 @@ impl ItemDelegate {
             EnumTagValue::SimpleDate(tv) => {
                 let opt_st = (|| {
                     let d_string = tv.as_ref()?;
-                    let dt = iso_to_date(d_string)
+                    let nd = iso_to_naivedate(d_string)
                         .map_err(err_fwd!("Cannot convert the string to datetime:[{}], follower=[{}]", d_string, &self.follower)).ok()?;
-                    let nd = dt.naive_utc();
                     Some(nd)
                 })();
                 params.insert("p_val_date".to_string(), CellValue::Date(opt_st));

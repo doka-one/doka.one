@@ -26,6 +26,23 @@ pub(crate) enum LogicalOperator {
     OR,
 }
 
+impl LogicalOperator {
+    pub fn from_str(lop: &str) -> Self {
+        match lop {
+            "AND" => LogicalOperator::AND,
+            "OR" => LogicalOperator::OR,
+            _ => panic!()
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match  self {
+            LogicalOperator::AND => {"AND".to_string()}
+            LogicalOperator::OR => {"OR".to_string()}
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum FilterExpression {
     Condition {
@@ -104,7 +121,15 @@ pub (crate) fn to_sql_form(filter_expression : &FilterExpression) -> Result<Stri
                 ComparisonOperator::LIKE => {"LIKE"}
             };
 
-            let s = format!("(\"{:?}\" {:?} {:?})", attribute, sql_op, value);
+            let str_value = match &value {
+                FilterValue::ValueInt(i) => {i.to_string()}
+                FilterValue::ValueString(s) => {
+                    let stripped = s.trim_matches(|c| c == '"');
+                    format!("'{}'", &stripped)
+                }
+            };
+
+            let s = format!("({} {} {})", &attribute, &sql_op, &str_value);
             content.push_str(&s);
         }
         FilterExpression::Logical {  left, operator, right } => {
@@ -113,7 +138,7 @@ pub (crate) fn to_sql_form(filter_expression : &FilterExpression) -> Result<Stri
             if let Ok(left) = r_left_content {
                 content.push_str(&left);
             }
-            content.push_str(&format!("{:?}", &operator));
+            content.push_str(&format!("{}", &operator.to_string()));
             let r_right_content = to_sql_form(right);
             if let Ok(right) = r_right_content {
                 content.push_str(&right);
@@ -379,7 +404,8 @@ mod tests {
             ConditionOpen, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
             Attribute(String::from("attribut3")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
             Operator(ComparisonOperator::LIKE), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
-            ValueString(String::from("\"den%\"")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
+            ValueString(String::from("\"den%\"")),
+                // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
             ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
             LogicalClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         ];

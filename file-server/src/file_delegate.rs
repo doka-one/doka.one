@@ -13,6 +13,7 @@ use rocket::http::{ContentType, RawStr, Status};
 use rocket::response::Content;
 use rocket::response::status::Custom;
 use rs_uuid::iso::uuid_v4;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 use commons_error::*;
@@ -20,12 +21,13 @@ use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock}
 use commons_services::database_lib::open_transaction;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY, TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
-use commons_services::session_lib::{fetch_entry_session, valid_sid_get_session};
+use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
+use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::{DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType, WebTypeBuilder};
+use dkdto::{DownloadReply, EntrySession, ErrorSet, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType, WebTypeBuilder};
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, UPLOAD_WRONG_ITEM_INFO};
 use doka_cli::request_client::{DocumentServerClient, TikaServerClient, TokenType};
 
@@ -39,6 +41,7 @@ pub(crate) struct FileDelegate {
     pub session_token: SessionToken,
     pub follower: Follower,
 }
+
 
 impl FileDelegate {
     const BLOCK_SIZE : usize = 1_048_576;
@@ -252,24 +255,7 @@ impl FileDelegate {
         log_info!("🚀 Start upload api, item_info=[{}], follower=[{}]", &item_info, &self.follower);
 
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            if cfg!(windows) {
-                self.empty_datastream(&mut file_data.open().take(u64::MAX));
-            }
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return WebType::from_errorset(INVALID_TOKEN);
-        }
-
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            if cfg!(windows) {
-                self.empty_datastream(&mut file_data.open().take(u64::MAX));
-            }
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
-        };
-
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
         let customer_code = entry_session.customer_code.as_str();
 
         // Read the item_info
@@ -348,12 +334,10 @@ impl FileDelegate {
 
     // Windows only
     fn empty_datastream(&self, reader : &mut dyn Read) {
-        // TODO test it on linux!
         // BUG https://github.com/SergioBenitez/Rocket/issues/892
         log_warn!("⛔ Running on Windows, need to read the datastream");
         let _r = io::copy( reader, &mut io::sink());
     }
-
 
     ///
     /// Run a thread to process the block and store it in the DB
@@ -380,7 +364,7 @@ impl FileDelegate {
     }
 
 
-    fn serial_parse_content(&self,/* mut trans: &mut SQLTransaction,*/ file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
+    fn serial_parse_content(&self, file_id: i64, file_ref: &str, block_count: u32, customer_code: &str) -> anyhow::Result<()> {
         // Build the file in memory
         let mut mem_file : Vec<u8> = vec![];
         let mut dataset = self.search_incoming_blocks(/*&mut trans,*/ file_ref , customer_code).map_err(tr_fwd!())?;
@@ -654,6 +638,12 @@ impl FileDelegate {
         Ok(())
     }
 
+    fn web_type_error<T>() -> impl Fn(ErrorSet<'static>) -> WebType<T>  where T : DeserializeOwned {
+        |e| {
+            log_error!("💣 Error after try {:?}", e);
+            WebType::from_errorset(e)
+        }
+    }
 
     ///
     /// ✨ Get the information about the composition of a file [file_ref]
@@ -661,37 +651,86 @@ impl FileDelegate {
     pub fn file_info(&mut self, file_ref: &RawStr) -> WebType<GetFileInfoReply> {
         log_info!("🚀 Start upload api, follower=[{}]", &self.follower);
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return WebType::from_errorset(INVALID_TOKEN);
-        }
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-                                    .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
+
+        let Ok(file_ref_str) =  file_ref.percent_decode().map_err(err_fwd!("💣 Invalid file ref, [{}]", file_ref) ) else {
+            return WebType::from_errorset(FILE_INFO_NOT_FOUND);
         };
-        let customer_code = entry_session.customer_code.as_str();
-        let sql_query = format!(r"SELECT
-            fr.file_ref,
-            fr.mime_type,
-            fr.checksum,
-            fr.total_part,
-            fr.original_file_size,
-            fr.encrypted_file_size,
-            fr.is_encrypted,
-            fr.is_fulltext_parsed,
-            fr.is_preview_generated
-        FROM  fs_{0}.file_reference fr
-        WHERE
-            fr.file_ref = :p_file_reference", customer_code);
 
-        let r_data_set : anyhow::Result<SQLDataSet> = (|| {
+        let customer_code = entry_session.customer_code.as_str();
+
+        let mut files = try_or_return!(self.fetch_files_information(file_ref_str.as_ref(), &customer_code) ,
+            Self::web_type_error()
+        );
+
+        // FIXME : I don't know I can do a remove(0) without being sure there is at least an item at 0
+        let item = files.list_of_files.remove(0);
+
+        log_info!("🏁 End file_info api, follower=[{}]", &self.follower);
+        WebType::from_item(Status::Ok.code, item)
+    }
+
+
+    /// ✨ Find the files in the system
+    pub fn file_list(&mut self, match_expression: &RawStr) -> WebType<ListOfFileInfoReply> {
+        log_info!("🚀 Start file_list api, follower=[{}]", &self.follower);
+
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), |e| WebType::from_errorset(e) );
+
+        log_info!("😎 We read the session information, customer_code=[{}], user_id=[{}], follower=[{}]", &entry_session.customer_code,
+            &entry_session.user_id, &self.follower);
+
+        let Ok(match_expression_str) =  match_expression.percent_decode().map_err(err_fwd!("💣 Invalid match expression, [{}]", match_expression) ) else {
+            return WebType::from_errorset(FILE_INFO_NOT_FOUND);
+        };
+
+        let r_files = self.fetch_files_information(&match_expression_str, &entry_session.customer_code);
+
+        log_info!("🏁 End file_list api, follower=[{}]", &self.follower);
+
+        match r_files {
+            Ok(files) => {
+                WebType::from_item(Status::Ok.code, files)
+            }
+            Err(e) => {
+                WebType::from_errorset(e)
+            }
+        }
+    }
+
+    fn is_valid_pattern(s: &str) -> bool {
+        s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '*')
+    }
+
+    /// Query the information related to the existing files whose the reference matches the given pattern
+    fn fetch_files_information(&self, pattern: &str, customer_code: &str) -> Result<ListOfFileInfoReply, ErrorSet<'static>> {
+
+        if ! Self::is_valid_pattern(&pattern) {
+            return Err(FILE_INFO_NOT_FOUND);
+        }
+
+        let sql_pattern = pattern.replace('*', "%");
+
+        let sql_query = format!(r"SELECT
+                    fr.file_ref,
+                    fr.mime_type,
+                    fr.checksum,
+                    fr.total_part,
+                    fr.original_file_size,
+                    fr.encrypted_file_size,
+                    fr.is_encrypted,
+                    fr.is_fulltext_parsed,
+                    fr.is_preview_generated
+                FROM  fs_{0}.file_reference fr
+                WHERE
+                    fr.file_ref like :p_file_reference", customer_code);
+
+        let r_data_set: anyhow::Result<SQLDataSet> = (|| {
             let mut r_cnx = SQLConnection::new();
             let mut trans = open_transaction(&mut r_cnx)?;
             let mut params = HashMap::new();
-            params.insert("p_file_reference".to_string(), CellValue::from_raw_string(file_ref.to_string()));
+            params.insert("p_file_reference".to_string(), CellValue::from_raw_string(sql_pattern));
             let query = SQLQueryBlock {
                 sql_query,
                 start: 0,
@@ -699,11 +738,11 @@ impl FileDelegate {
                 params,
             };
             let dataset = query.execute(&mut trans)?;
-            trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+            trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", & self.follower))?;
             Ok(dataset)
         })();
         let Ok(mut data_set) = r_data_set else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return Err(INTERNAL_DATABASE_ERROR);
         };
 
         fn build_block_info(data_set: &mut SQLDataSet) -> anyhow::Result<GetFileInfoReply> {
@@ -724,28 +763,29 @@ impl FileDelegate {
                 checksum,
                 original_file_size,
                 encrypted_file_size,
-                block_count : total_part,
+                block_count: total_part,
                 is_encrypted,
                 is_fulltext_parsed,
                 is_preview_generated,
             })
         }
-        // Should be only 1 row
-       let wt_file_info =  if data_set.next() {
+
+        let mut files = ListOfFileInfoReply {
+            list_of_files: vec![],
+        };
+
+        while data_set.next() {
             match build_block_info(&mut data_set) {
                 Ok(block_info) => {
-                    WebType::from_item(Status::Ok.code,block_info)
+                    files.list_of_files.push(block_info)
                 }
                 Err(e) => {
-                    log_warn!("⛔ Warning while building file info, e=[{}], follower=[{}]", e, &self.follower);
-                    WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+                    log_error!("💣 Error while building file info, e=[{}], follower=[{}]", e, & self.follower);
+                    return Err(INTERNAL_DATABASE_ERROR)
                 }
             }
-        } else {
-           WebType::from_errorset(FILE_INFO_NOT_FOUND)
-       };
-        log_info!("🏁 End file_info api, follower=[{}]", &self.follower);
-        wt_file_info
+        }
+        Ok(files)
     }
 
     ///
@@ -764,12 +804,7 @@ impl FileDelegate {
 
         log_info!("🚀 Start file_loading api, follower=[{}]", &self.follower);
 
-        let entry_session = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
-            Ok(es) => { es }
-            Err(e) => {
-                return WebType::from_errorset(e);
-            }
-        };
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
 
         log_info!("😎 We read the session information, customer_code=[{}], user_id=[{}], follower=[{}]", &entry_session.customer_code,
             &entry_session.user_id, &self.follower);
@@ -863,17 +898,7 @@ impl FileDelegate {
         log_info!("🚀 Start file_stats api, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return WebType::from_errorset(INVALID_TOKEN);
-        }
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-             return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
-        };
-
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
         let customer_code = entry_session.customer_code.as_str();
 
         // TODO instead of constant 1, check if the document is fulltext parsed and previewed
@@ -951,6 +976,12 @@ impl FileDelegate {
         wt_stats
     }
 
+    fn download_reply_error() -> impl Fn(ErrorSet<'static>) -> DownloadReply {
+        |e| {
+            log_error!("💣 Error after try {:?}", e);
+            DownloadReply::from_errorset(e)
+        }
+    }
 
     /// ✨ Download the binary content of a file
     pub fn download(&mut self, file_ref: &RawStr) -> DownloadReply {
@@ -958,21 +989,7 @@ impl FileDelegate {
         log_info!("🚀 Start download api, file_ref = [{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            // return Content(ContentType::HTML, vec![]);
-            return DownloadReply::from_errorset(INVALID_TOKEN);
-        }
-
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-            .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            // return Content(ContentType::HTML, vec![]);
-            return DownloadReply::from_errorset(INTERNAL_TECHNICAL_ERROR);
-        };
-
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::download_reply_error());
         let customer_code = entry_session.customer_code.as_str();
         log_info!("Found session and customer code=[{}], follower=[{}]", &customer_code, &self.follower);
 
@@ -980,14 +997,12 @@ impl FileDelegate {
 
         let Ok((media_type, enc_parts)) = self.search_parts(file_ref, customer_code).map_err(tr_fwd!()) else {
             log_error!("");
-            // return Content(ContentType::HTML, vec![]);
             return DownloadReply::from_errorset(INTERNAL_DATABASE_ERROR);
         };
 
         let o_media : Option<ContentType> = ContentType::parse_flexible(&media_type);
         let Ok(media) = o_media.ok_or(anyhow!("Wrong media type")).map_err(tr_fwd!()) else {
             log_error!("");
-            // return Content(ContentType::HTML, vec![]);
             return DownloadReply::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
 

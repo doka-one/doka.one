@@ -282,7 +282,7 @@ fn generate_doka_cli_env_var(config: &Config) -> anyhow::Result<()> {
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let (env, _) = hkcu.create_subkey("Environment")?; // create_subkey opens with write permissions
-        env.set_value(&var_name, &my_env)?;
+        env.set_value("DOKA_CLI_ENV", &my_env)?;
     }
 
     #[cfg(target_os = "linux")] {

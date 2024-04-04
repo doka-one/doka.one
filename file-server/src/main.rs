@@ -19,7 +19,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfUploadInfoReply, UploadReply, WebType};
+use dkdto::{DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply, UploadReply, WebType};
 
 use crate::file_delegate::FileDelegate;
 
@@ -61,6 +61,12 @@ pub fn file_info(file_ref: &RawStr, session_token : SessionToken) -> WebType<Get
 pub fn file_stats(file_ref: &RawStr, session_token : SessionToken) -> WebType<GetFileInfoShortReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.file_stats(file_ref)
+}
+
+#[get("/list/<pattern>")]
+pub fn file_list(pattern: &RawStr, session_token : SessionToken) -> WebType<ListOfFileInfoReply> {
+    let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.file_list(pattern)
 }
 
 ///
@@ -171,6 +177,7 @@ fn main() {
             file_loading,
             file_info,
             file_stats,
+            file_list,
             download,
         ])
         .attach(CORS)

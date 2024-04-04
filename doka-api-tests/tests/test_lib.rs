@@ -153,12 +153,6 @@ pub fn init_test(test_name : &str, props: &HashMap<String, String>) {
         // Init : Create the schema (if not exist), create the admin user (if not exist)
         let admin_server = AdminServerClient::new("localhost", 30060);
 
-        // FIXME : Generate the token
-        // TODO REF_TAG : UNIFORMIZE_INIT
-        // on the box
-        //let dev_token = "EjXpe-RzQeS8tiBIEyY_OlJv35a4cY0i6Zu29Vt3drchg6O3JHBrW9v4F_6jwJPsYTfoQUZMsN_wJLGj-2vIpj3mI0ymBIwU81RUxmPiHbcP2vDFW5jGVg";
-
-        // chacha_1 on laptop
         let dev_token = props.get("dev.token").unwrap();
         let customer_name_format = props.get("customer.name.format").unwrap().to_owned();
         let email_format = props.get("email.format").unwrap();
@@ -170,6 +164,7 @@ pub fn init_test(test_name : &str, props: &HashMap<String, String>) {
             email: email_format.replace("{}", &login_id),
             admin_password
         };
+
         let wr_reply = admin_server.create_customer(&request, dev_token);
 
         match wr_reply {
@@ -181,7 +176,6 @@ pub fn init_test(test_name : &str, props: &HashMap<String, String>) {
                 };
 
                 let reply = admin_server.customer_removable(&reply.customer_code, dev_token);
-
                 if let Err(e) = reply {
                     panic!("Error code [{:?}]", &e);
                 }

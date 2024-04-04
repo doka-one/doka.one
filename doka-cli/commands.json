@@ -220,6 +220,44 @@
             "key": "_"
           }
         ]
+      },
+      {
+        "name": "info",
+        "description": "Information on a file",
+        "options": [
+          {
+            "flags": [
+              "-fr",
+              "--file-reference"
+            ],
+            "description": "File reference",
+            "required": true,
+            "hasValue": true,
+            "key": "_"
+          }
+        ]
+      },
+      {
+        "name": "list",
+        "description": "List the files",
+        "options": [
+          {
+            "flags": [
+              "-m",
+              "--match"
+            ],
+            "description": "matching pattern",
+            "required": true,
+            "hasValue": true,
+            "key": "_"
+          }
+        ]
+      },
+      {
+        "name": "loading",
+        "description": "List of the files being uploaded",
+        "options": [
+        ]
       }
     ]
   }

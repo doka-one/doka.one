@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::time::SystemTime;
 
 use anyhow::anyhow;
@@ -6,25 +7,26 @@ use chrono::{DateTime, Utc};
 use log::{debug, error, info};
 use rocket::http::Status;
 use rocket_contrib::json::Json;
+use serde::de::DeserializeOwned;
 
 use commons_error::*;
-use commons_pg::{CellValue, date_time_to_iso, date_to_iso, iso_to_date, iso_to_datetime, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
+use commons_pg::{CellValue, date_time_to_iso, iso_to_datetime, iso_to_naivedate, naivedate_to_iso, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
 use commons_services::database_lib::open_transaction;
-use commons_services::session_lib::fetch_entry_session;
+use commons_services::session_lib::{fetch_entry_session, valid_sid_get_session};
 use commons_services::token_lib::SessionToken;
+use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, DeleteTagsRequest, EnumTagValue, ErrorSet, GetItemReply, ItemElement, QueryFilters, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagValueElement, WebTypeBuilder};
 use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
 use doka_cli::request_client::TokenType;
 
-use crate::{TagDelegate, WebType};
+use crate::{filter_lexem_parser, TagDelegate, WebType};
+use crate::filter_token_parser::{FilterExpression, parse_expression, to_sql_form, TokenParseError};
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
     pub follower: Follower,
 }
-
-
 
 impl ItemDelegate {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
@@ -41,25 +43,59 @@ impl ItemDelegate {
     ///
     /// ✨ Find all the items at page [start_page]
     ///
+    pub fn search_item(mut self, start_page : Option<u32>, page_size : Option<u32>, filters: QueryFilters) -> WebType<GetItemReply> {
+        log_info!("🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]", start_page, page_size, &self.follower);
+
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
+
+        let lexems = filter_lexem_parser::lex(&filters.0);
+        let filter_tokens : Box<FilterExpression> = parse_expression(&lexems).unwrap();
+
+        // Verify the the attributes are existing tag in doka and the type complies with the filter condition
+        // ...
+
+        let s = to_sql_form(&filter_tokens.deref()).unwrap(); // TODO
+
+        println!("sql = {:}", &s);
+
+        log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
+
+        // Query the items
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower));
+        let Ok(mut trans) = r_trans else {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(items) = self.search_item_with_filter(&mut trans, &filter_tokens.deref(),
+                                               start_page, page_size,
+                                               &entry_session.customer_code ) else {
+            log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        };
+
+        log_info!("😎 We found the items, item count=[{}], follower=[{}]", items.len(), &self.follower);
+
+        if trans.commit().map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
+
+
+        WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+    }
+
+    /// Deprecated - replace it with search_item
+    /// ✨ Find all the items at page [start_page]
+    ///
     pub fn get_all_item(mut self, start_page : Option<u32>, page_size : Option<u32>) -> WebType<GetItemReply> {
 
         // Already done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
         log_info!("🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]", start_page, page_size, &self.follower);
 
-        // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &self.session_token, &self.follower);
-            return WebType::from_errorset(INVALID_TOKEN);
-        }
-
-        self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        let Ok(entry_session) =  fetch_entry_session(&self.follower.token_type.value())
-            .map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
-        };
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
@@ -89,6 +125,41 @@ impl ItemDelegate {
     }
 
 
+    /// Search items from the filter given
+    /// If no item id provided, return all existing items
+    /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
+    fn search_item_with_filter(&self, mut trans : &mut SQLTransaction, filters: &FilterExpression,
+                         start_page : Option<u32>, page_size : Option<u32>,
+                         customer_code : &str) -> anyhow::Result<Vec<ItemElement>> {
+
+        let sql_condition = match to_sql_form(&filters) {
+            Ok(sq) => {sq}
+            Err(e) => {
+                log_error!("Syntax error in {:?}", e);
+                return Err(anyhow!("Impossible to parse the filters")); // TODO find a way to inform the client about the detail of the error
+            }
+        };
+
+        let mut params = HashMap::new();
+
+        let sql_query = format!( r"SELECT id, name, file_ref, created_gmt, last_modified_gmt
+                    FROM cs_{0}.item INNER JOIN   cs_{0}.property prop
+                    WHERE  ({1})
+                    ORDER BY prop.col1 ", customer_code, sql_condition );
+
+        let query = SQLQueryBlock {
+            sql_query,
+            start : start_page.unwrap_or(0) *  page_size.unwrap_or(0),
+            length : page_size,
+            params,
+        };
+
+        let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
+
+        Ok(vec![])
+    }
+
+    /// ! Deprecated - user search_with_filter instead
     /// Search items by id
     /// If no item id provided, return all existing items
     /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
@@ -203,8 +274,10 @@ impl ItemDelegate {
                     Ok(EnumTagValue::Double(value_double))
                 }
                 TAG_TYPE_DATE => {
-                    let value_date = sql_result.get_naivedate_as_date("value_date");
-                    let opt_iso_d_str = value_date.as_ref().map(|x| date_to_iso(x));
+                    // Changed to simply get the naive date and change it to iso string, no need of "Date"
+                    let value_naivedate = sql_result.get_naivedate("value_date");
+                    //let value_date = sql_result.get_naivedate_as_date("value_date");
+                    let opt_iso_d_str = value_naivedate.as_ref().map(|x| naivedate_to_iso(x));
                     Ok(EnumTagValue::SimpleDate(opt_iso_d_str))
                 }
                 TAG_TYPE_DATETIME => {
@@ -295,6 +368,7 @@ impl ItemDelegate {
     pub fn delete_item_tag(mut self, item_id: i64, tag_names: DeleteTagsRequest) -> WebType<SimpleMessage> {
         log_info!("🚀 Start delete_item_tag api, item_id=[{}], tag_names=[{:?}], follower=[{}]", item_id, &tag_names, &self.follower);
 
+        // TODO use the correct routine and the try_or_return macro
         let customer_code = & match self.valid_sid_get_session() {
             Ok(cc) => { cc }
             Err(e) => {
@@ -431,7 +505,7 @@ impl ItemDelegate {
     }
 
 
-    //
+    // TODO deprecated
     fn valid_sid_get_session(&mut self) -> Result<String, ErrorSet<'static>> {
         // Check if the token is valid
         if !self.session_token.is_valid() {
@@ -445,7 +519,6 @@ impl ItemDelegate {
         // Read the session information
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower)) else {
             return Err(INTERNAL_TECHNICAL_ERROR);
-            // return Json(AddItemReply::internal_technical_error_reply())
         };
         let customer_code = entry_session.customer_code.as_str();
         Ok(customer_code.to_owned())
@@ -485,8 +558,7 @@ impl ItemDelegate {
 
         // | Insert all the properties
         if let Some(properties) = &add_item_request.properties {
-            let r_add_tags = self.update_tags_on_item(&mut trans, item_id, customer_code, properties);
-            if let Err(e) = r_add_tags {
+            if let Err(e) = self.update_tags_on_item(&mut trans, item_id, customer_code, properties) {
                 return WebType::from_errorset(e);
             }
         }
@@ -850,9 +922,8 @@ impl ItemDelegate {
             EnumTagValue::SimpleDate(tv) => {
                 let opt_st = (|| {
                     let d_string = tv.as_ref()?;
-                    let dt = iso_to_date(d_string)
+                    let nd = iso_to_naivedate(d_string)
                         .map_err(err_fwd!("Cannot convert the string to datetime:[{}], follower=[{}]", d_string, &self.follower)).ok()?;
-                    let nd = dt.naive_utc();
                     Some(nd)
                 })();
                 params.insert("p_val_date".to_string(), CellValue::Date(opt_st));
@@ -871,6 +942,13 @@ impl ItemDelegate {
             }
         }
         params
+    }
+
+    fn web_type_error<T>() -> impl Fn(ErrorSet<'static>) -> WebType<T>  where T : DeserializeOwned {
+        |e| {
+            log_error!("💣 Error after try {:?}", e);
+            WebType::from_errorset(e)
+        }
     }
 }
 

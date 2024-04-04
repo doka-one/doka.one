@@ -183,7 +183,7 @@ struct InstallArgs {
     instance_name: String,
 
     /// Doka release number
-    ///  TODO possible_values=["0.1.0", "0.2.0"],
+    ///  TODO possible_values=["0.3.0", "0.2.0"],
     #[arg(short='r', short, display_order=7,long, value_parser)]
     release_number: String,
 }
@@ -206,7 +206,7 @@ struct UninstallArgs {
          --db-user-name "denis" \
          --db-user-password "xxx" \
          --instance-name "test_2" \
-         --release-number "0.1.0"
+         --release-number "0.3.0"
 
   doka-one-installer.exe \
            uninstall \

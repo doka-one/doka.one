@@ -1,5 +1,3 @@
-
-
 use std::path::Path;
 use std::process::exit;
 use dkconfig::conf_reader::cek_read_once;
@@ -15,6 +13,17 @@ pub mod key_lib;
 pub mod property_name;
 pub mod x_request_id;
 
+#[macro_export]
+macro_rules! try_or_return {
+    ($result:expr, $fn_error_value:expr) => {{
+        match $result {
+            Ok(es) => es,
+            Err(e) => {
+                return $fn_error_value(e); // evaluate the closure and return
+            }
+        }
+    }};
+}
 
 pub fn read_cek_and_store() {
     let Ok(cek_file) = get_prop_value(COMMON_EDIBLE_KEY_FILE_PROPERTY) else {

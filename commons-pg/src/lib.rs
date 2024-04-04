@@ -4,7 +4,7 @@ use postgres::types::{ToSql};
 use std::collections::HashMap;
 use std::ops::{Deref};
 use std::time::{Duration, SystemTime};
-use chrono::{Date, DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use commons_error::*;
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
 use r2d2_postgres::r2d2::{Pool, PooledConnection};
@@ -226,20 +226,13 @@ impl SQLDataSet {
         opt_dt
     }
 
-    pub fn get_naivedate_as_date(&self, col_name: &str) -> Option<Date<Utc>> {
+    pub fn get_naivedate(&self, col_name: &str) -> Option<NaiveDate> {
         if self.position < 1 || self.position > self.data.len() {
             return None;
         }
         let row: &HashMap<String, CellValue> = self.data.deref().get(self.position - 1)?;
         let cell = row.get(col_name).unwrap();
-        let opt_d = cell.inner_value_naivedate().map(|nd| {Self::naivedate_to_date(&nd)});
-
-        opt_d
-    }
-
-
-    fn naivedate_to_date(nd: &NaiveDate) -> Date<Utc> {
-        Date::from_utc(*nd, Utc)
+        cell.inner_value_naivedate()
     }
 
     fn system_time_to_date_time(t: &SystemTime) -> DateTime<Utc> {
@@ -259,18 +252,17 @@ pub fn iso_to_datetime(dt_str: &str) -> anyhow::Result<DateTime<Utc>> {
     anyhow::Result::Ok(dt)
 }
 
-pub fn iso_to_date(d_str: &str) -> anyhow::Result<Date<Utc>> {
-    let dt_s = format!("{}T00:00:00Z", d_str);
-    let dt = DateTime::parse_from_rfc3339(&dt_s)?.with_timezone(&Utc).date();
+pub fn iso_to_naivedate(d_str: &str) -> anyhow::Result<NaiveDate> {
+    let dt_s = format!("{}T12:00:00Z", d_str);
+    let dt = DateTime::parse_from_rfc3339(&dt_s)?.with_timezone(&Utc).date_naive();
     anyhow::Result::Ok(dt)
 }
-
 
 pub fn date_time_to_iso(dt: &DateTime<Utc>) -> String {
     dt.to_rfc3339()
 }
 
-pub fn date_to_iso(d: &Date<Utc>) -> String {
+pub fn naivedate_to_iso(d: &NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
 }
 

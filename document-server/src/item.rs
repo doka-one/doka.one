@@ -20,8 +20,8 @@ use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, Ad
 use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN, MISSING_ITEM, MISSING_TAG_FOR_ITEM};
 use doka_cli::request_client::TokenType;
 
-use crate::{filter_lexem_parser, TagDelegate, WebType};
-use crate::filter_token_parser::{FilterExpression, parse_expression, to_sql_form, TokenParseError};
+use crate::{filter_lexer, TagDelegate, WebType};
+use crate::filter_ast::{FilterExpressionAST, parse_expression, to_sql_form, TokenParseError};
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
@@ -48,8 +48,8 @@ impl ItemDelegate {
 
         let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
 
-        let lexems = filter_lexem_parser::lex(&filters.0);
-        let filter_tokens : Box<FilterExpression> = parse_expression(&lexems).unwrap();
+        let lexems = filter_lexer::lex(&filters.0);
+        let filter_tokens : Box<FilterExpressionAST> = parse_expression(&lexems).unwrap();
 
         // Verify the the attributes are existing tag in doka and the type complies with the filter condition
         // ...
@@ -128,9 +128,9 @@ impl ItemDelegate {
     /// Search items from the filter given
     /// If no item id provided, return all existing items
     /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
-    fn search_item_with_filter(&self, mut trans : &mut SQLTransaction, filters: &FilterExpression,
-                         start_page : Option<u32>, page_size : Option<u32>,
-                         customer_code : &str) -> anyhow::Result<Vec<ItemElement>> {
+    fn search_item_with_filter(&self, mut trans : &mut SQLTransaction, filters: &FilterExpressionAST,
+                               start_page : Option<u32>, page_size : Option<u32>,
+                               customer_code : &str) -> anyhow::Result<Vec<ItemElement>> {
 
         let sql_condition = match to_sql_form(&filters) {
             Ok(sq) => {sq}

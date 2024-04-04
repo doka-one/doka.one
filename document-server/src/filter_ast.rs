@@ -3,7 +3,7 @@ use std::fmt;
 use std::ops::Add;
 
 use log::warn;
-use crate::filter_token_parser::FilterValue::{ValueInt, ValueString};
+use crate::filter_ast::FilterValue::{ValueInt, ValueString};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ComparisonOperator {
@@ -60,7 +60,7 @@ impl LogicalOperator {
 }
 
 #[derive(Debug)]
-pub(crate) enum FilterExpression {
+pub(crate) enum FilterExpressionAST {
     Condition {
         attribute: String,
         operator: ComparisonOperator,
@@ -71,7 +71,7 @@ pub(crate) enum FilterExpression {
         // left: Box<FilterExpression>,
         operator: LogicalOperator,
         // right: Box<FilterExpression>,
-        leaves: Vec<Box<FilterExpression>>,
+        leaves: Vec<Box<FilterExpressionAST>>,
     },
 }
 
@@ -101,14 +101,14 @@ pub(crate) enum TokenParseError {
     ClosingExpected((usize, Option<Token>)),
 }
 
-pub (crate) fn to_canonical_form(filter_expression : &FilterExpression) -> Result<String, TokenParseError> {
+pub (crate) fn to_canonical_form(filter_expression : &FilterExpressionAST) -> Result<String, TokenParseError> {
     let mut content : String = String::from("");
     match filter_expression {
-        FilterExpression::Condition { attribute, operator, value } => {
+        FilterExpressionAST::Condition { attribute, operator, value } => {
             let s = format!("({}<{:?}>{})", attribute, operator, value);
             content.push_str(&s);
         }
-        FilterExpression::Logical {  operator, leaves } => {
+        FilterExpressionAST::Logical {  operator, leaves } => {
             content.push_str("{");
 
             for (i,l) in leaves.iter().enumerate() {
@@ -126,10 +126,10 @@ pub (crate) fn to_canonical_form(filter_expression : &FilterExpression) -> Resul
     Ok(content)
 }
 
-pub (crate) fn to_sql_form(filter_expression : &FilterExpression) -> Result<String, TokenParseError> {
+pub (crate) fn to_sql_form(filter_expression : &FilterExpressionAST) -> Result<String, TokenParseError> {
     let mut content : String = String::from("");
     match filter_expression {
-        FilterExpression::Condition { attribute, operator, value } => {
+        FilterExpressionAST::Condition { attribute, operator, value } => {
             let sql_op = match operator {
                 ComparisonOperator::EQ => {"="}
                 ComparisonOperator::NEQ => {"<>"}
@@ -143,7 +143,7 @@ pub (crate) fn to_sql_form(filter_expression : &FilterExpression) -> Result<Stri
             let s = format!("({} {} {})", attribute, sql_op, value);
             content.push_str(&s);
         }
-        FilterExpression::Logical { operator, leaves } => {
+        FilterExpressionAST::Logical { operator, leaves } => {
             content.push_str("(");
 
             for (i,l) in leaves.iter().enumerate() {
@@ -162,12 +162,12 @@ pub (crate) fn to_sql_form(filter_expression : &FilterExpression) -> Result<Stri
 }
 
 /// Parse a list of tokens to create the FilterExpression (AST)
-pub(crate) fn parse_expression(tokens: &[Token]) -> Result<Box<FilterExpression>, TokenParseError> {
+pub(crate) fn parse_expression(tokens: &[Token]) -> Result<Box<FilterExpressionAST>, TokenParseError> {
     let index = RefCell::new(0usize);
     parse_expression_with_index(&tokens, &index)
 }
 
-fn parse_expression_with_index(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpression>, TokenParseError> {
+fn parse_expression_with_index(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpressionAST>, TokenParseError> {
     // Read the fist token
     // we start at 0
     let t = tokens.get(*index.borrow());
@@ -198,7 +198,7 @@ fn parse_expression_with_index(tokens: &[Token], index: &RefCell<usize>) -> Resu
     }
 }
 
-fn parse_logical(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpression>, TokenParseError> {
+fn parse_logical(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpressionAST>, TokenParseError> {
     // here we know the expression is of form  L_OPEN  EXPRESSION LOP EXPRESSION L_CLOSE
 
     println!("parse_logical at [{}]", *index.borrow());
@@ -249,7 +249,7 @@ fn parse_logical(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterE
                 println!("Expect the logical close at index {}, token=[{:?}]", *index.borrow(), &t);
 
                 if let Some(Token::LogicalClose) = t {
-                    Ok(Box::new(FilterExpression::Logical {
+                    Ok(Box::new(FilterExpressionAST::Logical {
                         //left,
                         operator,
                         //right,
@@ -268,7 +268,7 @@ fn parse_logical(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterE
     }
 }
 
-fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpression>, TokenParseError> {
+fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpressionAST>, TokenParseError> {
     // Here we know that the form is C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
 
     println!("parse_condition at [{}]", *index.borrow());
@@ -327,7 +327,7 @@ fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<Filte
 
                 println!("CLOSE parse_condition at [{}], token=[{:?}]", *index.borrow(), &op_value);
 
-                Ok(Box::new(FilterExpression::Condition {
+                Ok(Box::new(FilterExpressionAST::Condition {
                     attribute,
                     operator,
                     value,
@@ -391,10 +391,10 @@ mod tests {
 
     use std::cell::RefCell;
 
-    use crate::filter_token_parser::{ComparisonOperator, parse_expression_with_index, to_canonical_form, to_sql_form, Token, TokenParseError};
-    use crate::filter_token_parser::ComparisonOperator::LIKE;
-    use crate::filter_token_parser::LogicalOperator::{AND, OR};
-    use crate::filter_token_parser::Token::{Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt, ValueString};
+    use crate::filter_ast::{ComparisonOperator, parse_expression_with_index, to_canonical_form, to_sql_form, Token, TokenParseError};
+    use crate::filter_ast::ComparisonOperator::LIKE;
+    use crate::filter_ast::LogicalOperator::{AND, OR};
+    use crate::filter_ast::Token::{Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt, ValueString};
 
     #[test]
     pub fn parse_token_test() {

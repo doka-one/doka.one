@@ -23,8 +23,8 @@ use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters, SimpleMessage, WebType, WebTypeBuilder};
 use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
-use crate::filter_lexem_parser::lex;
-use crate::filter_token_parser::{FilterExpression, parse_expression, to_sql_form};
+use crate::filter_lexer::lex;
+use crate::filter_ast::{FilterExpressionAST, parse_expression, to_sql_form};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -35,9 +35,9 @@ mod tag;
 mod fulltext;
 mod ft_tokenizer;
 mod language;
-mod filter_token_parser;
+mod filter_ast;
 mod char_lib;
-mod filter_lexem_parser;
+mod filter_lexer;
 
 
 ///  deprecated

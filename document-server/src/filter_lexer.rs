@@ -1,8 +1,8 @@
 use unicode_segmentation::UnicodeSegmentation;
-use crate::filter_lexem_parser::StreamMode::{Free, PendingAttribute, PendingOperator, PendingValue};
-use crate::filter_token_parser::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
-use crate::filter_token_parser::{LogicalOperator, Token};
-use crate::filter_token_parser::Token::BinaryLogicalOperator;
+use crate::filter_lexer::StreamMode::{Free, PendingAttribute, PendingOperator, PendingValue};
+use crate::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
+use crate::filter_ast::{LogicalOperator, Token};
+use crate::filter_ast::Token::BinaryLogicalOperator;
 
 enum StreamMode {
     Free,
@@ -155,96 +155,14 @@ pub (crate) fn lex(input: &str) -> Vec<Token> {
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter_lexem_parser::{lex};
-    use crate::filter_token_parser::{ComparisonOperator, LogicalOperator, parse_expression, to_canonical_form, to_sql_form, Token};
-
-    // /// OK
-    // #[test]
-    // pub fn parse_token_1() {
-    //     let input = "( attribut2 EQ \"你好\" )";
-    //     let tokens = lex(input);
-    //     for token in &tokens {
-    //         println!("TOKEN : {:?}", token);
-    //     }
-    //     let exp= parse_expression(&tokens).unwrap();
-    //     let s = to_canonical_form(&exp).unwrap();
-    //     println!("{:?}", s);
-    // }
-    //
-    // /// OK
-    // #[test]
-    // pub fn parse_token_3() {
-    //     let input = "{{(attribut1 GT 10 ) AND ( attribut2 EQ \"你好\" )} OR ( attribut3 LIKE \"den%\" )}";
-    //     let tokens = lex(input);
-    //     for token in &tokens {
-    //         println!("TOKEN : {:?}", token);
-    //     }
-    //     let exp= parse_expression(&tokens).unwrap();
-    //     let s = to_canonical_form(&exp).unwrap();
-    //     println!("{:?}", s);
-    // }
-    //
-    // /// Many "AND"
-    // #[test]
-    // pub fn parse_token_4() {
-    //     let input = "{ (attribut1 GT 10 ) AND ( attribut2 EQ \"你好\" ) AND ( attribut3 LIKE \"den%\" )}";
-    //     let tokens = lex(input);
-    //     for token in &tokens {
-    //         println!("TOKEN : {:?}", token);
-    //     }
-    //     let exp= parse_expression(&tokens).unwrap();
-    //     let s = to_canonical_form(&exp).unwrap();
-    //     println!("{:?}", s);
-    // }
-
-    ///
-    #[test]
-    pub fn parse_token_new_form_1() {
-        let input = "(attribut1 => 10 ) AND (( attribut2 == \"你好\" ) OR ( attribut3 LIKE \"den%\" ))";
-        let tokens = lex(input);
-        for token in &tokens {
-            println!("TOKEN : {:?}", token);
-        }
-        let exp= parse_expression(&tokens).unwrap();
-        let s = to_canonical_form(&exp).unwrap();
-        println!("{:?}", s);
-    }
-
-    /// Grouping with "()"
-    #[test]
-    pub fn parse_token_new_form_2() {
-        let input = "((attribut1 =< 10 ) AND ( attribut2 != \"你好\" )) OR ( attribut3 LIKE \"den%\" )";
-        let tokens = lex(input);
-        for token in &tokens {
-            println!("TOKEN : {:?}", token);
-        }
-        let exp = parse_expression(&tokens).unwrap();
-        let s = to_canonical_form(&exp).unwrap();
-        println!("{:?}", s);
-    }
-
-    /// triple conditions
-    #[test]
-    pub fn parse_token_fail_1() {
-        let input = "(attribut1 > 10) AND ( attribut2 == \"你好\" ) OR ( attribut3 LIKE \"den%\" )";
-        let tokens = lex(input);
-        for token in &tokens {
-            println!("TOKEN : {:?}", token);
-        }
-        let exp = parse_expression(&tokens).unwrap();
-        let s = to_canonical_form(&exp).unwrap();
-        println!("{:?}", s);
-    }
+    use crate::filter_lexer::{lex};
+    use crate::filter_ast::{ComparisonOperator, LogicalOperator, parse_expression, to_canonical_form, to_sql_form, Token};
 
 
     #[test]
-    pub fn parse_token_test_1() {
-        let input = r#"(attribut1 > 10 )"#;
+    pub fn parse_token_simple() {
+        let input = "(attribut1 > 10 )";
         let tokens = lex(input);
-
-        // for token in &tokens {
-        //     println!("{:?}", token);
-        // }
 
         let expected: Vec<Token> = vec![
             Token::LogicalOpen,
@@ -258,16 +176,10 @@ mod tests {
         assert_eq!(expected, tokens);
     }
 
-
     #[test]
-    pub fn parse_token_test_2() {
-        let input = r#"((attribut1 > 10 ) AND ( attribut2 == "你好" )) OR ( attribut3 LIKE "den%" )"#;
-
+    pub fn parse_token_two_level() {
+        let input = "((attribut1 > 10 ) AND ( attribut2 == \"你好\" )) OR ( attribut3 LIKE \"den%\" )";
         let tokens = lex(input);
-
-        // for token in &tokens {
-        //     println!("{:?}", token);
-        // }
 
         let expected: Vec<Token> = vec![
             Token::LogicalOpen,
@@ -282,7 +194,7 @@ mod tests {
             Token::Attribute("attribut2".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueString("你好".to_string()),
-            Token:: ConditionClose,
+            Token::ConditionClose,
             Token::LogicalClose,
             Token::BinaryLogicalOperator(LogicalOperator::OR),
             Token::ConditionOpen,
@@ -296,15 +208,99 @@ mod tests {
     }
 
     #[test]
-    pub fn parse_token_fail_2() {
-        let input = "attribut1 <= 10)";
+    pub fn parse_token_two_level_2() {
+        let input = "(attribut1 => 10 ) AND (( attribut2 == \"你好\" ) OR ( attribut3 LIKE \"den%\" ))";
         let tokens = lex(input);
-        for token in &tokens {
-            println!("TOKEN : {:?}", token);
-        }
-        let exp = parse_expression(&tokens).unwrap();
-        let s = to_canonical_form(&exp).unwrap();
-        println!("{:?}", s);
+        let expected: Vec<Token> = vec![
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("attribut1".to_string()),
+            Token::Operator(ComparisonOperator::GT),
+            Token::ValueInt(10),
+            Token::ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("attribut2".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueString("你好".to_string()),
+            Token:: ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+            Token::ConditionOpen,
+            Token:: Attribute("attribut3".to_string()),
+            Token::Operator(ComparisonOperator::LIKE),
+            Token::ValueString("den%".to_string()),
+            Token::ConditionClose,
+            Token::LogicalClose,
+            Token::LogicalClose
+        ];
+        assert_ne!(expected, tokens);
     }
 
+    #[test]
+    pub fn parse_token_three_levels() {
+        let input = "((AA => 10) AND ((DD == 6) OR ( BB == 5 ))) OR ( CC == 4 )";
+        let tokens = lex(input);
+        let expected: Vec<Token> = vec![
+            Token::LogicalOpen,
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("AA".to_string()),
+            Token::Operator(ComparisonOperator::GTE),
+            Token::ValueInt(10),
+            Token::ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("DD".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(6),
+            Token:: ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+            Token::ConditionOpen,
+            Token:: Attribute("BB".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(5),
+            Token::ConditionClose,
+            Token::LogicalClose,
+            Token::LogicalClose,
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+            Token::ConditionOpen,
+            Token:: Attribute("CC".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(4),
+            Token::ConditionClose,
+            Token::LogicalClose,
+        ];
+        assert_ne!(expected, tokens);
+    }
+
+    /// triple conditions without group - fail because we don't support chained conditions without parenthesis
+    #[test]
+    pub fn parse_token_triple_fail() {
+        let input = "(attribut1 > 10) AND ( attribut2 == \"你好\" ) OR ( attribut3 LIKE \"den%\" )";
+        let tokens = lex(input);
+        let expected: Vec<Token> = vec![
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("attribut1".to_string()),
+            Token::Operator(ComparisonOperator::GT),
+            Token::ValueInt(10), // will be missing
+            Token::ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+            Token::ConditionOpen,
+            Token::Attribute("attribut2".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueString("你好".to_string()),
+            Token:: ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+            Token::ConditionOpen,
+            Token:: Attribute("attribut3".to_string()),
+            Token::Operator(ComparisonOperator::LIKE),
+            Token::ValueString("den%".to_string()),
+            Token::ConditionClose,
+            Token::LogicalClose
+        ];
+        assert_ne!(expected, tokens);
+    }
 }

@@ -33,4 +33,3 @@ echo *****************************
 echo ***** TIKA SERVER *******
 echo *****************************
 start "tika-server" java -jar %DOKA_PRJ_FOLDER%\tika\tika-server-standard-2.2.0.jar --port 40010
-

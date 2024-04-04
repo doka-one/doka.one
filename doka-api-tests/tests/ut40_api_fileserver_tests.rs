@@ -7,7 +7,7 @@ mod api_fileserver_tests {
     use core::time::Duration;
     use std::thread;
 
-    use dkdto::{ErrorMessage, LoginRequest};
+    use dkdto::{ErrorMessage};
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
 
     use crate::test_lib::{get_login_request, Lookup};

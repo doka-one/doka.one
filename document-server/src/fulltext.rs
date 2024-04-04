@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use log::*;
 use rocket::http::Status;
 use rocket_contrib::json::Json;
+use serde::de::DeserializeOwned;
 
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction};
@@ -11,10 +12,11 @@ use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
+use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::{DeleteFullTextRequest, ErrorSet, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use doka_cli::request_client::{TikaServerClient, TokenType};
 
@@ -37,20 +39,29 @@ impl FullTextDelegate {
         }
     }
 
+    fn web_type_error<T>() -> impl Fn(ErrorSet<'static>) -> WebType<T>  where T : DeserializeOwned {
+        |e| {
+            log_error!("💣 Error after try {:?}", e);
+            WebType::from_errorset(e)
+        }
+    }
+
     /// ✨ Delete the information linked to the document full text indexing information
     /// Service called from the file-server
     pub fn delete_text_indexing(mut self, delete_text_request: Json<DeleteFullTextRequest>) -> WebType<SimpleMessage> {
         log_info!("🚀 Start delete_text_indexing api, follower=[{}]", &self.follower);
 
-        let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
-            Ok(es) => { es.customer_code }
-            Err(e) => {
-                return WebType::from_errorset(e);
-            }
-        };
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
+
+        // let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
+        //     Ok(es) => { es.customer_code }
+        //     Err(e) => {
+        //         return WebType::from_errorset(e);
+        //     }
+        // };
 
         // Delete all the document related to the file reference
-        let _ = self.delete_document(&delete_text_request.file_ref, &customer_code);
+        let _ = self.delete_document(&delete_text_request.file_ref, &entry_session.customer_code);
 
         log_info!("😎 Deleted the document part entries, follower=[{}]", &self.follower);
         log_info!("🏁 End delete_text_indexing api, follower=[{}]", &self.follower);
@@ -84,14 +95,9 @@ impl FullTextDelegate {
 
         log_info!("🚀 Start fulltext_indexing api, follower=[{}]", &self.follower);
 
-        let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
-            Ok(es) => { es.customer_code }
-            Err(e) => {
-                return WebType::from_errorset(e);
-            }
-        };
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
 
-        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
+        let Ok(customer_key) = fetch_customer_key(&entry_session.customer_code, &self.follower)
                                                     .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower)) else {
             return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };
@@ -103,7 +109,7 @@ impl FullTextDelegate {
         };
 
         // Generate the FT index and create an entry in the "document" table
-        let Ok(part_count)  = self.indexing(&mut trans, &raw_text_request, customer_code, &customer_key)
+        let Ok(part_count)  = self.indexing(&mut trans, &raw_text_request, &entry_session.customer_code, &customer_key)
                             .map_err(err_fwd!("💣 Indexing process failed, follower=[{}]", &self.follower)) else {
             return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
         };

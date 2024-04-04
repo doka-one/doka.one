@@ -47,7 +47,6 @@ impl LoginDelegate {
 
         let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY)
             .map_err(err_fwd!("💣 Cannot read the cek, follower=[{}]", &self.follower)) else {
-            // return Json(LoginReply::invalid_common_edible_key());
             return WebType::from_errorset(INVALID_CEK);
         };
 

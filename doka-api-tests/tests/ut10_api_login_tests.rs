@@ -41,7 +41,6 @@ pub mod api_login_tests {
         };
         let login_reply = admin_server.login(&login_request);
 
-        // close_test("t20_login_fail", TEST_TO_RUN);
         assert_eq!(true, login_reply.is_err());
 
         let http_code = login_reply.err().unwrap().http_error_code;

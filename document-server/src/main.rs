@@ -2,6 +2,7 @@
 #![feature(try_trait_v2)]
 
 
+use std::ops::Deref;
 use std::path::Path;
 use std::process::exit;
 
@@ -20,7 +21,10 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
+use crate::filter_lexem_parser::lex;
+use crate::filter_token_parser::{FilterExpression, parse_expression, to_sql_form};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -31,9 +35,12 @@ mod tag;
 mod fulltext;
 mod ft_tokenizer;
 mod language;
+mod filter_token_parser;
+mod char_lib;
+mod filter_lexem_parser;
 
 
-///
+///  deprecated
 /// ✨ Find all the items at page [start_page]
 /// **NORM
 ///
@@ -43,6 +50,30 @@ pub fn get_all_item(start_page : Option<u32>, page_size : Option<u32>, session_t
     delegate.get_all_item(start_page, page_size)
 }
 
+///
+/// ✨ Find all the items at page [start_page]
+/// **NORM
+///
+#[get("/search?<start_page>&<page_size>&<filters>")]
+pub fn search_item(start_page : Option<u32>, page_size : Option<u32>, filters: QueryFilters, session_token: SessionToken) -> WebType<GetItemReply> {
+    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+
+    delegate.search_item(start_page, page_size, filters)
+
+    //dbg!(&filters);s
+    // let lexems = filter_lexem_parser::lex(&filters.0);
+    // let filter_tokens : Box<FilterExpression> = parse_expression(&lexems).unwrap();
+    //
+    // // Verify the the attributes are existing tag in doka and the type complies with the filter condition
+    //
+    //
+    //
+    //
+    // let s = to_sql_form(&filter_tokens.deref()).unwrap();
+    //
+    // println!("sql = {:}", &s);
+    // WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+}
 
 ///
 /// ✨  Find a item from its item id
@@ -210,6 +241,7 @@ fn main() {
     let _ = rocket::custom(my_config)
         .mount(&base_url, routes![
             get_all_item,
+            search_item,
             get_item,
             add_item,
             update_item_tag,

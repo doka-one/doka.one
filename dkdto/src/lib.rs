@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rocket::http::{ContentType, RawStr, Status};
-use rocket::request::FromFormValue;
+use rocket::request::{FromFormValue};
 use rocket::response::status::Custom;
 use rocket_contrib::json::Json;
 use rocket_okapi::JsonSchema;
@@ -365,6 +365,26 @@ impl<'v> FromFormValue<'v> for DeleteTagsRequest {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct FilterCondition {
+    pub tag : String,
+    pub op: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct QueryFilters(pub String);
+
+impl<'v> FromFormValue<'v> for QueryFilters {
+    type Error = &'v RawStr;
+
+    fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
+        // TODO : We could do a base64url decoding instead ....
+        let s=  form_value.percent_decode().unwrap().to_string();
+        dbg!(&s);
+        Ok(QueryFilters(s))
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct AddItemReply {
@@ -501,6 +521,11 @@ pub struct GetFileInfoReply {
     pub is_encrypted: bool,
     pub is_fulltext_parsed: Option<bool>,
     pub is_preview_generated: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct ListOfFileInfoReply {
+    pub list_of_files : Vec<GetFileInfoReply>
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]

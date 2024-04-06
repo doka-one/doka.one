@@ -1,8 +1,10 @@
-use unicode_segmentation::UnicodeSegmentation;
+use std::cell::RefCell;
+use log::info;
+use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 use crate::filter_lexer::StreamMode::{Free, PendingAttribute, PendingOperator, PendingValue};
 use crate::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
 use crate::filter_ast::{LogicalOperator, Token};
-use crate::filter_ast::Token::BinaryLogicalOperator;
+use crate::filter_ast::Token::{BinaryLogicalOperator, ConditionClose, Ignore, LogicalClose, LogicalOpen};
 
 enum StreamMode {
     Free,
@@ -21,6 +23,110 @@ const LOP_AND : &str = "AND";
 const LOP_OR : &str = "OR";
 const FOP_EQ: &str = "EQ";
 
+/**
+REF_TAG : Parsing doka search expressions.md
+*/
+
+pub (crate) fn lex3(input: &str) -> Vec<Token> {
+    let closed_input = format!("({})", input); // Encapsulate the conditions in a root ()
+
+    let mut input_chars: Vec<char> = vec![];
+    for g in UnicodeSegmentation::graphemes(closed_input.as_str(), true) {
+        match g.chars().next() {
+            Some(c) => {
+                input_chars.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    dbg!(&input_chars);
+
+    // let mut grapheme_iterator = UnicodeSegmentation::graphemes(closed_input.as_str(), true);
+    let index = RefCell::new(0usize);
+    let tokens = lex_index(&index, &input_chars);
+    tokens
+}
+
+enum LexerParsingMode {
+    Logical,
+    Conditional,
+}
+
+fn lex_index(index: &RefCell<usize>, mut input_chars: &Vec<char>) -> Vec<Token> {
+    let mut tokens: Vec<Token> = vec![];
+    let mut lexer_mode: LexerParsingMode = LexerParsingMode::Logical;
+    let mut attribute: String = String::new();
+    let mut lexem: String = String::new();
+
+    tokens.push(LogicalOpen);
+
+    println!("New start {}", *index.borrow());
+
+    loop {
+        *index.borrow_mut() += 1;
+        println!("Position {}", *index.borrow());
+        let grapheme_at_index = match input_chars.get(*index.borrow()) {
+            None => {
+                println!("No more characters");
+                break;
+            }
+            Some(value) => {value}
+        };
+
+        println!("Graphem: {}", &grapheme_at_index);
+
+        match grapheme_at_index {
+            '(' => {
+                println!("Opening parenthesis");
+                lexer_mode = LexerParsingMode::Logical;
+                let sub_tokens = lex_index(&index, &mut input_chars);
+                println!("Sub token: {:?}", &sub_tokens);
+                tokens.extend(sub_tokens);
+            }
+            ')' => {
+                println!("Closing parenthesis");
+                break; // Out of the routine
+            }
+            ' ' => {
+                println!("Blank space");
+                //add_attribute(&mut attribute, &mut tokens);
+                tokens.push(Ignore);
+            }
+            c => {
+                println!("Char {}", &c);
+                // We found some text in the
+                // lexer_mode = LexerParsingMode::Conditional;
+                lexem.push(*c);
+            }
+            _ => {
+                println!("Other");
+            }
+        }
+
+    }
+
+    match lexer_mode {
+        LexerParsingMode::Logical => {
+            tokens.push(LogicalClose)
+        }
+        LexerParsingMode::Conditional => {
+            tokens.push(ConditionClose)
+        }
+    }
+
+    tokens
+}
+
+
+fn add_attribute(attr: &mut String, tokens: &mut Vec<Token>) {
+    if ! attr.is_empty() {
+        attr.clear();
+        tokens.push(Token::Attribute(attr.clone()));
+    } else {
+        tokens.push(Token::Ignore)
+    }
+}
 
 pub (crate) fn lex(input: &str) -> Vec<Token> {
     let mut stream_mode: StreamMode = StreamMode::Free;
@@ -155,8 +261,47 @@ pub (crate) fn lex(input: &str) -> Vec<Token> {
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter_lexer::{lex};
-    use crate::filter_ast::{ComparisonOperator, LogicalOperator, parse_expression, to_canonical_form, to_sql_form, Token};
+    use crate::filter_lexer::{lex, lex3};
+    use crate::filter_ast::{ComparisonOperator, LogicalOperator, Token};
+
+
+    #[test]
+    pub fn v3_parse() {
+        let input = "(AA => 10) AND (CC == \"üü\")";
+        let tokens = lex3(input);
+        let expected: Vec<Token> = vec![
+            Token::LogicalOpen,
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("AA".to_string()),
+            Token::Operator(ComparisonOperator::GTE),
+            Token::ValueInt(10),
+            Token::ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("DD".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(6),
+            Token:: ConditionClose,
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+            Token::ConditionOpen,
+            Token:: Attribute("BB".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(5),
+            Token::ConditionClose,
+            Token::LogicalClose,
+            Token::LogicalClose,
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+            Token::ConditionOpen,
+            Token:: Attribute("CC".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(4),
+            Token::ConditionClose,
+            Token::LogicalClose,
+        ];
+        assert_eq!(expected, tokens);
+    }
 
 
     #[test]

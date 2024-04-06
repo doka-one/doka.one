@@ -101,6 +101,10 @@ pub(crate) enum TokenParseError {
     ClosingExpected((usize, Option<Token>)),
 }
 
+/**
+REF_TAG : Parsing doka search expressions.md
+ */
+
 pub (crate) fn to_canonical_form(filter_expression : &FilterExpressionAST) -> Result<String, TokenParseError> {
     let mut content : String = String::from("");
     match filter_expression {
@@ -340,48 +344,9 @@ fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<Filte
     }
 }
 
-/*
-
-0 1 2   3         4  5  6 7   8 9         10 11        12    13    14    15    16        17   18     19    20
-( ( (   attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )     )     OR    (     attribut3 LIKE "den%" )     )
 
 
-EXPRESSION ::=  CONDITION | LOGICAL_EXP
-CONDITION ::= C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
-LOGICAL_EXP ::=  L_OPEN  EXPRESSION LOP EXPRESSION L_CLOSE
 
-C_OPEN ::= "("
-C_CLOSE ::= ")"
-L_OPEN ::= "("
-L_CLOSE ::= ")"
-LOP ::= AND | OR
-FOP ::= GT | EQ | LT | LIKE
-
-parse expression
-    // A expression is either a logical (meaning there is logical op in the middle) or a condition (three terms with a filter op)
-    Open
-        // We open a parenthésis it means it's a logical
-        token next // -1 => 0
-        parse logical
-    LogicalOp
-        incorrect
-    Close
-        incorrect // the logical parsing take care of the closing parenthesis
-    Attribute
-        parse condition
-    CompOp
-        incorrect
-    Value
-        incorrect
-
- parse logical
-     left = parse expression
-     lecture de l'operateur de comparaison  -> op
-     right = parse expression
-     build FilterExpression::Comparison
-     token next // closing parenth
-
- */
 
 
 #[cfg(test)]

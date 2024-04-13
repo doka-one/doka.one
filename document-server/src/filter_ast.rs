@@ -5,6 +5,12 @@ use std::ops::Add;
 use log::warn;
 use crate::filter_ast::FilterValue::{ValueInt, ValueString};
 
+const COND_OPEN: &str = "[";
+const COND_CLOSE: &str = "]";
+const LOGICAL_OPEN: &str = "(";
+const LOGICAL_CLOSE: &str = ")";
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ComparisonOperator {
     EQ,
@@ -67,10 +73,7 @@ pub(crate) enum FilterExpressionAST {
         value: FilterValue,
     },
     Logical {
-        // TODO replace left and right with a list of Box<FilterExpression>
-        // left: Box<FilterExpression>,
         operator: LogicalOperator,
-        // right: Box<FilterExpression>,
         leaves: Vec<Box<FilterExpressionAST>>,
     },
 }
@@ -88,7 +91,7 @@ pub(crate) enum Token {
     ConditionClose, // )
     LogicalOpen, // {
     LogicalClose, // }
-    Ignore,
+    // Ignore,
 }
 
 #[derive(Debug)]
@@ -109,11 +112,11 @@ pub (crate) fn to_canonical_form(filter_expression : &FilterExpressionAST) -> Re
     let mut content : String = String::from("");
     match filter_expression {
         FilterExpressionAST::Condition { attribute, operator, value } => {
-            let s = format!("({}<{:?}>{})", attribute, operator, value);
+            let s = format!("{}{}<{:?}>{}{}", COND_OPEN, attribute, operator, value, COND_CLOSE);
             content.push_str(&s);
         }
         FilterExpressionAST::Logical {  operator, leaves } => {
-            content.push_str("{");
+            content.push_str(LOGICAL_OPEN);
 
             for (i,l) in leaves.iter().enumerate() {
                 let r_leaf_content = to_canonical_form(l);
@@ -124,7 +127,7 @@ pub (crate) fn to_canonical_form(filter_expression : &FilterExpressionAST) -> Re
                     content.push_str(&format!("{:?}", &operator));
                 }
             }
-            content.push_str("}");
+            content.push_str(LOGICAL_CLOSE);
         }
     }
     Ok(content)
@@ -344,11 +347,6 @@ fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<Filte
     }
 }
 
-
-
-
-
-
 #[cfg(test)]
 mod tests {
 
@@ -356,10 +354,66 @@ mod tests {
 
     use std::cell::RefCell;
 
-    use crate::filter_ast::{ComparisonOperator, parse_expression_with_index, to_canonical_form, to_sql_form, Token, TokenParseError};
+    use crate::filter_ast::{ComparisonOperator, parse_expression, parse_expression_with_index, to_canonical_form, to_sql_form, Token, TokenParseError};
     use crate::filter_ast::ComparisonOperator::LIKE;
     use crate::filter_ast::LogicalOperator::{AND, OR};
     use crate::filter_ast::Token::{Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt, ValueString};
+    use crate::filter_lexer::lex3;
+    use crate::filter_normalizer::normalize_lexeme;
+
+
+    #[test]
+    pub fn global_test_1() {
+        // TODO we can move those tests in the file where the global routine will be implemented
+        let input = "(age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_2() {
+        // TODO we can move those tests in the file where the global routine will be implemented
+        let input = "(age < 40) OR (age > 21) AND (detail == 6)";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "([age<LT>40]OR([age<GT>21]AND[detail<EQ>6]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_3() {
+        // TODO we can move those tests in the file where the global routine will be implemented
+        let input = "((age < 40) OR (age > 21)) AND (detail == 6)";
+        // let input = "(age < 40 OR age > 21) AND (detail == 6)";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+        println!("norm {:?}", &tokens);
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "(([age<LT>40]OR[age<GT>21])AND[detail<EQ>6])";
+        // let expected = "([age<LT>40]AND[detail<EQ>6])";
+        assert_eq!(expected, s.unwrap());
+    }
 
     #[test]
     pub fn parse_token_test() {
@@ -398,7 +452,7 @@ mod tests {
             },
         };
 
-        const EXPECTED : &str = "{{(attribut1<GT>10)AND(attribut2<EQ>\"\nbonjour\n\")}OR(attribut3<LIKE>\"den%\")}";
+        const EXPECTED : &str = "(([attribut1<GT>10]AND[attribut2<EQ>\"\nbonjour\n\"])OR[attribut3<LIKE>\"den%\"])";
         assert_eq!(EXPECTED, canonical);
     }
 
@@ -425,9 +479,43 @@ mod tests {
             },
         };
 
-        const EXPECTED : &str = "(A<LIKE>10)";
+        const EXPECTED : &str = "[A<LIKE>10]";
         assert_eq!(EXPECTED, canonical);
     }
+
+    #[test]
+    pub fn parse_token_test_22() {
+        // ([A LIKE 10] OR [B LIKE 10])
+        let tokens = vec![
+            LogicalOpen,
+            ConditionOpen,
+            Attribute(String::from("A")),
+            Operator(ComparisonOperator::LIKE),
+            ValueInt(10),
+            ConditionClose,
+            BinaryLogicalOperator(OR),
+            ConditionOpen,
+            Attribute(String::from("B")),
+            Operator(ComparisonOperator::LIKE),
+            ValueInt(10),
+            ConditionClose,
+            LogicalClose
+        ];
+        let index = RefCell::new(0usize);
+
+        let canonical = match parse_expression_with_index(&tokens, &index) {
+            Ok(expression) => {
+                to_canonical_form(&expression).unwrap()
+            },
+            Err(err) => {
+                println!("Error: {:?}", err);
+                panic!()
+            },
+        };
+        const EXPECTED : &str = "([A<LIKE>10]OR[B<LIKE>10])";
+        assert_eq!(EXPECTED, canonical);
+    }
+
 
     #[test]
     pub fn parse_token_test_3() {
@@ -476,7 +564,65 @@ mod tests {
             },
         };
 
-        const EXPECTED : &str = "{{(A<LIKE>10)OR(B<EQ>45)}AND{(K<EQ>\"victory\")OR(K<LT>12)}}";
+        const EXPECTED : &str = "(([A<LIKE>10]OR[B<EQ>45])AND([K<EQ>\"victory\"]OR[K<LT>12]))";
+        assert_eq!(EXPECTED, canonical);
+    }
+
+    #[test]
+    pub fn parse_token_test_4() {
+        // "(   [AA => 10]
+        //          AND
+        //      (
+        //         ([DD == 6] OR [BB == 5])
+        //         OR
+        //         [CC == 4]
+        //      )
+        //  )"
+        let tokens = vec![
+            LogicalOpen,
+            ConditionOpen,
+            Attribute(String::from("AA")),
+            Operator(ComparisonOperator::GTE),
+            ValueInt(10),
+            ConditionClose,
+            BinaryLogicalOperator(AND),
+            LogicalOpen,
+            LogicalOpen,
+            ConditionOpen,
+            Attribute(String::from("DD")),
+            Operator(ComparisonOperator::EQ),
+            ValueInt(6),
+            ConditionClose,
+            BinaryLogicalOperator(OR),
+            ConditionOpen,
+            Attribute(String::from("BB")),
+            Operator(ComparisonOperator::EQ),
+            ValueInt(5),
+            ConditionClose,
+            LogicalClose,
+            BinaryLogicalOperator(OR),
+            ConditionOpen,
+            Attribute(String::from("CC")),
+            Operator(ComparisonOperator::EQ),
+            ValueInt(4),
+            ConditionClose,
+            LogicalClose,
+            LogicalClose
+        ];
+        let index = RefCell::new(0usize);
+
+        let canonical = match parse_expression_with_index(&tokens, &index) {
+            Ok(expression) => {
+                // println!("Result = {:?}", expression);
+                to_canonical_form(&expression).unwrap()
+            },
+            Err(err) => {
+                println!("Error: {:?}", err);
+                panic!()
+            },
+        };
+
+        const EXPECTED : &str = "([AA<GTE>10]AND(([DD<EQ>6]OR[BB<EQ>5])OR[CC<EQ>4]))";
         assert_eq!(EXPECTED, canonical);
     }
 

@@ -48,7 +48,7 @@ impl ItemDelegate {
 
         let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
 
-        let lexems = filter_lexer::lex(&filters.0);
+        let lexems = filter_lexer::lex3(&filters.0);
         let filter_tokens : Box<FilterExpressionAST> = parse_expression(&lexems).unwrap();
 
         // Verify the the attributes are existing tag in doka and the type complies with the filter condition

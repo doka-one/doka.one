@@ -642,6 +642,73 @@ mod tests {
     }
 
     #[test]
+    // "([age < 40] OR [denis < 5] AND [age > 21])";
+    // will give ([age < 40] OR ([denis < 5] AND [age > 21]))
+    pub fn normalize_n3_test_5() {
+        let mut tokens = vec![
+            Token::LogicalOpen,
+
+            Token::ConditionOpen,
+            Token::Attribute("age".to_string()),
+            Token::Operator(ComparisonOperator::LT),
+            Token::ValueInt(40),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+
+            Token::ConditionOpen,
+            Token::Attribute("denis".to_string()),
+            Token::Operator(ComparisonOperator::LT),
+            Token::ValueInt(5),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+
+            Token::ConditionOpen,
+            Token::Attribute("age".to_string()),
+            Token::Operator(ComparisonOperator::GT),
+            Token::ValueInt(21),
+            Token::ConditionClose,
+
+            Token::LogicalClose,
+        ];
+
+        n3_binary_logical_operator(&mut tokens);
+
+        let expected = vec![
+            Token::LogicalOpen,
+
+            Token::ConditionOpen,
+            Token::Attribute("age".to_string()),
+            Token::Operator(ComparisonOperator::LT),
+            Token::ValueInt(40),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+
+            Token::LogicalOpen,
+            Token::ConditionOpen,
+            Token::Attribute("denis".to_string()),
+            Token::Operator(ComparisonOperator::LT),
+            Token::ValueInt(5),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+
+            Token::ConditionOpen,
+            Token::Attribute("age".to_string()),
+            Token::Operator(ComparisonOperator::GT),
+            Token::ValueInt(21),
+            Token::ConditionClose,
+            Token::LogicalClose,
+
+            Token::LogicalClose,
+        ];
+        assert_eq!(expected, tokens);
+    }
+
+
+    #[test]
     pub fn normalize_n2() {
         let mut tokens = vec![
             Token::LogicalOpen,

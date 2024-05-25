@@ -53,13 +53,6 @@ impl FullTextDelegate {
 
         let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower), Self::web_type_error());
 
-        // let customer_code = & match valid_sid_get_session(&self.session_token, &mut self.follower) {
-        //     Ok(es) => { es.customer_code }
-        //     Err(e) => {
-        //         return WebType::from_errorset(e);
-        //     }
-        // };
-
         // Delete all the document related to the file reference
         let _ = self.delete_document(&delete_text_request.file_ref, &entry_session.customer_code);
 

@@ -1,4 +1,3 @@
-
 use crate::filter_ast::{LogicalOperator, Token};
 
 ///
@@ -213,12 +212,12 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
 
                 let is_logical_opening = check_logical_delimiter(&tokens, pre_position as usize, Token::LogicalOpen);
                 let op_t: Option<&Token> = tokens.get((position_counter+1) as usize);
-                let is_operator = match op_t {
+                let _is_operator = match op_t {
                     None => {
                         // TODO send error
                         false
                     }
-                    Some(t) => {
+                    Some(_t) => {
                         true
                         // if let TokenOperator(tt) == t {
                         //     true
@@ -229,7 +228,7 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
                 };
 
                 let op_t: Option<&Token> = tokens.get((position_counter+2) as usize);
-                let is_value = match op_t {
+                let _ = match op_t {
                     None => {
                         false
                     }
@@ -322,7 +321,7 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>)  {
         x: i32, // first opening of the couple
         y: i32, // second opening of the delta zero couple
         position: u32, // position of x opening
-    };
+    }
 
     let mut open_delta_zero : Vec<PairPosition> = vec![];
     let mut depth: i32 = 0;

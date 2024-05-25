@@ -1,14 +1,19 @@
 use std::cell::RefCell;
 use std::fmt;
-use std::ops::Add;
 
 use log::warn;
+
 use crate::filter_ast::FilterValue::{ValueInt, ValueString};
 
+#[cfg(test)] 
 const COND_OPEN: &str = "[";
+#[cfg(test)] 
 const COND_CLOSE: &str = "]";
+#[cfg(test)] 
 const LOGICAL_OPEN: &str = "(";
+#[cfg(test)] 
 const LOGICAL_CLOSE: &str = ")";
+
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,7 +112,7 @@ pub(crate) enum TokenParseError {
 /**
 REF_TAG : Parsing doka search expressions.md
  */
-
+#[cfg(test)]
 pub (crate) fn to_canonical_form(filter_expression : &FilterExpressionAST) -> Result<String, TokenParseError> {
     let mut content : String = String::from("");
     match filter_expression {
@@ -354,13 +359,12 @@ mod tests {
 
     use std::cell::RefCell;
 
-    use crate::filter_ast::{ComparisonOperator, parse_expression, parse_expression_with_index, to_canonical_form, to_sql_form, Token, TokenParseError};
+    use crate::filter_ast::{ComparisonOperator, parse_expression, parse_expression_with_index, to_canonical_form, to_sql_form, TokenParseError};
     use crate::filter_ast::ComparisonOperator::LIKE;
     use crate::filter_ast::LogicalOperator::{AND, OR};
     use crate::filter_ast::Token::{Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt, ValueString};
     use crate::filter_lexer::lex3;
     use crate::filter_normalizer::normalize_lexeme;
-
 
     #[test]
     pub fn global_test_1() {

@@ -1,8 +1,6 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 #![feature(try_trait_v2)]
 
-
-use std::ops::Deref;
 use std::path::Path;
 use std::process::exit;
 
@@ -21,9 +19,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters, SimpleMessage, WebType, WebTypeBuilder};
-use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
-use crate::filter_ast::{FilterExpressionAST, parse_expression, to_sql_form};
+use dkdto::{ AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest, DeleteFullTextRequest, DeleteTagsRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, QueryFilters, SimpleMessage, WebType};
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
@@ -38,6 +34,7 @@ mod filter_ast;
 mod char_lib;
 mod filter_lexer;
 mod filter_normalizer;
+
 
 ///  deprecated
 /// ✨ Find all the items at page [start_page]
@@ -106,6 +103,7 @@ pub (crate) fn update_item_tag(item_id: i64,add_item_tag_request: Json<AddItemTa
     delegate.update_item_tag(item_id,add_item_tag_request)
 }
 
+
 ///
 /// ✨ Update tags on an existing item
 ///     Tags can be already existing in the system.
@@ -118,12 +116,14 @@ pub (crate) fn delete_item_tag(item_id: i64, tag_names: DeleteTagsRequest, sessi
     delegate.delete_item_tag(item_id, tag_names)
 }
 
+type Type = GetTagReply;
+
 ///
 /// ✨ Find all the existing tags by pages
 /// **NORM
 ///
 #[get("/tag?<start_page>&<page_size>")]
-pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> WebType<GetTagReply> {
+pub (crate) fn get_all_tag(start_page : Option<u32>, page_size : Option<u32>, session_token: SessionToken) -> WebType<Type> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_tag(start_page, page_size)
 }

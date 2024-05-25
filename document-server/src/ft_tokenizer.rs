@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use chrono::Utc;
-use log::{debug};
-
-use rayon::prelude::*;
+use log::debug;
 use rayon::iter::IntoParallelRefIterator;
+use rayon::prelude::*;
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
 use commons_error::*;
 use dkcrypto::dk_crypto::DkEncrypt;
+
 use crate::ft_tokenizer::WordType::WordToEncrypt;
 
 #[derive(Debug, Clone)]
@@ -341,15 +341,15 @@ fn encrypt_words(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) ->
 ///
 /// Unused
 ///
-fn encrypt_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
-    let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
-        .map(|(key, value)| {
-            let encrypted_value = DkEncrypt::encrypt_str(value, &customer_key)
-                .map_err( err_fwd!("Cannot encrypt the word: [{}]", value))?;
-            Ok((*key, encrypted_value))
-        }).collect();
-    encrypted_words
-}
+// fn encrypt_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
+//     let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
+//         .map(|(key, value)| {
+//             let encrypted_value = DkEncrypt::encrypt_str(value, &customer_key)
+//                 .map_err( err_fwd!("Cannot encrypt the word: [{}]", value))?;
+//             Ok((*key, encrypted_value))
+//         }).collect();
+//     encrypted_words
+// }
 
 fn hash_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
     let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
@@ -403,10 +403,11 @@ pub fn encrypt_tsvector(tsvector : &str, customer_key : &str) -> anyhow::Result<
 #[cfg(test)]
 mod file_server_test {
     use std::collections::HashMap;
-    use chrono::Utc;
-    use crate::char_lib::has_not_printable_char;
 
-    use crate::ft_tokenizer::{encrypt_tsvector, encrypt_words, encrypt_words_rayon, FTTokenizer};
+    use chrono::Utc;
+
+    use crate::char_lib::has_not_printable_char;
+    use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
 
     const KEY: &str = "fqYVyce-Nh0HwpPQ7ZGZLog5s7PBLnwFMAW2OMnNPUs";
 

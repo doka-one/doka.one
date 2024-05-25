@@ -1,18 +1,18 @@
 use std::cell::RefCell;
 
-use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::filter_ast::{LogicalOperator, Token};
 use crate::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
 use crate::filter_ast::Token::{LogicalClose, LogicalOpen};
 
-enum StreamMode {
-    Free,
-    PendingAttribute,
-    PendingOperator,
-    PendingValue,
-}
+// enum StreamMode {
+//     Free,
+//     PendingAttribute,
+//     PendingOperator,
+//     PendingValue,
+// }
 
 enum ExpressionExpectedLexeme {
     ExpressionOrCondition,
@@ -30,17 +30,17 @@ enum LopexpExpectedLexeme {
     ExpressionOrCondition,
 }
 
-enum ExpectedLexeme {
-    Expression,
-    Attribute,
-    FilterOperator,
-    Value,
-    LogicalOperator,
-}
+// enum ExpectedLexeme {
+//     Expression,
+//     Attribute,
+//     FilterOperator,
+//     Value,
+//     LogicalOperator,
+// }
 
 const LOP_AND : &str = "AND";
 const LOP_OR : &str = "OR";
-const LIST_OF_LOP: &[&str] = &[LOP_AND, LOP_OR];
+// const LIST_OF_LOP: &[&str] = &[LOP_AND, LOP_OR];
 
 const FOP_EQ: &str = "==";
 const FOP_NEQ: &str = "!=";
@@ -165,7 +165,7 @@ fn exp_lexer_index(index: &RefCell<usize>, mut input_chars: &Vec<char>, depth: u
 }
 
 /// Read a condition which is "COND ::= ATTR FOP VALUE"
-fn condition_lexer_index(index: &RefCell<usize>, mut input_chars: &Vec<char>, depth: u32) -> Vec<Token> {
+fn condition_lexer_index(index: &RefCell<usize>, input_chars: &Vec<char>, depth: u32) -> Vec<Token> {
     let mut tokens: Vec<Token> = vec![];
     let mut expected_lexeme: ConditionExpectedLexeme = ConditionExpectedLexeme::Attribute;
     let mut attribute: String = String::new();
@@ -350,7 +350,7 @@ fn read_char_at_index(index: &RefCell<usize>, input_chars: &Vec<char>, depth: u3
     }
 }
 
-fn create_fop(fop: &mut String, mut expected_lexeme: &mut ConditionExpectedLexeme, tokens: &mut Vec<Token>) {
+fn create_fop(fop: &mut String, expected_lexeme: &mut ConditionExpectedLexeme, tokens: &mut Vec<Token>) {
     if ! fop.is_empty() {
         let lexeme = match fop.as_ref() {
             FOP_EQ => Token::Operator(EQ),
@@ -368,7 +368,7 @@ fn create_fop(fop: &mut String, mut expected_lexeme: &mut ConditionExpectedLexem
     }
 }
 
-fn create_attribute(attribute: &mut String, mut expected_lexeme: &mut ConditionExpectedLexeme, tokens: &mut Vec<Token>) {
+fn create_attribute(attribute: &mut String, expected_lexeme: &mut ConditionExpectedLexeme, tokens: &mut Vec<Token>) {
     if ! attribute.is_empty() {
         tokens.push(Token::Attribute(attribute.clone()));
         attribute.clear();
@@ -398,8 +398,7 @@ mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
     use crate::filter_ast::{ComparisonOperator, LogicalOperator, Token};
-    use crate::filter_lexer::{lex3};
-
+    use crate::filter_lexer::lex3;
 
     // ok
     #[test]

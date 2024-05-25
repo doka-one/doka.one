@@ -21,7 +21,7 @@ use dkdto::error_codes::{BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE
 use doka_cli::request_client::TokenType;
 
 use crate::{filter_lexer, TagDelegate, WebType};
-use crate::filter_ast::{FilterExpressionAST, parse_expression, to_sql_form, TokenParseError};
+use crate::filter_ast::{FilterExpressionAST, parse_expression, to_sql_form};
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
@@ -140,7 +140,7 @@ impl ItemDelegate {
             }
         };
 
-        let mut params = HashMap::new();
+        let params = HashMap::new();
 
         let sql_query = format!( r"SELECT id, name, file_ref, created_gmt, last_modified_gmt
                     FROM cs_{0}.item INNER JOIN   cs_{0}.property prop
@@ -154,7 +154,7 @@ impl ItemDelegate {
             params,
         };
 
-        let mut sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
+        let mut _sql_result : SQLDataSet =  query.execute(&mut trans).map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
 
         Ok(vec![])
     }

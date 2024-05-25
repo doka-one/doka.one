@@ -355,7 +355,7 @@ fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<Filte
 #[cfg(test)]
 mod tests {
 
-    //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
+    //cargo test --color=always --bin document-server filter_ast::tests   -- --show-output
 
     use std::cell::RefCell;
 
@@ -368,7 +368,6 @@ mod tests {
 
     #[test]
     pub fn global_test_1() {
-        // TODO we can move those tests in the file where the global routine will be implemented
         let input = "(age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)";
         println!("Lexer...");
         let mut tokens = lex3(input);
@@ -385,8 +384,7 @@ mod tests {
 
     #[test]
     pub fn global_test_2() {
-        // TODO we can move those tests in the file where the global routine will be implemented
-        let input = "(age < 40) OR (age > 21) AND (detail == 6)";
+        let input = "(A < 40) OR (B > 21) AND (C == 6)";
         println!("Lexer...");
         let mut tokens = lex3(input);
 
@@ -396,15 +394,13 @@ mod tests {
         println!("Parsing...");
         let r = parse_expression(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
-        let expected = "([age<LT>40]OR([age<GT>21]AND[detail<EQ>6]))";
+        let expected = "([A<LT>40]OR([B<GT>21]AND[C<EQ>6]))";
         assert_eq!(expected, s.unwrap());
     }
 
     #[test]
     pub fn global_test_3() {
-        // TODO we can move those tests in the file where the global routine will be implemented
         let input = "((age < 40) OR (age > 21)) AND (detail == 6)";
-        // let input = "(age < 40 OR age > 21) AND (detail == 6)";
         println!("Lexer...");
         let mut tokens = lex3(input);
 
@@ -415,7 +411,86 @@ mod tests {
         let r = parse_expression(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "(([age<LT>40]OR[age<GT>21])AND[detail<EQ>6])";
-        // let expected = "([age<LT>40]AND[detail<EQ>6])";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_4() {
+        let input = "(A < 40) OR (B > 21) OR (C == 6)";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "(([A<LT>40]OR[B<GT>21])OR[C<EQ>6])";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_5() {
+        let input = "(age < 40 OR (   age > 21 AND detail == \"bonjour\"  )   )";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+        println!("norm {:?}", &tokens);
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "([age<LT>40]OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_6() {
+        let input = "age < 40 OR  birthdate >= \"2001-01-01\"  OR  age > 21 AND detail == \"bonjour\"  ";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+        println!("norm {:?}", &tokens);
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "(([age<LT>40]OR[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_7() {
+        let input = "age < 40 AND ( birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\"";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+        println!("norm {:?}", &tokens);
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "(([age<LT>40]AND[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_8() {
+        let input = " age < 40 AND (( limit == 5 OR birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\") ";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+        println!("norm {:?}", &tokens);
+        println!("Parsing...");
+        let r = parse_expression(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "([age<LT>40]AND(([limit<EQ>5]OR[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"])))";
         assert_eq!(expected, s.unwrap());
     }
 

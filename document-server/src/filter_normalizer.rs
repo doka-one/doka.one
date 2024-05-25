@@ -25,6 +25,7 @@ fn n3_binary_logical_operator(tokens: &mut Vec<Token>)  {
 fn n3_binary_logical_operator_for_op(tokens: &mut Vec<Token>, for_lop: LogicalOperator) {
     loop {
         let inserting = find_next_ajustable(tokens, &for_lop);
+        dbg!(&inserting);
         match inserting {
             None => {
                 break;
@@ -46,6 +47,8 @@ fn find_next_ajustable(tokens: &Vec<Token>, for_lop: &LogicalOperator) -> Option
                 match lop {
                     LogicalOperator::AND => {
                         if *for_lop == LogicalOperator::AND {
+                            dbg!(position_counter);
+                            dbg!(&tokens);
                             inserting = check_binary_logical_operator(&tokens, position_counter);
                             println!("Found a position for AND : {:?}", inserting);
                             if inserting.is_some() {
@@ -78,26 +81,42 @@ enum Direction {
 
 fn check_binary_logical_operator(tokens: &Vec<Token>, position_counter: u32) -> Option<(u32, u32)> {
     // Check forward
-    let left : Option<u32> = check_logical_one_direction(tokens, position_counter, Direction::Backward);
+    let left : CheckLogicalBoundary = check_logical_one_direction(tokens, position_counter, Direction::Backward);
     // Check backward
-    let right : Option<u32> = check_logical_one_direction(tokens, position_counter, Direction::Forward);
-
-    match (left, right) {
-        (None, None) => {
+    let right : CheckLogicalBoundary = check_logical_one_direction(tokens, position_counter, Direction::Forward);
+    match (left.boundary_type, right.boundary_type) {
+        (BoundaryType::WithLogical, BoundaryType::WithLogical) => {
+            // In case we found logical operators surrounding the AND/OR
             None
         }
-        (Some(l), Some(r)) => {
-           Some((l, r))
+        (_, _) => {
+            // In case either direction has no logical operator
+           Some((left.position, right.position))
         }
-        _ => {panic!("We must have a pair of LO/LC")}
+        //_ => {panic!("We must have a pair of LO/LC")}
     }
 }
 
-fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direction: Direction) -> Option<u32> {
+#[derive(Debug)]
+enum BoundaryType {
+    WithLogical,
+    WithoutLogical,
+}
+
+/// In the scope of the N3 norm, we try to find the LO/LC around the operators
+/// we find the boundaries for each directions, for example (7, WithoutLogical) and (18, WithLogical)
+#[derive(Debug)]
+struct CheckLogicalBoundary {
+    position: u32,
+    boundary_type: BoundaryType,
+}
+
+fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direction: Direction) -> CheckLogicalBoundary {
     let mut depth : i32 = 0;
     let mut index : i32 = position_counter as i32;
     let step: i32 = if direction == Direction::Backward { -1 } else { 1 };
-    let mut position: Option<u32> = None;
+    let mut position: u32 = index as u32;
+    let mut boundary_type = BoundaryType::WithoutLogical;
 
     loop {
         index += step;
@@ -105,9 +124,9 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
         if index < 0 {
             if direction == Direction::Backward {
                 // Correct the position in the array to be able to insert the ( at the right place
-                position = Some((index + 1) as u32);
+                position = (index + 1) as u32;
             } else {
-                position = Some(index as u32);
+                position = index as u32;
             }
             break; // end of the expression
         }
@@ -116,7 +135,7 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
 
         match t {
             None => {
-                position = Some(index as u32);
+                position = index as u32;
                 break; // end of the expression
             }
             Some(tt) => {
@@ -130,13 +149,14 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
                             // (count == 0  and lexeme is not LC/LO)
                             if depth == 0 &&  *next_t != Token::LogicalOpen {
                                 // Insert the ( _before_ the [
-                                position = Some(index as u32);
+                                position = index as u32;
                                 break;
                             }
 
                             // found an extra "(" that means we are ok in this direction
                             if depth == -1 {
-                                position = None;
+                                //position = None;
+                                boundary_type = BoundaryType::WithLogical;
                                 break;
                             }
                         }
@@ -150,13 +170,14 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
                         // (count == 0  and lexeme is not LC/LO)
                         if depth == 0 && direction == Direction::Forward &&  *next_t != Token::LogicalClose {
                             // Insert the ) _after_ the ]
-                            position = Some((index + 1) as u32);
+                            position = (index + 1) as u32;
                             break;
                         }
 
                         if direction == Direction::Forward {
                             if depth == -1 {
-                                position = None;
+                                // position = None;
+                                boundary_type = BoundaryType::WithLogical;
                                 break;
                             }
                         }
@@ -166,9 +187,14 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
                         let next_t = tokens.get((index-1) as usize).unwrap_or(&Token::LogicalClose);
 
                         // (count == 0  and lexeme is not LC/LO)
-                        if depth == 0 && direction == Direction::Backward &&  *next_t != Token::LogicalOpen {
+                        if depth == 0 && direction == Direction::Backward {
                             // Insert the ( _before_ the [
-                            position = Some(index as u32);
+                            position = index as u32;
+
+                            if *next_t == Token::LogicalOpen {
+                                boundary_type = BoundaryType::WithLogical;
+                            }
+
                             break;
                         }
                     }
@@ -176,9 +202,14 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
                         let next_t = tokens.get((index+1) as usize).unwrap_or(&Token::LogicalOpen);
 
                         // (count == 0  and lexeme is not LC/LO)
-                        if depth == 0 && direction == Direction::Forward &&  *next_t != Token::LogicalClose {
+                        if depth == 0 && direction == Direction::Forward  {
                             // Insert the ) _after_ the ]
-                            position = Some((index + 1) as u32);
+                            position = (index + 1) as u32;
+
+                            if *next_t == Token::LogicalClose {
+                                boundary_type = BoundaryType::WithLogical;
+                            }
+
                             break;
                         }
                     }
@@ -187,7 +218,10 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
             }
         }
     }
-    position
+    CheckLogicalBoundary {
+        position,
+        boundary_type
+    }
 }
 
 ///
@@ -313,7 +347,7 @@ fn check_logical_delimiter(tokens: &Vec<Token>, position: usize, logical_delimit
 ///        2 3 10       means at position 10 we have a pair openings of depth 2 and 3
 ///        3 4 11       ....
 /// Every time we find a pair of closings than are next to each other, we can search their siblings
-/// in the array of pain openings. If it exists, it means that there are useless couple of parenthesis
+/// in the array of pair openings. If it exists, it means that there are useless couple of parenthesis
 /// so we mark then to be removed.
 ///
 fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>)  {
@@ -706,6 +740,71 @@ mod tests {
         assert_eq!(expected, tokens);
     }
 
+    #[test]
+    pub fn normalize_n3_test_6() {
+        let mut tokens = vec![
+            Token::LogicalOpen,
+
+            Token::ConditionOpen,
+            Token::Attribute("A".to_string()),
+            Token::Operator(ComparisonOperator::LT),
+            Token::ValueInt(40),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+
+            Token::ConditionOpen,
+            Token::Attribute("B".to_string()),
+            Token::Operator(ComparisonOperator::GT),
+            Token::ValueInt(21),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+
+            Token::ConditionOpen,
+            Token::Attribute("C".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(6),
+            Token::ConditionClose,
+
+            Token::LogicalClose
+        ];
+
+        n3_binary_logical_operator(&mut tokens);
+
+        let expected = vec![
+            Token::LogicalOpen,
+
+            Token::ConditionOpen,
+            Token::Attribute("A".to_string()),
+            Token::Operator(ComparisonOperator::LT),
+            Token::ValueInt(40),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::OR),
+
+            Token::LogicalOpen,
+
+            Token::ConditionOpen,
+            Token::Attribute("B".to_string()),
+            Token::Operator(ComparisonOperator::GT),
+            Token::ValueInt(21),
+            Token::ConditionClose,
+
+            Token::BinaryLogicalOperator(LogicalOperator::AND),
+
+            Token::ConditionOpen,
+            Token::Attribute("C".to_string()),
+            Token::Operator(ComparisonOperator::EQ),
+            Token::ValueInt(6),
+            Token::ConditionClose,
+
+            Token::LogicalClose,
+
+            Token::LogicalClose
+        ];
+        assert_eq!(expected, tokens);
+    }
 
     #[test]
     pub fn normalize_n2() {

@@ -270,7 +270,7 @@ fn lopexp_lexer_index(index: &RefCell<usize>, mut input_chars: &Vec<char>, depth
                         }
                     }
                     LopexpExpectedLexeme::ExpressionOrCondition => {
-                       panic!("Cannot be expecting expression or condition")
+                       //panic!("Cannot be expecting expression or condition")
                     }
                 }
             }
@@ -792,6 +792,11 @@ mod tests {
         assert_ne!(expected, tokens);
     }
 
-
-
+    #[test]
+    pub fn lexer_with_space() {
+        // let input = "age < 40 OR  birthdate >= \"2001-01-01\" OR  age > 21 AND detail == \"bonjour\"  ";
+        let input = "A < 40 OR  B > 12";
+        println!("Lexer...");
+        let mut tokens = lex3(input);
+    }
 }

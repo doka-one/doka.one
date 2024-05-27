@@ -1,5 +1,4 @@
-
-pub (crate) fn has_not_printable_char(tag_name: &str) -> bool {
+pub(crate) fn has_not_printable_char(tag_name: &str) -> bool {
     use unicode_segmentation::UnicodeSegmentation;
     let mut g_str = tag_name.graphemes(true);
 
@@ -10,13 +9,12 @@ pub (crate) fn has_not_printable_char(tag_name: &str) -> bool {
                 break;
             }
             Some(c) => {
-                for cc in  c.chars() {
+                for cc in c.chars() {
                     let val = cc as u32;
-                    if  val == 32 || val <= 15 {
+                    if val == 32 || val <= 15 {
                         return true;
                     }
                 }
-
             }
         }
     }

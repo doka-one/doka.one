@@ -17,7 +17,7 @@ pub fn normalize_lexeme(tokens: &mut Vec<Token>) {
 ///
 /// This step of normalization suppose that the N2 is fulfilled
 ///
-fn n3_binary_logical_operator(tokens: &mut Vec<Token>)  {
+fn n3_binary_logical_operator(tokens: &mut Vec<Token>) {
     n3_binary_logical_operator_for_op(tokens, LogicalOperator::AND);
     n3_binary_logical_operator_for_op(tokens, LogicalOperator::OR);
 }
@@ -30,7 +30,7 @@ fn n3_binary_logical_operator_for_op(tokens: &mut Vec<Token>, for_lop: LogicalOp
             None => {
                 break;
             }
-            Some((x,y)) => {
+            Some((x, y)) => {
                 tokens.insert(y as usize, Token::LogicalClose);
                 tokens.insert(x as usize, Token::LogicalOpen);
             }
@@ -43,29 +43,27 @@ fn find_next_ajustable(tokens: &Vec<Token>, for_lop: &LogicalOperator) -> Option
     let mut inserting: Option<(u32, u32)> = None; //(None, None);
     for token in tokens.iter() {
         match token {
-            Token::BinaryLogicalOperator(lop) => {
-                match lop {
-                    LogicalOperator::AND => {
-                        if *for_lop == LogicalOperator::AND {
-                            dbg!(position_counter);
-                            dbg!(&tokens);
-                            inserting = check_binary_logical_operator(&tokens, position_counter);
-                            println!("Found a position for AND : {:?}", inserting);
-                            if inserting.is_some() {
-                                break;
-                            }
-                        }
-                    }
-                    LogicalOperator::OR => {
-                        if *for_lop == LogicalOperator::OR {
-                            inserting = check_binary_logical_operator(&tokens, position_counter);
-                            if inserting.is_some() {
-                                break;
-                            }
+            Token::BinaryLogicalOperator(lop) => match lop {
+                LogicalOperator::AND => {
+                    if *for_lop == LogicalOperator::AND {
+                        dbg!(position_counter);
+                        dbg!(&tokens);
+                        inserting = check_binary_logical_operator(&tokens, position_counter);
+                        println!("Found a position for AND : {:?}", inserting);
+                        if inserting.is_some() {
+                            break;
                         }
                     }
                 }
-            }
+                LogicalOperator::OR => {
+                    if *for_lop == LogicalOperator::OR {
+                        inserting = check_binary_logical_operator(&tokens, position_counter);
+                        if inserting.is_some() {
+                            break;
+                        }
+                    }
+                }
+            },
             _ => {}
         }
         position_counter += 1;
@@ -81,9 +79,11 @@ enum Direction {
 
 fn check_binary_logical_operator(tokens: &Vec<Token>, position_counter: u32) -> Option<(u32, u32)> {
     // Check forward
-    let left : CheckLogicalBoundary = check_logical_one_direction(tokens, position_counter, Direction::Backward);
+    let left: CheckLogicalBoundary =
+        check_logical_one_direction(tokens, position_counter, Direction::Backward);
     // Check backward
-    let right : CheckLogicalBoundary = check_logical_one_direction(tokens, position_counter, Direction::Forward);
+    let right: CheckLogicalBoundary =
+        check_logical_one_direction(tokens, position_counter, Direction::Forward);
     match (left.boundary_type, right.boundary_type) {
         (BoundaryType::WithLogical, BoundaryType::WithLogical) => {
             // In case we found logical operators surrounding the AND/OR
@@ -91,9 +91,8 @@ fn check_binary_logical_operator(tokens: &Vec<Token>, position_counter: u32) -> 
         }
         (_, _) => {
             // In case either direction has no logical operator
-           Some((left.position, right.position))
-        }
-        //_ => {panic!("We must have a pair of LO/LC")}
+            Some((left.position, right.position))
+        } //_ => {panic!("We must have a pair of LO/LC")}
     }
 }
 
@@ -111,10 +110,21 @@ struct CheckLogicalBoundary {
     boundary_type: BoundaryType,
 }
 
-fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direction: Direction) -> CheckLogicalBoundary {
-    let mut depth : i32 = 0;
-    let mut index : i32 = position_counter as i32;
-    let step: i32 = if direction == Direction::Backward { -1 } else { 1 };
+/// We start at the <position_counter> in the tokens list (position of the logical operator)
+/// and navigate in a direction
+/// to see if we find a LogicalOpen or LogicalClose that surrounds the Logical operator
+fn check_logical_one_direction(
+    tokens: &Vec<Token>,
+    position_counter: u32,
+    direction: Direction,
+) -> CheckLogicalBoundary {
+    let mut depth: i32 = 0;
+    let mut index: i32 = position_counter as i32;
+    let step: i32 = if direction == Direction::Backward {
+        -1
+    } else {
+        1
+    };
     let mut position: u32 = index as u32;
     let mut boundary_type = BoundaryType::WithoutLogical;
 
@@ -122,6 +132,7 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
         index += step;
 
         if index < 0 {
+            // Means we haven't found any LO/LC before the end of the list of tokens
             if direction == Direction::Backward {
                 // Correct the position in the array to be able to insert the ( at the right place
                 position = (index + 1) as u32;
@@ -141,13 +152,15 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
             Some(tt) => {
                 match tt {
                     Token::LogicalOpen => {
-                        // if we are backward, an opening is a decrease of the depth (+step)
+                        // If we are backward, an opening is a decrease of the depth (+step)
                         depth += step;
                         if direction == Direction::Backward {
-                            let next_t = tokens.get((index-1) as usize).unwrap_or(&Token::LogicalClose);
+                            let next_t = tokens
+                                .get((index - 1) as usize)
+                                .unwrap_or(&Token::LogicalClose);
 
                             // (count == 0  and lexeme is not LC/LO)
-                            if depth == 0 &&  *next_t != Token::LogicalOpen {
+                            if depth == 0 && *next_t != Token::LogicalOpen {
                                 // Insert the ( _before_ the [
                                 position = index as u32;
                                 break;
@@ -155,39 +168,44 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
 
                             // found an extra "(" that means we are ok in this direction
                             if depth == -1 {
-                                //position = None;
                                 boundary_type = BoundaryType::WithLogical;
                                 break;
                             }
                         }
                     }
                     Token::LogicalClose => {
-                        // if we are forward, a closing is an increase of the depth (-step)
+                        // If we are forward, a closing is an increase of the depth (-step)
                         depth += -1 * step;
 
-                        let next_t = tokens.get((index+1) as usize).unwrap_or(&Token::LogicalOpen);
+                        // The depth is back to 0 so we look at the next token
+                        // to check if we need a LC at this position
+                        if depth == 0 && direction == Direction::Forward {
+                            let next_t = tokens
+                                .get((index + 1) as usize)
+                                .unwrap_or(&Token::LogicalOpen);
 
-                        // (count == 0  and lexeme is not LC/LO)
-                        if depth == 0 && direction == Direction::Forward &&  *next_t != Token::LogicalClose {
-                            // Insert the ) _after_ the ]
-                            position = (index + 1) as u32;
-                            break;
-                        }
-
-                        if direction == Direction::Forward {
-                            if depth == -1 {
-                                // position = None;
-                                boundary_type = BoundaryType::WithLogical;
+                            if *next_t != Token::LogicalClose {
+                                // Insert the ) _after_ the ]
+                                position = (index + 1) as u32;
                                 break;
                             }
                         }
 
+                        if direction == Direction::Forward {
+                            // Means we met an extra LC, so we return the position + WithLogical
+                            if depth == -1 {
+                                boundary_type = BoundaryType::WithLogical;
+                                break;
+                            }
+                        }
                     }
                     Token::ConditionOpen => {
-                        let next_t = tokens.get((index-1) as usize).unwrap_or(&Token::LogicalClose);
-
-                        // (count == 0  and lexeme is not LC/LO)
+                        // The depth is back to 0 so we look at the next lexeme
                         if depth == 0 && direction == Direction::Backward {
+                            let next_t = tokens
+                                .get((index - 1) as usize)
+                                .unwrap_or(&Token::LogicalClose);
+
                             // Insert the ( _before_ the [
                             position = index as u32;
 
@@ -199,10 +217,12 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
                         }
                     }
                     Token::ConditionClose => {
-                        let next_t = tokens.get((index+1) as usize).unwrap_or(&Token::LogicalOpen);
-
                         // (count == 0  and lexeme is not LC/LO)
-                        if depth == 0 && direction == Direction::Forward  {
+                        if depth == 0 && direction == Direction::Forward {
+                            let next_t = tokens
+                                .get((index + 1) as usize)
+                                .unwrap_or(&Token::LogicalOpen);
+
                             // Insert the ) _after_ the ]
                             position = (index + 1) as u32;
 
@@ -213,14 +233,14 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
                             break;
                         }
                     }
-                    _ => { }
+                    _ => {}
                 }
             }
         }
     }
     CheckLogicalBoundary {
         position,
-        boundary_type
+        boundary_type,
     }
 }
 
@@ -230,7 +250,7 @@ fn check_logical_one_direction(tokens: &Vec<Token>, position_counter: u32, direc
 /// Ex :   (A == 12) will be [A == 12]
 ///         ( A== 12 AND (B == 5) ) will be ( [A == 12] AND [B == 5] )
 ///
-fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
+fn n2_mark_condition_open_close(tokens: &mut Vec<Token>) {
     let mut position_counter: u32 = 0;
     let mut list_of_replacement: Vec<(Option<u32>, Option<u32>)> = vec![];
     let mut list_of_inserting: Vec<(Option<u32>, Option<u32>)> = vec![]; // The place where to insert the CO/CC
@@ -238,14 +258,15 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
     for token in tokens.iter() {
         match token {
             Token::Attribute(_) => {
-                let mut replacement : (Option<u32>, Option<u32>) = (None, None);
-                let mut inserting : (Option<u32>, Option<u32>) = (None, None);
+                let mut replacement: (Option<u32>, Option<u32>) = (None, None);
+                let mut inserting: (Option<u32>, Option<u32>) = (None, None);
 
                 let pre_position = position_counter - 1;
                 let post_position = position_counter + 3;
 
-                let is_logical_opening = check_logical_delimiter(&tokens, pre_position as usize, Token::LogicalOpen);
-                let op_t: Option<&Token> = tokens.get((position_counter+1) as usize);
+                let is_logical_opening =
+                    check_logical_delimiter(&tokens, pre_position as usize, Token::LogicalOpen);
+                let op_t: Option<&Token> = tokens.get((position_counter + 1) as usize);
                 let _is_operator = match op_t {
                     None => {
                         // TODO send error
@@ -261,20 +282,17 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
                     }
                 };
 
-                let op_t: Option<&Token> = tokens.get((position_counter+2) as usize);
+                let op_t: Option<&Token> = tokens.get((position_counter + 2) as usize);
                 let _ = match op_t {
-                    None => {
-                        false
-                    }
-                    Some(t) => {
-                        match *t {
-                            Token::ValueInt(_) | Token::ValueString(_) => {true}
-                             _ => {false}
-                        }
-                    }
+                    None => false,
+                    Some(t) => match *t {
+                        Token::ValueInt(_) | Token::ValueString(_) => true,
+                        _ => false,
+                    },
                 };
 
-                let is_logical_closing = check_logical_delimiter(&tokens, post_position as usize, Token::LogicalClose);
+                let is_logical_closing =
+                    check_logical_delimiter(&tokens, post_position as usize, Token::LogicalClose);
 
                 match (is_logical_opening, is_logical_closing) {
                     (true, true) => {
@@ -305,7 +323,11 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
         }
     }
 
-    let raw_list_of_inserting: Vec<(u32, Token)> = transform_and_sort(&list_of_inserting, Token::ConditionOpen, Token::ConditionClose);
+    let raw_list_of_inserting: Vec<(u32, Token)> = transform_and_sort(
+        &list_of_inserting,
+        Token::ConditionOpen,
+        Token::ConditionClose,
+    );
 
     for pos in raw_list_of_inserting {
         tokens.insert(pos.0 as usize, pos.1.clone());
@@ -313,7 +335,11 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>)  {
     }
 }
 
-fn transform_and_sort(list_of_inserting: &Vec<(Option<u32>, Option<u32>)>, token_left: Token, token_right: Token) -> Vec<(u32, Token)> {
+fn transform_and_sort(
+    list_of_inserting: &Vec<(Option<u32>, Option<u32>)>,
+    token_left: Token,
+    token_right: Token,
+) -> Vec<(u32, Token)> {
     // Transformation et collecte des valeurs dans un vecteur de paires
     let mut raw_list_of_inserting: Vec<(u32, Token)> = list_of_inserting
         .iter()
@@ -350,14 +376,14 @@ fn check_logical_delimiter(tokens: &Vec<Token>, position: usize, logical_delimit
 /// in the array of pair openings. If it exists, it means that there are useless couple of parenthesis
 /// so we mark then to be removed.
 ///
-fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>)  {
+fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
     struct PairPosition {
-        x: i32, // first opening of the couple
-        y: i32, // second opening of the delta zero couple
+        x: i32,        // first opening of the couple
+        y: i32,        // second opening of the delta zero couple
         position: u32, // position of x opening
     }
 
-    let mut open_delta_zero : Vec<PairPosition> = vec![];
+    let mut open_delta_zero: Vec<PairPosition> = vec![];
     let mut depth: i32 = 0;
     let mut last_open_info: Option<(i32, u32)> = None; // ( <depth>, <position of the token>)
     let mut last_close_info: Option<(i32, u32)> = None;
@@ -389,7 +415,9 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>)  {
                     // if delta is 0
                     if position_counter - (last_close_position + 1) == 0 {
                         // The depth variable is actually late of 1 step when we go over the closings, so we must suppose we are at depth + 1
-                        if let Some(matching_pair) = open_delta_zero.iter_mut().find(|m| m.x == depth + 1) {
+                        if let Some(matching_pair) =
+                            open_delta_zero.iter_mut().find(|m| m.x == depth + 1)
+                        {
                             // mark the couple to be removed
                             to_be_removed.push(matching_pair.position);
                             to_be_removed.push(position_counter);
@@ -405,7 +433,9 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>)  {
             _ => {
                 if let Some((last_close_depth, last_close_position)) = last_close_info {
                     if position_counter - (last_close_position + 1) == 0 {
-                        if let Some(matching_pair) = open_delta_zero.iter_mut().find(|m| m.x == last_close_depth) {
+                        if let Some(matching_pair) =
+                            open_delta_zero.iter_mut().find(|m| m.x == last_close_depth)
+                        {
                             // The pair is no longer usable
                             matching_pair.x = -1;
                             matching_pair.y = -1;
@@ -424,13 +454,15 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>)  {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
     use crate::filter_ast::{ComparisonOperator, LogicalOperator, Token};
-    use crate::filter_normalizer::{n1_remove_successive_logical_open_close, n2_mark_condition_open_close, n3_binary_logical_operator};
+    use crate::filter_normalizer::{
+        n1_remove_successive_logical_open_close, n2_mark_condition_open_close,
+        n3_binary_logical_operator,
+    };
 
     #[test]
     pub fn normalize_n3() {
@@ -440,9 +472,7 @@ mod tests {
             Token::Attribute("age".to_string()),
             Token::ConditionClose, // N2
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -454,22 +484,18 @@ mod tests {
 
         let expected = vec![
             Token::LogicalOpen, // Added for the AND
-
             Token::LogicalOpen,
             Token::ConditionOpen, // N2
             Token::Attribute("age".to_string()),
             Token::ConditionClose, // N2
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
             Token::ConditionClose, // N2
-
-            Token::LogicalClose, // Added for the AND
+            Token::LogicalClose,   // Added for the AND
         ];
         assert_eq!(expected, tokens);
     }
@@ -482,17 +508,13 @@ mod tests {
             Token::Attribute("age".to_string()),
             Token::ConditionClose, // N2
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
             Token::ConditionClose, // N2
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("weight".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -505,32 +527,25 @@ mod tests {
         let expected = vec![
             Token::LogicalOpen, // Added for the AND 2
             Token::LogicalOpen, // Added for the AND 1
-
             Token::LogicalOpen,
             Token::ConditionOpen, // N2
             Token::Attribute("age".to_string()),
             Token::ConditionClose, // N2
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
             Token::ConditionClose, // N2
-
-            Token::LogicalClose, // Added for the AND 1
-
+            Token::LogicalClose,   // Added for the AND 1
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("weight".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(25),
             Token::ConditionClose, // N2
-
-            Token::LogicalClose, // Added for the AND 2
+            Token::LogicalClose,   // Added for the AND 2
         ];
         assert_eq!(expected, tokens);
     }
@@ -543,17 +558,13 @@ mod tests {
             Token::Attribute("age".to_string()),
             Token::ConditionClose, // N2
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::ConditionOpen, // N2
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
             Token::ConditionClose, // N2
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("weight".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -570,26 +581,21 @@ mod tests {
             Token::Attribute("age".to_string()),
             Token::ConditionClose, // N2
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
-            Token::LogicalOpen, // Added for the AND
+            Token::LogicalOpen,   // Added for the AND
             Token::ConditionOpen, // N2
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
             Token::ConditionClose, // N2
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen, // N2
             Token::Attribute("weight".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(25),
             Token::ConditionClose, // N2
-
-            Token::LogicalClose, // Added for the AND
-            Token::LogicalClose, // Added for the OR
+            Token::LogicalClose,   // Added for the AND
+            Token::LogicalClose,   // Added for the OR
         ];
         assert_eq!(expected, tokens);
     }
@@ -604,27 +610,21 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
             Token::ConditionOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("detail".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -641,9 +641,7 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen, // Added for AND 1
             Token::LogicalOpen,
             Token::ConditionOpen,
@@ -651,18 +649,14 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND), // AND 1
-
             Token::ConditionOpen,
             Token::Attribute("detail".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -680,29 +674,23 @@ mod tests {
     pub fn normalize_n3_test_5() {
         let mut tokens = vec![
             Token::LogicalOpen,
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::ConditionOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
-
             Token::LogicalClose,
         ];
 
@@ -710,31 +698,25 @@ mod tests {
 
         let expected = vec![
             Token::LogicalOpen,
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
             Token::ConditionOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
             Token::LogicalClose,
-
             Token::LogicalClose,
         ];
         assert_eq!(expected, tokens);
@@ -744,64 +726,50 @@ mod tests {
     pub fn normalize_n3_test_6() {
         let mut tokens = vec![
             Token::LogicalOpen,
-
             Token::ConditionOpen,
             Token::Attribute("A".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::ConditionOpen,
             Token::Attribute("B".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("C".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(6),
             Token::ConditionClose,
-
-            Token::LogicalClose
+            Token::LogicalClose,
         ];
 
         n3_binary_logical_operator(&mut tokens);
 
         let expected = vec![
             Token::LogicalOpen,
-
             Token::ConditionOpen,
             Token::Attribute("A".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
-
             Token::ConditionOpen,
             Token::Attribute("B".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("C".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(6),
             Token::ConditionClose,
-
             Token::LogicalClose,
-
-            Token::LogicalClose
+            Token::LogicalClose,
         ];
         assert_eq!(expected, tokens);
     }
@@ -815,13 +783,10 @@ mod tests {
             Token::Operator(ComparisonOperator::GTE),
             Token::ValueInt(20),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
-
             Token::LogicalClose,
         ];
 
@@ -833,15 +798,12 @@ mod tests {
             Token::Operator(ComparisonOperator::GTE),
             Token::ValueInt(20),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
             Token::ValueInt(174),
             Token::ConditionClose,
-
             Token::LogicalClose,
         ];
         assert_eq!(expected, tokens);
@@ -872,7 +834,6 @@ mod tests {
             Token::ValueInt(20),
             Token::ConditionClose,
             Token::LogicalClose,
-
             Token::ConditionOpen,
             Token::Attribute("height".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -883,7 +844,6 @@ mod tests {
         // println!(".... {:?}", &tokens);
     }
 
-
     #[test]
     // "(age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)";
     pub fn normalize_n2_test_3() {
@@ -893,23 +853,17 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::LogicalOpen,
             Token::Attribute("detail".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -925,27 +879,21 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
             Token::ConditionOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
             Token::ConditionClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::ConditionClose,
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::ConditionOpen,
             Token::Attribute("detail".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -1042,7 +990,6 @@ mod tests {
         assert_eq!(expected, tokens);
     }
 
-
     #[test]
     // "(age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)";
     pub fn normalize_n1_test_3() {
@@ -1052,23 +999,17 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::LogicalOpen,
             Token::Attribute("detail".to_string()),
             Token::Operator(ComparisonOperator::EQ),
@@ -1084,23 +1025,17 @@ mod tests {
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(40),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::OR),
-
             Token::LogicalOpen,
             Token::Attribute("denis".to_string()),
             Token::Operator(ComparisonOperator::LT),
             Token::ValueInt(5),
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::Attribute("age".to_string()),
             Token::Operator(ComparisonOperator::GT),
             Token::ValueInt(21),
             Token::LogicalClose,
-
             Token::BinaryLogicalOperator(LogicalOperator::AND),
-
             Token::LogicalOpen,
             Token::Attribute("detail".to_string()),
             Token::Operator(ComparisonOperator::EQ),

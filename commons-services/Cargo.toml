@@ -7,16 +7,15 @@ edition = "2021"
 
 [dependencies]
 chrono = { workspace = true }
-rocket = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-rocket_okapi = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 rand = { workspace = true }
+axum = { workspace = true }
 
 commons-error = {path="../commons-error"}
 commons-pg = {path="../commons-pg"}

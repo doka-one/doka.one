@@ -7,14 +7,11 @@ edition = "2021"
 
 [dependencies]
 chrono = { workspace = true }
-rocket = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-schemars = { workspace = true }
-#rust-crypto = { workspace = true }
 rand = { workspace = true }
 
 java-properties = { workspace = true }

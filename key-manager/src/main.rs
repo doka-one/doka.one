@@ -130,8 +130,6 @@ async fn main() {
 
     init_db_pool(&connect_string, db_pool_size);
 
-    log_info!("🚀 Start {}", PROGRAM_NAME);
-
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
@@ -139,6 +137,8 @@ async fn main() {
         "😎 The CEK was correctly read : [{}]",
         format!("{}...", &cek[0..5])
     );
+
+    log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
     // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);

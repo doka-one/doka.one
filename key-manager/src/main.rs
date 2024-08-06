@@ -1,12 +1,13 @@
 mod all_tests;
 mod key;
 
-use axum::extract::Path;
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::extract::{Path, Query, Json};
+use axum::routing::{get, post};
+use axum::{Router};
 use log::{error, info};
 use std::net::SocketAddr;
 use std::process::exit;
+use axum::response::IntoResponse;
 // use rocket::*;
 // use rocket_contrib::json::Json;
 // use rocket::http::RawStr;
@@ -24,7 +25,7 @@ use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
 use commons_services::read_cek_and_store;
-use commons_services::token_lib::SecurityToken;
+use commons_services::token_lib::{SecurityToken, TokenHeader};
 use commons_services::x_request_id::XRequestID;
 use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
 
@@ -57,11 +58,11 @@ async fn key_list(security_token: SecurityToken) -> WebType<CustomerKeyReply> {
 ///
 // #[post("/key", format = "application/json", data = "<customer>")]
 async fn add_key(
-    customer: Json<AddKeyRequest>,
     security_token: SecurityToken,
+    customer: Json<AddKeyRequest>,
 ) -> WebType<AddKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
-    delegate.add_key(customer)
+    delegate.add_key(customer).await
 }
 
 ///
@@ -144,7 +145,8 @@ async fn main() {
     let base_url = format!("/{}", PROJECT_CODE);
     let key_routes = Router::new()
         .route("/key", get(key_list))
-        .route("/key/:customer_code", get(read_key));
+        .route("/key/:customer_code", get(read_key))
+        .route("/key", post(add_key));
 
     let app = Router::new().nest(&base_url, key_routes);
 

@@ -91,7 +91,7 @@ impl<T> From<ErrorMessage> for WebType<T> {
 
 pub type WebResponse<T> = Result<T, ErrorMessage>;
 
-impl<T> WebTypeBuilder<T> for WebResponse<T> /*where T : de::DeserializeOwned*/ {
+impl<T> WebTypeBuilder<T> for WebResponse<T> {
     fn from_simple(code: u16, simple: SimpleMessage) -> Self {
         Err(ErrorMessage {
             http_error_code: code,

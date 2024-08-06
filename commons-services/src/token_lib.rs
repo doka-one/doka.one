@@ -1,6 +1,7 @@
 use crate::COMMON_EDIBLE_KEY_PROPERTY;
 use axum::async_trait;
-use axum::extract::{FromRequest, Request};
+use axum::extract::{FromRequest, FromRequestParts, Request};
+use axum::http::request::Parts;
 use axum::http::StatusCode;
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
@@ -10,22 +11,46 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SecurityToken(pub String);
 
+// #[async_trait]
+// impl<S> FromRequest<S> for SecurityToken
+// where
+//     S: Send + Sync,
+// {
+//     type Rejection = (StatusCode, String);
+//     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
+//         let headers = req.headers();
+//         headers
+//             .get("token")
+//             .and_then(|value| value.to_str().ok())
+//             .map(|value| SecurityToken(value.to_string()))
+//             .ok_or((
+//                 StatusCode::UNAUTHORIZED,
+//                 "Missing or invalid token header".into(),
+//             ))
+//     }
+// }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenHeader(pub String);
+
 #[async_trait]
-impl<S> FromRequest<S> for SecurityToken
+impl<S> FromRequestParts<S> for SecurityToken
 where
     S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
-    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let headers = req.headers();
-        headers
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let token = parts.headers
             .get("token")
             .and_then(|value| value.to_str().ok())
             .map(|value| SecurityToken(value.to_string()))
             .ok_or((
                 StatusCode::UNAUTHORIZED,
                 "Missing or invalid token header".into(),
-            ))
+            ))?;
+
+        Ok(token)
     }
 }
 
@@ -46,32 +71,26 @@ impl SecurityToken {
 pub struct SessionToken(pub String);
 
 #[async_trait]
-impl<S> FromRequest<S> for SessionToken
+impl<S> FromRequestParts<S> for SessionToken
 where
     S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
-    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let headers = req.headers();
-        headers
-            .get("sid")
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let token = parts.headers
+            .get("token")
             .and_then(|value| value.to_str().ok())
             .map(|value| SessionToken(value.to_string()))
             .ok_or((
                 StatusCode::UNAUTHORIZED,
-                "Missing or invalid sid header".into(),
-            ))
+                "Missing or invalid token header".into(),
+            ))?;
+
+        Ok(token)
     }
 }
 
-// impl<'a, 'r> FromRequest<'a, 'r> for SessionToken {
-//     type Error = ();
-//     fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
-//         let map = my_request.headers();
-//         let token_id = map.get_one("sid").unwrap_or("");
-//         request::Outcome::Success(SessionToken(token_id.to_string()))
-//     }
-// }
 
 impl SessionToken {
     pub fn is_valid(&self) -> bool {

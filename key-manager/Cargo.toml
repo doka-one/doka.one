@@ -25,6 +25,7 @@ uuid = { workspace = true }
 rand = { workspace = true }
 csv = { workspace = true }
 axum = { workspace = true }
+axum-macros = "^0.4"
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}

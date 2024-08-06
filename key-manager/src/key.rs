@@ -21,7 +21,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
-
+use commons_services::try_or_return;
 use doka_cli::request_client::TokenType;
 use doka_cli::request_client::TokenType::Token;
 
@@ -45,7 +45,7 @@ impl KeyDelegate {
     ///
     /// ✨ Add a key for customer code [customer]
     ///
-    pub fn add_key(&mut self, customer: Json<AddKeyRequest>) -> WebType<AddKeyReply> {
+    pub async fn add_key(&mut self, customer: Json<AddKeyRequest>) -> WebType<AddKeyReply> {
         log_info!(
             "🚀 Start add_key api, customer_code=[{}], follower=[{}]",
             &customer.customer_code,
@@ -63,39 +63,7 @@ impl KeyDelegate {
 
         self.follower.token_type = Token(self.security_token.0.clone());
 
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
-            &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        };
-
-        // Verify if the key already exists for the customer code
-
-        let Ok(entries) = self
-            .search_key_by_customer_code(&mut trans, Some(&customer.customer_code))
-            .map_err(err_fwd!(
-                "💣 Search failed, customer code=[{}], follower=[{}]",
-                &customer.customer_code,
-                &self.follower
-            ))
-        else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        };
-
-        if entries.contains_key(&customer.customer_code) {
-            log_error!(
-                "💣 The customer code already exists, customer code=[{}], follower=[{}]",
-                &customer.customer_code,
-                &self.follower
-            );
-            return WebType::from_errorset(&CUSTOMER_KEY_ALREADY_EXISTS);
-        }
-
-        log_info!("😎 The customer code has no existing key in the system, customer_code=[{}], follower=[{}]", &customer.customer_code, &self.follower);
-
+        // Generate the new customer key
         let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(err_fwd!(
             "💣 Cannot read the cek, follower=[{}]",
             &self.follower
@@ -112,40 +80,7 @@ impl KeyDelegate {
             return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
-        let sql_insert = r#"INSERT INTO keymanager.customer_keys(
-                            customer_code, ciphered_key)
-                            VALUES (:p_customer_code, :p_ciphered_key)"#;
-
-        let mut params: HashMap<String, CellValue> = HashMap::new();
-        params.insert(
-            "p_customer_code".to_owned(),
-            CellValue::from_raw_string(customer.customer_code.to_owned()),
-        );
-        params.insert(
-            "p_ciphered_key".to_owned(),
-            CellValue::from_raw_string(enc_password),
-        );
-
-        let query = SQLChange {
-            sql_query: sql_insert.to_string(),
-            params,
-            sequence_name: "keymanager.customer_keys_id_seq".to_string(),
-        };
-
-        let Ok(key_id) = query.insert(&mut trans).map_err(err_fwd!(
-            "💣 Cannot insert the key, follower=[{}]",
-            &self.follower
-        )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        };
-
-        if trans
-            .commit()
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
-            .is_err()
-        {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        }
+        let key_id = try_or_return!(self.create_customer_key_async(&customer.customer_code, &enc_password).await, |e| WebType::from(e) );
 
         let ret = AddKeyReply {
             status: "Ok".to_string(),
@@ -160,6 +95,95 @@ impl KeyDelegate {
         log_info!("🏁 End add_key, follower=[{}]", &self.follower);
 
         WebType::from_item(StatusCode::OK.as_u16(), ret)
+    }
+
+    async fn create_customer_key_async(&self, customer_code: &str, enc_password: &str) -> WebResponse<i64> {
+        // Create a oneshot channel for one-way communication
+        let (tx, rx) = oneshot::channel();
+
+        // Spawn an asynchronous task
+        let local_self = self.clone();
+        let local_customer_code = customer_code.to_owned();
+        let local_enc_password = enc_password.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let r = local_self.create_customer_key(&local_customer_code, &local_enc_password);
+            // Send the user object back to the main thread
+            let _r = tx.send(r);
+        });
+
+        rx.await.map_err( err_fwd!("Thread receive data error")).unwrap()
+    }
+
+    fn create_customer_key(&self, customer_code: &str, enc_password: &str) -> WebResponse<i64> {
+        let mut r_cnx = SQLConnection::new();
+        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
+            "💣 Open transaction error, follower=[{}]",
+            &self.follower
+        ));
+        let Ok(mut trans) = r_trans else {
+            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        // Verify if the key already exists for the customer code
+
+        let Ok(entries) = self
+            .search_key_by_customer_code(&mut trans, Some(customer_code))
+            .map_err(err_fwd!(
+                "💣 Search failed, customer code=[{}], follower=[{}]",
+                customer_code,
+                &self.follower
+            ))
+        else {
+            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        if entries.contains_key(customer_code) {
+            log_error!(
+                "💣 The customer code already exists, customer code=[{}], follower=[{}]",
+                customer_code,
+                &self.follower
+            );
+            return WebResponse::from_errorset(&CUSTOMER_KEY_ALREADY_EXISTS);
+        }
+
+        log_info!("😎 The customer code has no existing key in the system, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+
+        let sql_insert = r#"INSERT INTO keymanager.customer_keys(
+                            customer_code, ciphered_key)
+                            VALUES (:p_customer_code, :p_ciphered_key)"#;
+
+        let mut params: HashMap<String, CellValue> = HashMap::new();
+        params.insert(
+            "p_customer_code".to_owned(),
+            CellValue::from_raw_string(customer_code.to_owned()),
+        );
+        params.insert(
+            "p_ciphered_key".to_owned(),
+            CellValue::from_raw_str(enc_password),
+        );
+
+        let query = SQLChange {
+            sql_query: sql_insert.to_string(),
+            params,
+            sequence_name: "keymanager.customer_keys_id_seq".to_string(),
+        };
+
+        let Ok(key_id) = query.insert(&mut trans).map_err(err_fwd!(
+            "💣 Cannot insert the key, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        if trans
+            .commit()
+            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
+            .is_err()
+        {
+            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        WebResponse::from_item(StatusCode::OK.as_u16(), key_id)
     }
 
     // Search the keys for a customer_code
@@ -233,9 +257,6 @@ impl KeyDelegate {
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
-
-        // TODO check if the url unescaping was automatically done !
-        // let customer_code = customer_code.to_owned();
 
         // customer key to return.
         let customer_key_reply = match self.read_entries_async(Some(customer_code)).await {
@@ -311,10 +332,10 @@ impl KeyDelegate {
         tokio::task::spawn_blocking(move || {
             let r = local_self.read_entries(local_customer_code.as_deref());
             // Send the user object back to the main thread
-            tx.send(r).unwrap();
+            tx.send(r).unwrap(); // TODO
         });
 
-        rx.await.unwrap()
+        rx.await.unwrap() // TODO
     }
 
     // Read the list of users from the DB

@@ -1,27 +1,29 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
+// use rocket::http::{RawStr, Status};
+// use rocket_contrib::json::Json;
+use axum::http::StatusCode;
+use axum::Json;
+use log::*;
+use tokio::sync::oneshot;
+
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
-use commons_services::database_lib::open_transaction;
+use commons_services::database_lib::{open_transaction, run_blocking_spawn};
 use commons_services::property_name::COMMON_EDIBLE_KEY_PROPERTY;
 use commons_services::token_lib::SecurityToken;
+use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{
     CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK,
-    INVALID_REQUEST, INVALID_TOKEN,
+    INVALID_TOKEN,
 };
 use dkdto::{
     AddKeyReply, AddKeyRequest, CustomerKeyReply, EntryReply, WebResponse, WebType, WebTypeBuilder,
 };
-use log::*;
-// use rocket::http::{RawStr, Status};
-// use rocket_contrib::json::Json;
-use axum::http::StatusCode;
-use axum::Json;
-use std::collections::HashMap;
-use tokio::sync::oneshot;
-use commons_services::try_or_return;
 use doka_cli::request_client::TokenType;
 use doka_cli::request_client::TokenType::Token;
 
@@ -58,7 +60,7 @@ impl KeyDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_errorset(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -68,7 +70,7 @@ impl KeyDelegate {
             "💣 Cannot read the cek, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INVALID_CEK);
+            return WebType::from_errorset(&&INVALID_CEK);
         };
 
         let new_customer_key = DkEncrypt::generate_random_key();
@@ -77,10 +79,14 @@ impl KeyDelegate {
             "💣 Cannot encrypt the new key, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_errorset(&&INTERNAL_TECHNICAL_ERROR);
         };
 
-        let key_id = try_or_return!(self.create_customer_key_async(&customer.customer_code, &enc_password).await, |e| WebType::from(e) );
+        let key_id = try_or_return!(
+            self.create_customer_key_async(&customer.customer_code, &enc_password)
+                .await,
+            |e| WebType::from(e)
+        );
 
         let ret = AddKeyReply {
             status: "Ok".to_string(),
@@ -97,21 +103,19 @@ impl KeyDelegate {
         WebType::from_item(StatusCode::OK.as_u16(), ret)
     }
 
-    async fn create_customer_key_async(&self, customer_code: &str, enc_password: &str) -> WebResponse<i64> {
-        // Create a oneshot channel for one-way communication
-        let (tx, rx) = oneshot::channel();
-
-        // Spawn an asynchronous task
+    async fn create_customer_key_async(
+        &self,
+        customer_code: &str,
+        enc_password: &str,
+    ) -> WebResponse<i64> {
         let local_self = self.clone();
         let local_customer_code = customer_code.to_owned();
         let local_enc_password = enc_password.to_owned();
-        tokio::task::spawn_blocking(move || {
-            let r = local_self.create_customer_key(&local_customer_code, &local_enc_password);
-            // Send the user object back to the main thread
-            let _r = tx.send(r);
-        });
-
-        rx.await.map_err( err_fwd!("Thread receive data error")).unwrap()
+        run_blocking_spawn(
+            move || local_self.create_customer_key(&local_customer_code, &local_enc_password),
+            &self.follower,
+        )
+        .await
     }
 
     fn create_customer_key(&self, customer_code: &str, enc_password: &str) -> WebResponse<i64> {
@@ -253,7 +257,7 @@ impl KeyDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_errorset(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -293,7 +297,7 @@ impl KeyDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_errorset(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -323,19 +327,13 @@ impl KeyDelegate {
         &self,
         customer_code: Option<&str>,
     ) -> WebResponse<CustomerKeyReply> {
-        // Create a oneshot channel for one-way communication
-        let (tx, rx) = oneshot::channel();
-
-        // Spawn an asynchronous task
         let local_self = self.clone();
         let local_customer_code = customer_code.map(|s| s.to_owned());
-        tokio::task::spawn_blocking(move || {
-            let r = local_self.read_entries(local_customer_code.as_deref());
-            // Send the user object back to the main thread
-            tx.send(r).unwrap(); // TODO
-        });
-
-        rx.await.unwrap() // TODO
+        run_blocking_spawn(
+            move || local_self.read_entries(local_customer_code.as_deref()),
+            &self.follower,
+        )
+        .await
     }
 
     // Read the list of users from the DB

@@ -64,7 +64,7 @@ impl TagDelegate {
                 &self.session_token,
                 &self.follower
             );
-            return WebType::from_errorset(INVALID_TOKEN);
+            return WebType::from_errorset(&INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
@@ -73,7 +73,7 @@ impl TagDelegate {
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
             err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
         ) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Query the items
@@ -83,7 +83,7 @@ impl TagDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(tags) = self
@@ -99,7 +99,7 @@ impl TagDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -107,7 +107,7 @@ impl TagDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_all_tag api, follower=[{}]", &self.follower);
@@ -261,7 +261,7 @@ impl TagDelegate {
                 &self.session_token,
                 &self.follower
             );
-            return WebType::from_errorset(INVALID_TOKEN);
+            return WebType::from_errorset(&INVALID_TOKEN);
         }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
@@ -269,7 +269,7 @@ impl TagDelegate {
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
             err_fwd!("💣 Session Manager failed, follower={}", &self.follower),
         ) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
         let customer_code = entry_session.customer_code.as_str();
@@ -288,7 +288,7 @@ impl TagDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Check if the tag definition is used somewhere
@@ -302,7 +302,7 @@ impl TagDelegate {
                 tag_id,
                 &self.follower
             );
-            return WebType::from_errorset(STILL_IN_USE);
+            return WebType::from_errorset(&STILL_IN_USE);
         }
 
         log_info!(
@@ -333,7 +333,7 @@ impl TagDelegate {
             tag_id,
             &self.follower
         )) else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -341,7 +341,7 @@ impl TagDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -407,7 +407,7 @@ impl TagDelegate {
                 &self.session_token,
                 &self.follower
             );
-            return WebType::from_errorset(INVALID_TOKEN);
+            return WebType::from_errorset(&INVALID_TOKEN);
         }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
@@ -417,7 +417,7 @@ impl TagDelegate {
                 "💣 Session Manager failed, follower=[{}]",
                 &self.follower
             )),
-            |_e| WebType::from_errorset(INTERNAL_TECHNICAL_ERROR)
+            |_e| WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
         );
 
         let customer_code = entry_session.customer_code.as_str();
@@ -444,7 +444,7 @@ impl TagDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(tag_id) = self
@@ -454,7 +454,7 @@ impl TagDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -462,7 +462,7 @@ impl TagDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(

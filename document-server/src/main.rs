@@ -1,16 +1,13 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-#![feature(try_trait_v2)]
-
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::process::exit;
 
 use log::{error, info};
-use rocket::config::Environment;
-use rocket::{delete, get, post};
-use rocket::{routes, Config};
-use rocket_contrib::json::Json;
-use rocket_contrib::templates::Template;
 
+use crate::fulltext::FullTextDelegate;
+use crate::item::ItemDelegate;
 use commons_error::*;
 use commons_pg::init_db_pool;
 use commons_services::property_name::{
@@ -27,8 +24,6 @@ use dkdto::{
     GetTagReply, QueryFilters, SimpleMessage, WebType,
 };
 
-use crate::fulltext::FullTextDelegate;
-use crate::item::ItemDelegate;
 use crate::tag::TagDelegate;
 
 mod char_lib;
@@ -45,7 +40,7 @@ mod tag;
 /// ✨ Find all the items at page [start_page]
 /// **NORM
 ///
-#[get("/item?<start_page>&<page_size>")]
+///#[get("/item?<start_page>&<page_size>")]
 pub fn get_all_item(
     start_page: Option<u32>,
     page_size: Option<u32>,
@@ -59,7 +54,7 @@ pub fn get_all_item(
 /// ✨ Find all the items at page [start_page]
 /// **NORM
 ///
-#[get("/search?<start_page>&<page_size>&<filters>")]
+/// #[get("/search?<start_page>&<page_size>&<filters>")]
 pub fn search_item(
     start_page: Option<u32>,
     page_size: Option<u32>,
@@ -89,7 +84,7 @@ pub fn search_item(
 /// ✨  Find a item from its item id
 /// **NORM
 ///
-#[get("/item/<item_id>")]
+/// #[get("/item/<item_id>")]
 pub(crate) fn get_item(item_id: i64, session_token: SessionToken) -> WebType<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_item(item_id)
@@ -100,7 +95,7 @@ pub(crate) fn get_item(item_id: i64, session_token: SessionToken) -> WebType<Get
 ///     A tag can be existing or not
 /// **NORM
 ///
-#[post("/item", format = "application/json", data = "<add_item_request>")]
+/// #[post("/item", format = "application/json", data = "<add_item_request>")]
 pub(crate) fn add_item(
     add_item_request: Json<AddItemRequest>,
     session_token: SessionToken,
@@ -113,12 +108,13 @@ pub(crate) fn add_item(
 /// ✨ Update tags on an existing item
 ///     Tags can be already existing in the system.
 ///
-///
-#[post(
-    "/item/<item_id>/tags",
-    format = "application/json",
-    data = "<add_item_tag_request>"
-)]
+/// ```
+/// #[post(
+///     "/item/<item_id>/tags",
+///     format = "application/json",
+///     data = "<add_item_tag_request>"
+/// )]
+/// ```
 pub(crate) fn update_item_tag(
     item_id: i64,
     add_item_tag_request: Json<AddItemTagRequest>,
@@ -134,7 +130,7 @@ pub(crate) fn update_item_tag(
 ///
 ///  DELETE /api/documents/{item_id}/tags?tag_names=tag1,tag2,tag3
 ///
-#[delete("/item/<item_id>/tags?<tag_names>")]
+/// #[delete("/item/<item_id>/tags?<tag_names>")]
 pub(crate) fn delete_item_tag(
     item_id: i64,
     tag_names: DeleteTagsRequest,
@@ -150,7 +146,7 @@ type Type = GetTagReply;
 /// ✨ Find all the existing tags by pages
 /// **NORM
 ///
-#[get("/tag?<start_page>&<page_size>")]
+/// #[get("/tag?<start_page>&<page_size>")]
 pub(crate) fn get_all_tag(
     start_page: Option<u32>,
     page_size: Option<u32>,
@@ -164,7 +160,7 @@ pub(crate) fn get_all_tag(
 /// ✨ Delete a tag
 /// **NORM
 ///
-#[delete("/tag/<tag_id>")]
+/// #[delete("/tag/<tag_id>")]
 pub(crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> WebType<SimpleMessage> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.delete_tag(tag_id)
@@ -174,7 +170,7 @@ pub(crate) fn delete_tag(tag_id: i64, session_token: SessionToken) -> WebType<Si
 /// ✨ Create a new tag
 /// **NORM
 ///
-#[post("/tag", format = "application/json", data = "<add_tag_request>")]
+/// #[post("/tag", format = "application/json", data = "<add_tag_request>")]
 pub(crate) fn add_tag(
     add_tag_request: Json<AddTagRequest>,
     session_token: SessionToken,
@@ -188,11 +184,13 @@ pub(crate) fn add_tag(
 /// Used from file-server
 /// **NORM
 ///
-#[post(
-    "/fulltext_indexing",
-    format = "application/json",
-    data = "<raw_text_request>"
-)]
+/// ```
+/// #[post(
+///    "/fulltext_indexing",
+///    format = "application/json",
+///    data = "<raw_text_request>"
+/// )]
+/// ```
 pub(crate) fn fulltext_indexing(
     raw_text_request: Json<FullTextRequest>,
     session_token: SessionToken,
@@ -207,11 +205,13 @@ pub(crate) fn fulltext_indexing(
 /// Used from file-server
 /// **NORM
 ///
-#[post(
-    "/delete_text_indexing",
-    format = "application/json",
-    data = "<delete_text_request>"
-)]
+/// ```
+/// #[post(
+///    "/delete_text_indexing",
+///    format = "application/json",
+///    data = "<delete_text_request>"
+/// )]
+/// ```
 pub(crate) fn delete_text_indexing(
     delete_text_request: Json<DeleteFullTextRequest>,
     session_token: SessionToken,
@@ -221,6 +221,7 @@ pub(crate) fn delete_text_indexing(
     delegate.delete_text_indexing(delete_text_request)
 }
 
+#[tokio::main]
 fn main() {
     const PROGRAM_NAME: &str = "Document Server";
 
@@ -291,30 +292,51 @@ fn main() {
 
     init_db_pool(&connect_string, db_pool_size);
 
-    let mut my_config = Config::new(Environment::Production);
-    my_config.set_port(port);
-
+    // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
+    let key_routes = Router::new()
+        .route("/key", get(get_all_item))
+        .route("/key/:customer_code", get(search_item))
+        .route("/key", post(get_item))
+        .route("/key", get(add_item))
+        .route("/key", get(update_item_tag))
+        .route("/key", get(delete_item_tag))
+        .route("/key", get(get_all_tag))
+        .route("/key", get(add_tag))
+        .route("/key", get(delete_tag))
+        .route("/key", get(fulltext_indexing))
+        .route("/key", get(delete_text_indexing));
 
-    let _ = rocket::custom(my_config)
-        .mount(
-            &base_url,
-            routes![
-                get_all_item,
-                search_item,
-                get_item,
-                add_item,
-                update_item_tag,
-                delete_item_tag,
-                get_all_tag,
-                add_tag,
-                delete_tag,
-                fulltext_indexing,
-                delete_text_indexing,
-            ],
-        )
-        .attach(Template::fairing())
-        .launch();
+    let app = Router::new().nest(&base_url, key_routes);
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+
+    // let mut my_config = Config::new(Environment::Production);
+    // my_config.set_port(port);
+    //
+    // let base_url = format!("/{}", PROJECT_CODE);
+    //
+    // let _ = rocket::custom(my_config)
+    //     .mount(
+    //         &base_url,
+    //         routes![
+    //             get_all_item,
+    //             search_item,
+    //             get_item,
+    //             add_item,
+    //             update_item_tag,
+    //             delete_item_tag,
+    //             get_all_tag,
+    //             add_tag,
+    //             delete_tag,
+    //             fulltext_indexing,
+    //             delete_text_indexing,
+    //         ],
+    //     )
+    //     .attach(Template::fairing())
+    //     .launch();
 
     log_info!("🏁 End {}", PROGRAM_NAME);
 }

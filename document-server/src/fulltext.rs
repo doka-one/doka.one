@@ -141,7 +141,7 @@ impl FullTextDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
         let mut r_cnx = SQLConnection::new();
@@ -150,7 +150,7 @@ impl FullTextDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Generate the FT index and create an entry in the "document" table
@@ -166,7 +166,7 @@ impl FullTextDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
         if trans
@@ -174,7 +174,7 @@ impl FullTextDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("😎 Generated the indexes and the document part entries, number of parts=[{}], follower=[{}]", part_count, &self.follower);

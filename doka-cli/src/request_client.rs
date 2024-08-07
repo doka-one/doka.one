@@ -48,6 +48,8 @@ impl TokenType {
     }
 }
 const LAPS: u32 = 2_000;
+
+#[derive(Clone)]
 struct WebServer {
     server_name: String,
     port: u16,
@@ -409,9 +411,7 @@ impl KeyManagerClient {
     }
 }
 
-///
-///
-///
+#[derive(Clone)]
 pub struct SessionManagerClient {
     server: WebServer,
 }

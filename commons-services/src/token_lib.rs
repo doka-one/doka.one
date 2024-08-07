@@ -11,25 +11,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SecurityToken(pub String);
 
-// #[async_trait]
-// impl<S> FromRequest<S> for SecurityToken
-// where
-//     S: Send + Sync,
-// {
-//     type Rejection = (StatusCode, String);
-//     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
-//         let headers = req.headers();
-//         headers
-//             .get("token")
-//             .and_then(|value| value.to_str().ok())
-//             .map(|value| SecurityToken(value.to_string()))
-//             .ok_or((
-//                 StatusCode::UNAUTHORIZED,
-//                 "Missing or invalid token header".into(),
-//             ))
-//     }
-// }
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TokenHeader(pub String);
 
@@ -41,7 +22,8 @@ where
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let token = parts.headers
+        let token = parts
+            .headers
             .get("token")
             .and_then(|value| value.to_str().ok())
             .map(|value| SecurityToken(value.to_string()))
@@ -78,7 +60,8 @@ where
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let token = parts.headers
+        let token = parts
+            .headers
             .get("token")
             .and_then(|value| value.to_str().ok())
             .map(|value| SessionToken(value.to_string()))
@@ -90,7 +73,6 @@ where
         Ok(token)
     }
 }
-
 
 impl SessionToken {
     pub fn is_valid(&self) -> bool {

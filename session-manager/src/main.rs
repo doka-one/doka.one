@@ -1,19 +1,17 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-
-
-use std::path::Path;
+use axum::extract::Path;
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use std::net::SocketAddr;
 use std::process::exit;
 
 use log::*;
-use rocket::*;
-use rocket::config::Environment;
-use rocket::http::RawStr;
-use rocket_contrib::json::Json;
-use rocket_contrib::templates::Template;
 
+use crate::session::SessionDelegate;
 use commons_error::*;
 use commons_pg::init_db_pool;
-use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
+use commons_services::property_name::{
+    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
+};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
@@ -21,32 +19,38 @@ use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkdto::{OpenSessionReply, OpenSessionRequest, SessionReply, WebType};
 
-use crate::session::SessionDelegate;
-
 mod session;
 
 ///
 /// 🔑 Find a session from its sid
 ///
-#[get("/session/<session_id>")]
-fn read_session(session_id: &RawStr, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<SessionReply> {
+//#[get("/session/<session_id>")]
+async fn read_session(
+    Path(session_id): Path<String>,
+    security_token: SecurityToken,
+    x_request_id: XRequestID,
+) -> WebType<SessionReply> {
     let mut delegate = SessionDelegate::new(security_token, x_request_id);
-    delegate.read_session(session_id)
+    delegate.read_session(&session_id).await
 }
 
 ///
 /// 🔑 Open a new session for the group and user
 /// It's usually called by the Login end point using the session_id as a security_token
 ///
-#[post("/session", format = "application/json", data = "<session_request>")]
-fn open_session(session_request: Json<OpenSessionRequest>, security_token: SecurityToken, x_request_id: XRequestID) -> WebType<OpenSessionReply> {
+//#[post("/session", format = "application/json", data = "<session_request>")]
+async fn open_session(
+    security_token: SecurityToken,
+    x_request_id: XRequestID,
+    session_request: Json<OpenSessionRequest>,
+) -> WebType<OpenSessionReply> {
     let mut delegate = SessionDelegate::new(security_token, x_request_id);
-    delegate.open_session(session_request)
+    delegate.open_session(session_request).await
 }
 
 ///
-fn main() {
-
+#[tokio::main]
+async fn main() {
     const PROGRAM_NAME: &str = "Session Manager";
 
     println!("😎 Init {}", PROGRAM_NAME);
@@ -55,13 +59,19 @@ fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
+    println!(
+        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
+        PROJECT_CODE, VAR_NAME
+    );
 
     let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
 
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
+        .unwrap_or("".to_string())
+        .parse::<u16>()
+    else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -70,7 +80,7 @@ fn main() {
         exit(-57);
     };
 
-    let log_config_path = Path::new(&log_config);
+    let log_config_path = std::path::Path::new(&log_config);
 
     // Read the global properties
     println!("😎 Read log properties from {:?}", &log_config_path);
@@ -90,11 +100,15 @@ fn main() {
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
-    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
+    log_info!(
+        "😎 The CEK was correctly read : [{}]",
+        format!("{}...", &cek[0..5])
+    );
 
     // Init DB pool
     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-                    .map_err(err_fwd!("Cannot read the database connection information")) {
+        .map_err(err_fwd!("Cannot read the database connection information"))
+    {
         Ok(x) => x,
         Err(e) => {
             log_error!("{:?}", e);
@@ -104,17 +118,19 @@ fn main() {
 
     init_db_pool(&connect_string, db_pool_size);
 
-    log_info!("🚀 Start {}", PROGRAM_NAME);
+    log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
-    let mut my_config = Config::new(Environment::Production);
-    my_config.set_port(port);
-
+    // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
+    let key_routes = Router::new()
+        .route("/session/:session_id", get(read_session))
+        .route("/session", post(open_session));
 
-    let _ = rocket::custom(my_config)
-        .mount(&base_url, routes![open_session, read_session])
-        .attach(Template::fairing())
-        .launch();
+    let app = Router::new().nest(&base_url, key_routes);
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 
     log_info!("🏁 End {}", PROGRAM_NAME);
 }

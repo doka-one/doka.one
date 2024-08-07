@@ -104,7 +104,7 @@ impl ItemDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(items) = self.search_item_with_filter(
@@ -115,7 +115,7 @@ impl ItemDelegate {
             &entry_session.customer_code,
         ) else {
             log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -129,12 +129,12 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
 
-        WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+        WebType::from_errorset(&INTERNAL_DATABASE_ERROR)
     }
 
     /// Deprecated - replace it with search_item
@@ -168,7 +168,7 @@ impl ItemDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(items) = self.search_item_by_id(
@@ -179,7 +179,7 @@ impl ItemDelegate {
             &entry_session.customer_code,
         ) else {
             log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -193,7 +193,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
@@ -435,7 +435,7 @@ impl ItemDelegate {
                 &self.session_token,
                 &self.follower
             );
-            return WebType::from_errorset(INVALID_TOKEN);
+            return WebType::from_errorset(&INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
@@ -444,7 +444,7 @@ impl ItemDelegate {
         let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
             err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
         ) else {
-            return WebType::from_errorset(INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
@@ -456,7 +456,7 @@ impl ItemDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(items) = self
@@ -472,7 +472,7 @@ impl ItemDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         if items.is_empty() {
@@ -481,7 +481,7 @@ impl ItemDelegate {
                 item_id,
                 &self.follower
             );
-            let wt = WebType::from_errorset(MISSING_ITEM);
+            let wt = WebType::from_errorset(&MISSING_ITEM);
             return wt;
         }
 
@@ -496,7 +496,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_item, follower=[{}]", &self.follower);
@@ -540,11 +540,11 @@ impl ItemDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // if tag_names.0.is_empty() {
-        //     return WebType::from_errorset(INVALID_REQUEST);
+        //     return WebType::from_errorset(&INVALID_REQUEST);
         // };
 
         //let item_id = add_item_tag_request.item_id;
@@ -557,7 +557,7 @@ impl ItemDelegate {
                     e,
                     &self.follower
                 );
-                return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+                return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
             };
             log_info!(
                 "😎 We deleted the tag, tag_name=[{}], follower=[{}]",
@@ -571,7 +571,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End delete_item_tag, follower=[{}]", &self.follower);
@@ -673,7 +673,7 @@ impl ItemDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Add the tags
@@ -692,7 +692,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End update_item_tag, follower=[{}]", &self.follower);
@@ -760,7 +760,7 @@ impl ItemDelegate {
             &self.follower
         ));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let o_file_ref = add_item_request.file_ref.clone();
@@ -776,7 +776,7 @@ impl ItemDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -804,7 +804,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(INTERNAL_DATABASE_ERROR);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         let now = SystemTime::now();

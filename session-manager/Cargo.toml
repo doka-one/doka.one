@@ -8,8 +8,6 @@ authors = ["dpapin1118 <denis.pro@isd.lu>"]
 
 [dependencies]
 chrono = { workspace = true }
-rocket = { workspace = true }
-rocket_contrib = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
@@ -17,17 +15,14 @@ lazy_static = { workspace = true }
 rs-uuid = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-rocket_okapi = { workspace = true }
-schemars = { workspace = true }
 okapi = { workspace = true }
 java-properties = { workspace = true }
-#obfustring = { workspace = true }
 anyhow = { workspace = true }
-
 uuid = { workspace = true }
-#rust-crypto = { workspace = true }
 rand = { workspace = true }
 csv = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}

@@ -1,5 +1,8 @@
+use crate::token_lib::SessionToken;
 use axum::async_trait;
-use axum::extract::{FromRequest, Request};
+use axum::extract::{FromRequest, FromRequestParts, Request};
+use axum::http::request::Parts;
+use axum::http::StatusCode;
 use commons_error::*;
 use doka_cli::request_client::TokenType;
 use rand::Rng;
@@ -49,14 +52,14 @@ impl Display for XRequestID {
 }
 
 #[async_trait]
-impl<S> FromRequest<S> for XRequestID
+impl<S> FromRequestParts<S> for XRequestID
 where
     S: Send + Sync,
 {
-    type Rejection = String;
-    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let headers = req.headers();
-        let x_request_id = headers
+    type Rejection = (StatusCode, String);
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let x_request_id = parts
+            .headers
             .get("X-Request-ID")
             .and_then(|value| {
                 u32::from_str(
@@ -75,18 +78,6 @@ where
         Ok(xri)
     }
 }
-
-// impl<'a, 'r> FromRequest<'a, 'r> for XRequestID {
-//     type Error = ();
-//     fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
-//         let map = my_request.headers();
-//
-//         let x_request_id = map.get_one("X-Request-ID").map(|t|
-//             t.parse().map_err(err_fwd!("⛔ Cannot parse the x_request_id from the header,set default to 0")).unwrap_or(0u32) );
-//
-//         request::Outcome::Success(XRequestID(x_request_id))
-//     }
-// }
 
 #[derive(Debug, Clone)]
 pub struct Follower {

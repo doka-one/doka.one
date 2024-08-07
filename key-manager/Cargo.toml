@@ -8,16 +8,12 @@ edition = "2021"
 
 [dependencies]
 chrono = { workspace = true }
-#rocket = { workspace = true }
-#rocket_contrib = { workspace = true }
-#rocket_okapi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
 rs-uuid = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-#schemars = { workspace = true }
 okapi = { workspace = true }
 java-properties = { workspace = true }
 anyhow = { workspace = true }
@@ -25,7 +21,7 @@ uuid = { workspace = true }
 rand = { workspace = true }
 csv = { workspace = true }
 axum = { workspace = true }
-axum-macros = "^0.4"
+tokio = { workspace = true }
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}
@@ -35,14 +31,6 @@ commons-services = {path= "../commons-services" }
 dkdto = {path="../dkdto"}
 doka-cli = {path="../doka-cli"}
 
-
-
 # test
 reqwest = { workspace = true }
-tokio = { workspace = true }
-
-#[dependencies.rocket_contrib]
-#version = "0.4.10"
-#default-features = false
-#features = ["json","handlebars_templates", "tera_templates"]
 

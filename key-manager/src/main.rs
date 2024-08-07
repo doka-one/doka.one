@@ -1,18 +1,13 @@
 mod all_tests;
 mod key;
 
-use axum::extract::{Path, Query, Json};
+use axum::extract::{Json, Path};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::{Router};
+use axum::Router;
 use log::{error, info};
 use std::net::SocketAddr;
 use std::process::exit;
-use axum::response::IntoResponse;
-// use rocket::*;
-// use rocket_contrib::json::Json;
-// use rocket::http::RawStr;
-// use rocket_contrib::templates::Template;
-// use rocket::config::Environment;
 
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
@@ -25,7 +20,7 @@ use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
 use commons_services::read_cek_and_store;
-use commons_services::token_lib::{SecurityToken, TokenHeader};
+use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
 

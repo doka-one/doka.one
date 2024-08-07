@@ -16,6 +16,7 @@ okapi = { workspace = true }
 anyhow = { workspace = true }
 rand = { workspace = true }
 axum = { workspace = true }
+tokio = { workspace = true }
 
 commons-error = {path="../commons-error"}
 commons-pg = {path="../commons-pg"}

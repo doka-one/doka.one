@@ -89,6 +89,11 @@ impl<T> From<ErrorMessage> for WebType<T> {
     }
 }
 
+/// A response with a potential error related to a http code
+/// ```
+/// use dkdto::{ErrorMessage, WebResponse};
+/// let wr: WebResponse<String> = Err( ErrorMessage { http_error_code: 401, message : "Cannot read the document".to_string()} );
+/// ```
 pub type WebResponse<T> = Result<T, ErrorMessage>;
 
 impl<T> WebTypeBuilder<T> for WebResponse<T> {
@@ -172,7 +177,7 @@ pub struct EntrySession {
     pub termination_time_gmt: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OpenSessionRequest {
     pub customer_code: String,
     pub user_name: String,
@@ -215,7 +220,7 @@ pub struct DeleteCustomerReply {
     pub status: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LoginRequest {
     pub login: String,
     pub password: String,

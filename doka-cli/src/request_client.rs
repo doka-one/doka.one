@@ -28,9 +28,9 @@ const MAX_HTTP_RETRY: u32 = 5;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub struct CustomHeaders {
-    token_type: TokenType,
-    x_request_id: Option<u32>,
-    cek: Option<String>,
+    pub token_type: TokenType,
+    pub x_request_id: Option<u32>,
+    pub cek: Option<String>,
 }
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum TokenType {

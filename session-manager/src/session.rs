@@ -9,7 +9,8 @@ use log::*;
 use tokio::sync::oneshot;
 
 use commons_error::*;
-use commons_pg::{CellValue, SQLChange, SQLConnection, SQLDataSet, SQLQueryBlock, SQLTransaction};
+use commons_pg::sql_transaction::{SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction};
+use commons_pg::sql_transaction2::{CellValue, SQLDataSet};
 use commons_services::database_lib::run_blocking_spawn;
 use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
@@ -110,7 +111,7 @@ impl SessionDelegate {
         let current_datetime = SystemTime::now();
         let session_id = session_request.session_id.to_owned();
 
-        let mut params: HashMap<String, commons_pg::CellValue> = HashMap::new();
+        let mut params: HashMap<String, CellValue> = HashMap::new();
         params.insert(
             "p_customer_code".to_owned(),
             CellValue::from_raw_string(session_request.customer_code.to_owned()),

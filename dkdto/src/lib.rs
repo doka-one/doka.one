@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use axum::Json;
@@ -31,6 +32,13 @@ impl From<anyhow::Error> for ErrorMessage {
             http_error_code: 500,
             message: error.to_string(),
         }
+    }
+}
+
+impl Display for ErrorMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let str = format!("http:{} message:{}", self.http_error_code, &self.message);
+        write!(f, "{}", &str)
     }
 }
 

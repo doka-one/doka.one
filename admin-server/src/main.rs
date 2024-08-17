@@ -11,7 +11,7 @@ use log::*;
 use crate::customer::CustomerDelegate;
 use crate::login::LoginDelegate;
 use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
-use commons_pg::init_db_pool;
+use commons_pg::sql_transaction::init_db_pool;
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };

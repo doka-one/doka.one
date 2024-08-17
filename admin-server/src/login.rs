@@ -7,7 +7,8 @@ use log::*;
 use rs_uuid::iso::uuid_v4;
 
 use commons_error::*;
-use commons_pg::{CellValue, SQLConnection, SQLQueryBlock, SQLTransaction};
+use commons_pg::sql_transaction::{SQLConnection, SQLQueryBlock, SQLTransaction};
+use commons_pg::sql_transaction2::CellValue;
 use commons_services::database_lib::{open_transaction, run_blocking_spawn};
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY,
@@ -24,6 +25,7 @@ use dkdto::{
     LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, WebResponse, WebType,
     WebTypeBuilder,
 };
+use doka_cli::async_request_client::SessionManagerClientAsync;
 use doka_cli::request_client::{SessionManagerClient, TokenType};
 
 #[derive(Debug, Clone)]
@@ -99,20 +101,7 @@ impl LoginDelegate {
 
         // Open a session
 
-        let Ok(smc) = (|| -> anyhow::Result<SessionManagerClient> {
-            let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY).map_err(err_fwd!(
-                "💣 Cannot read Session Manager hostname, follower=[{}]",
-                &self.follower
-            ))?;
-            let sm_port: u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?
-                .parse()
-                .map_err(err_fwd!(
-                    "💣 Cannot read Session Manager port, follower=[{}]",
-                    &self.follower
-                ))?;
-            let smc = SessionManagerClient::new(&sm_host, sm_port);
-            Ok(smc)
-        })() else {
+        let Ok(smc) = self.build_session_manager_client().await else {
             log_error!(
                 "💣 Session Manager Client creation failed, follower=[{}]",
                 &self.follower
@@ -125,7 +114,13 @@ impl LoginDelegate {
             &self.follower
         );
 
-        let response = self.call_session_service(&smc, &open_session_request).await;
+        let response = smc
+            .open_session(
+                &open_session_request,
+                &open_session_request.session_id,
+                self.follower.x_request_id.value(),
+            )
+            .await;
 
         if let Err(e) = response {
             log_error!(
@@ -156,23 +151,18 @@ impl LoginDelegate {
         )
     }
 
-    async fn call_session_service(
-        &self,
-        smc: &SessionManagerClient,
-        open_session_request: &OpenSessionRequest,
-    ) -> WebResponse<OpenSessionReply> {
-        let local_self = self.clone();
-        let local_smc = smc.clone();
-        let local_open_session_request = open_session_request.clone();
-
-        let f = move || {
-            local_smc.open_session(
-                &local_open_session_request,
-                &local_open_session_request.session_id,
-                local_self.follower.x_request_id.value(),
-            )
-        };
-        run_blocking_spawn(f, &self.follower).await
+    async fn build_session_manager_client(&self) -> anyhow::Result<SessionManagerClientAsync> {
+        let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY).map_err(err_fwd!(
+            "💣 Cannot read Session Manager hostname, follower=[{}]",
+            &self.follower
+        ))?;
+        let sm_port: u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?
+            .parse()
+            .map_err(err_fwd!(
+                "💣 Cannot read Session Manager port, follower=[{}]",
+                &self.follower
+            ))?;
+        Ok(SessionManagerClientAsync::new(&sm_host, sm_port))
     }
 
     async fn find_user_and_company_async(

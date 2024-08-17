@@ -13,7 +13,7 @@ use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 
 use commons_error::*;
-use commons_pg::init_db_pool;
+use commons_pg::sql_transaction::init_db_pool;
 
 use crate::key::KeyDelegate;
 use commons_services::property_name::{

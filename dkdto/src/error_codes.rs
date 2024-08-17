@@ -147,6 +147,10 @@ pub static CUSTOMER_NAME_ALREADY_TAKEN: Lazy<ErrorSet> = Lazy::new(|| ErrorSet {
     err_message: "Customer name already taken",
     http_error_code: StatusCode::CONFLICT.as_u16(),
 });
+pub static CUSTOMER_CODE_ALREADY_TAKEN: Lazy<ErrorSet> = Lazy::new(|| ErrorSet {
+    err_message: "Customer code already taken",
+    http_error_code: StatusCode::CONFLICT.as_u16(),
+});
 pub static USER_NAME_ALREADY_TAKEN: Lazy<ErrorSet> = Lazy::new(|| ErrorSet {
     err_message: "User name already taken",
     http_error_code: StatusCode::CONFLICT.as_u16(),

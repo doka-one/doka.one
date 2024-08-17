@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use commons_error::*;
 use lazy_static::*;
 use log::*;
@@ -10,7 +10,7 @@ use r2d2_postgres::{r2d2, PostgresConnectionManager};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 lazy_static! {
     static ref SQL_POOL: MutStatic<SQLPool> = MutStatic::new();
@@ -207,7 +207,7 @@ impl SQLDataSet {
 
         let row: &HashMap<String, CellValue> = self.data.deref().get(self.position - 1).unwrap();
         let cell = row.get(col_name).unwrap();
-
+        dbg!(&cell);
         cell.inner_value_int()
     }
 
@@ -324,6 +324,19 @@ pub fn naivedate_to_iso(d: &NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
 }
 
+pub fn naivedatetime_to_iso(d: &NaiveDateTime) -> String {
+    d.format("%Y-%m-%dZ%H:%M:%S").to_string()
+}
+
+// TODO we can get rid of it when we replace SystemTime with NaiveDateTime
+pub fn naive_datetime_to_system_time(opt_naive: Option<NaiveDateTime>) -> Option<SystemTime> {
+    opt_naive.map(|naive| {
+        let duration_since_epoch = Duration::from_secs(naive.timestamp() as u64)
+            + Duration::from_nanos(naive.timestamp_subsec_nanos() as u64);
+        UNIX_EPOCH + duration_since_epoch
+    })
+}
+
 #[derive(Clone, Debug)]
 pub enum CellValue {
     String(Option<String>),
@@ -333,6 +346,7 @@ pub enum CellValue {
     Int16(Option<i16>),
     Double(Option<f64>),
     Date(Option<NaiveDate>),
+    // TODO replace it with a NativeDateTime
     SystemTime(Option<SystemTime>),
 }
 

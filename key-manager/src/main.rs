@@ -1,28 +1,29 @@
-mod all_tests;
-mod key;
-
-use axum::extract::{Json, Path};
-use axum::response::IntoResponse;
-use axum::routing::{get, post};
-use axum::Router;
-use log::{error, info};
 use std::net::SocketAddr;
 use std::process::exit;
 
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use axum::extract::{Json, Path};
+use axum::http::StatusCode;
+use axum::routing::{get, post};
+use axum::Router;
+use log::{error, info};
 
 use commons_error::*;
 use commons_pg::sql_transaction::init_db_pool;
-
-use crate::key::KeyDelegate;
+use commons_pg::sql_transaction2::SQLConnection2;
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
-use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
+use dkconfig::conf_reader::{read_config, read_doka_env};
+use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType, WebTypeBuilder};
+
+use crate::key::KeyDelegate;
+
+mod all_tests;
+mod key;
 
 ///
 /// ✨ Read the key for a specific customer code [customer_code]
@@ -58,6 +59,17 @@ async fn add_key(
 ) -> WebType<AddKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
     delegate.add_key(customer).await
+}
+
+async fn read_toto() -> WebType<CustomerKeyReply> {
+    let mut cnx = SQLConnection2::from_pool().await.unwrap();
+
+    let trans = cnx.sql_transaction().await.unwrap();
+
+    let customer_key_reply = CustomerKeyReply {
+        keys: Default::default(),
+    };
+    WebType::from_item(StatusCode::OK.as_u16(), customer_key_reply)
 }
 
 ///
@@ -139,6 +151,7 @@ async fn main() {
     // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
     let key_routes = Router::new()
+        .route("/toto", get(read_toto))
         .route("/key", get(key_list))
         .route("/key/:customer_code", get(read_key))
         .route("/key", post(add_key));

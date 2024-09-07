@@ -7,8 +7,7 @@ use log::*;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
-use commons_pg::sql_transaction::{SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction};
-use commons_services::database_lib::{open_transaction, run_blocking_spawn};
+use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
 use commons_services::property_name::COMMON_EDIBLE_KEY_PROPERTY;
 use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
@@ -81,7 +80,7 @@ impl KeyDelegate {
         };
 
         let key_id = try_or_return!(
-            self.create_customer_key_async(&customer.customer_code, &enc_password)
+            self.create_customer_key(&customer.customer_code, &enc_password)
                 .await,
             |e| WebType::from(e)
         );
@@ -101,35 +100,31 @@ impl KeyDelegate {
         WebType::from_item(StatusCode::OK.as_u16(), ret)
     }
 
-    async fn create_customer_key_async(
+    async fn create_customer_key(
         &self,
         customer_code: &str,
         enc_password: &str,
     ) -> WebResponse<i64> {
-        let local_self = self.clone();
-        let local_customer_code = customer_code.to_owned();
-        let local_enc_password = enc_password.to_owned();
-        run_blocking_spawn(
-            move || local_self.create_customer_key(&local_customer_code, &local_enc_password),
-            &self.follower,
-        )
-        .await
-    }
-
-    fn create_customer_key(&self, customer_code: &str, enc_password: &str) -> WebResponse<i64> {
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 Open connection error, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
+
+        let mut trans = try_or_return!(
+            cnx.begin().await.map_err(err_fwd!(
+                "💣 Open transaction error, follower=[{}]",
+                &self.follower
+            )),
+            |_| WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR)
+        );
 
         // Verify if the key already exists for the customer code
 
         let Ok(entries) = self
             .search_key_by_customer_code(&mut trans, Some(customer_code))
+            .await
             .map_err(err_fwd!(
                 "💣 Search failed, customer code=[{}], follower=[{}]",
                 customer_code,
@@ -164,13 +159,13 @@ impl KeyDelegate {
             CellValue::from_raw_str(enc_password),
         );
 
-        let query = SQLChange {
+        let query = SQLChange2 {
             sql_query: sql_insert.to_string(),
             params,
             sequence_name: "keymanager.customer_keys_id_seq".to_string(),
         };
 
-        let Ok(key_id) = query.insert(&mut trans).map_err(err_fwd!(
+        let Ok(key_id) = query.insert(&mut trans).await.map_err(err_fwd!(
             "💣 Cannot insert the key, follower=[{}]",
             &self.follower
         )) else {
@@ -179,6 +174,7 @@ impl KeyDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -190,9 +186,9 @@ impl KeyDelegate {
 
     // Search the keys for a customer_code
     // If the customer code is not present, returns all the keys
-    fn search_key_by_customer_code(
+    async fn search_key_by_customer_code(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         customer_code: Option<&str>,
     ) -> anyhow::Result<HashMap<String, EntryReply>> {
         let p_customer_code = CellValue::from_opt_str(customer_code);
@@ -200,7 +196,7 @@ impl KeyDelegate {
         let mut params = HashMap::new();
         params.insert("p_customer_code".to_owned(), p_customer_code);
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query: r"SELECT id, customer_code, ciphered_key FROM keymanager.customer_keys
                     WHERE customer_code = :p_customer_code OR :p_customer_code IS NULL "
                 .to_string(),
@@ -211,6 +207,7 @@ impl KeyDelegate {
 
         let mut sql_result: SQLDataSet = query
             .execute(&mut trans)
+            .await
             .map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
 
         let mut entries = HashMap::new();
@@ -261,7 +258,7 @@ impl KeyDelegate {
         self.follower.token_type = Token(self.security_token.0.clone());
 
         // customer key to return.
-        let customer_key_reply = match self.read_entries_async(Some(customer_code)).await {
+        let customer_key_reply = match self.read_entries(Some(customer_code)).await {
             Ok(reply) => reply,
             Err(e) => {
                 log_error!("💣 We were not able to read the entries for the customer_code=[{}], follower=[{}]", customer_code, &self.follower);
@@ -301,7 +298,7 @@ impl KeyDelegate {
         self.follower.token_type = Token(self.security_token.0.clone());
 
         // List of customer keys to return.
-        let customer_key_reply = match self.read_entries_async(None).await {
+        let customer_key_reply = match self.read_entries(None).await {
             Ok(reply) => reply,
             Err(e) => {
                 log_error!(
@@ -321,38 +318,36 @@ impl KeyDelegate {
         WebType::from_item(StatusCode::OK.as_u16(), customer_key_reply)
     }
 
-    async fn read_entries_async(
-        &self,
-        customer_code: Option<&str>,
-    ) -> WebResponse<CustomerKeyReply> {
-        let local_self = self.clone();
-        let local_customer_code = customer_code.map(|s| s.to_owned());
-        run_blocking_spawn(
-            move || local_self.read_entries(local_customer_code.as_deref()),
-            &self.follower,
-        )
-        .await
-    }
-
-    // Read the list of users from the DB
-    fn read_entries(&self, customer_code: Option<&str>) -> WebResponse<CustomerKeyReply> {
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "Open transaction error, follower=[{}]",
+    async fn read_entries(&self, customer_code: Option<&str>) -> WebResponse<CustomerKeyReply> {
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 Open connection error, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
+        let mut trans = try_or_return!(
+            cnx.begin().await.map_err(err_fwd!(
+                "💣 Open transaction error, follower=[{}]",
+                &self.follower
+            )),
+            |_| WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR)
+        );
+
         let Ok(entries) = self
             .search_key_by_customer_code(&mut trans, customer_code)
+            .await
             .map_err(err_fwd!("Key search failed, follower=[{}]", &self.follower))
         else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
-        if trans.commit().map_err(err_fwd!("Commit failed")).is_err() {
+        if trans
+            .commit()
+            .await
+            .map_err(err_fwd!("Commit failed"))
+            .is_err()
+        {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 

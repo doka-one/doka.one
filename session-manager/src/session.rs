@@ -6,11 +6,10 @@ use axum::http::StatusCode;
 use axum::Json;
 use chrono::Utc;
 use log::*;
-use tokio::sync::oneshot;
 
 use commons_error::*;
-use commons_pg::sql_transaction::{SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction};
-use commons_pg::sql_transaction2::{CellValue, SQLDataSet};
+use commons_pg::sql_transaction::{CellValue, SQLDataSet};
+use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
 use commons_services::database_lib::run_blocking_spawn;
 use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
@@ -68,39 +67,30 @@ impl SessionDelegate {
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        let session_id =
-            try_or_return!(self.create_new_session_async(&session_request).await, |e| {
-                WebType::from(e)
-            });
+        let session_id = try_or_return!(self.create_new_session(&session_request).await, |e| {
+            WebType::from(e)
+        });
 
         let ret = OpenSessionReply { session_id };
         log_info!("🏁 End open_session, follower=[{}]", &self.follower);
         WebType::from_item(StatusCode::ACCEPTED.as_u16(), ret)
     }
 
-    async fn create_new_session_async(
+    async fn create_new_session(
         &self,
         session_request: &OpenSessionRequest,
     ) -> WebResponse<String> {
-        let local_self = self.clone();
-        let local_session_request = session_request.clone();
-        let f = move || local_self.create_new_session(&local_session_request);
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    fn create_new_session(&self, session_request: &OpenSessionRequest) -> WebResponse<String> {
-        let Ok(mut cnx) = SQLConnection::new().map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
             "💣 Connection issue, follower=[{}]",
             &self.follower
         )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
-        let r_trans = cnx.sql_transaction().map_err(err_fwd!(
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
@@ -137,13 +127,13 @@ impl SessionDelegate {
             CellValue::from_raw_systemtime(current_datetime),
         );
 
-        let query = SQLChange {
+        let query = SQLChange2 {
             sql_query: sql_insert.to_string(),
             params,
             sequence_name: "dokasys.sessions_id_seq".to_string(),
         };
 
-        let Ok(session_db_id) = query.insert(&mut trans).map_err(err_fwd!(
+        let Ok(session_db_id) = query.insert(&mut trans).await.map_err(err_fwd!(
             "💣 Cannot insert the session, follower=[{}]",
             &self.follower
         )) else {
@@ -152,6 +142,7 @@ impl SessionDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -182,10 +173,9 @@ impl SessionDelegate {
         }
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        let session_reply =
-            try_or_return!(self.read_session_and_update_async(&session_id).await, |e| {
-                WebType::from(e)
-            });
+        let session_reply = try_or_return!(self.read_session_and_update(&session_id).await, |e| {
+            WebType::from(e)
+        });
 
         log_info!(
             "😎 Updated the session renew timestamp, session id=[{}], follower=[{}]",
@@ -197,34 +187,26 @@ impl SessionDelegate {
         WebType::from_item(StatusCode::OK.as_u16(), session_reply)
     }
 
-    async fn read_session_and_update_async(&self, session_id: &str) -> WebResponse<SessionReply> {
-        // Spawn an asynchronous task
-        let local_self = self.clone();
-        let local_session_id = session_id.to_owned();
-        let f = move || local_self.read_session_and_update(&local_session_id);
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    fn read_session_and_update(&self, session_id: &str) -> WebResponse<SessionReply> {
+    async fn read_session_and_update(&self, session_id: &str) -> WebResponse<SessionReply> {
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection::new().map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
-        let r_trans = cnx.sql_transaction().map_err(err_fwd!(
-            "💣 Error transaction, follower=[{}]",
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Query the sessions to find the right one
         let Ok(sessions) = self
             .search_session_by_sid(&mut trans, Some(&session_id))
+            .await
             .map_err(err_fwd!(
                 "💣 Session search failed for session id=[{}], follower=[{}]",
                 session_id,
@@ -275,7 +257,7 @@ impl SessionDelegate {
         }
 
         // Update the session renew_time_gmt
-        let r_update = self.update_renew_time(&mut trans, &session_id);
+        let r_update = self.update_renew_time(&mut trans, &session_id).await;
 
         if r_update.is_err() {
             trans.rollback();
@@ -291,6 +273,7 @@ impl SessionDelegate {
         // End the transaction
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -301,9 +284,9 @@ impl SessionDelegate {
     }
 
     /// Search the session information from the session id
-    fn search_session_by_sid(
+    async fn search_session_by_sid(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         session_id: Option<&str>,
     ) -> anyhow::Result<Vec<EntrySession>> {
         let p_sid = CellValue::from_opt_str(session_id);
@@ -311,7 +294,7 @@ impl SessionDelegate {
         let mut params = HashMap::new();
         params.insert("p_sid".to_owned(), p_sid);
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query : r"SELECT id, customer_code, customer_id, user_name, user_id, session_id, start_time_gmt, renew_time_gmt, termination_time_gmt
                     FROM dokasys.sessions
                     WHERE session_id = :p_sid OR :p_sid IS NULL ".to_string(),
@@ -320,7 +303,7 @@ impl SessionDelegate {
             params,
         };
 
-        let mut sql_result: SQLDataSet = query.execute(&mut trans).map_err(err_fwd!(
+        let mut sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
             "Query failed, [{}], follower=[{}]",
             &query.sql_query,
             &self.follower
@@ -379,9 +362,9 @@ impl SessionDelegate {
     }
 
     /// Set the renew timestamp of the session to the current UTC time.
-    fn update_renew_time(
+    async fn update_renew_time(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         session_id: &str,
     ) -> anyhow::Result<bool> {
         let p_sid = CellValue::from_raw_string(session_id.to_owned());
@@ -393,13 +376,13 @@ impl SessionDelegate {
                              SET renew_time_gmt = ( NOW() at time zone 'UTC'  )
                              WHERE session_id = :p_session_id "#;
 
-        let query = SQLChange {
+        let query = SQLChange2 {
             sql_query: sql_update.to_string(),
             params,
             sequence_name: "".to_string(),
         };
 
-        let _ = query.update(&mut trans).map_err(err_fwd!(
+        let _ = query.update(&mut trans).await.map_err(err_fwd!(
             "Cannot update the session renew timestamp, follower=[{}]",
             &self.follower
         ))?;

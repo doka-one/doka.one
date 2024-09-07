@@ -8,7 +8,7 @@ use log::*;
 
 use crate::session::SessionDelegate;
 use commons_error::*;
-use commons_pg::init_db_pool;
+use commons_pg::sql_transaction2::init_db_pool2;
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
@@ -116,7 +116,7 @@ async fn main() {
         }
     };
 
-    init_db_pool(&connect_string, db_pool_size);
+    let r = init_db_pool2(&connect_string, db_pool_size).await;
 
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 

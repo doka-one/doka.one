@@ -111,7 +111,7 @@ impl SQLConnection2 {
         Ok(SQLConnection2 { client })
     }
 
-    pub async fn sql_transaction<'a>(&'a mut self) -> anyhow::Result<SQLTransaction2<'a>> {
+    pub async fn begin<'a>(&'a mut self) -> anyhow::Result<SQLTransaction2<'a>> {
         let t = self.client.begin().await?;
         Ok(SQLTransaction2 {
             inner_transaction: t,
@@ -518,7 +518,7 @@ mod tests {
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         create_book(&mut trans, "Super book").await?;
         create_book(&mut trans, "Super book 2").await?;
@@ -562,7 +562,7 @@ mod tests {
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert("p_id".to_owned(), CellValue::from_raw_int(2000));
@@ -599,7 +599,7 @@ mod tests {
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert(
@@ -640,7 +640,7 @@ mod tests {
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert(
@@ -682,7 +682,7 @@ mod tests {
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert("p_id".to_owned(), CellValue::from_raw_int(2000));
@@ -725,7 +725,7 @@ mod tests {
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert("p_id".to_owned(), CellValue::from_raw_int(2000));
@@ -753,7 +753,7 @@ mod tests {
         init();
         let r = init_pool_once().await;
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
         let mut params = HashMap::new();
         params.insert("p_title".to_owned(), CellValue::from_raw_str("Game"));
 
@@ -779,7 +779,7 @@ mod tests {
 
     async fn task_for_parallel(thread_number: i32) -> anyhow::Result<()> {
         let mut cnx = SQLConnection2::from_pool().await?;
-        let mut trans = cnx.sql_transaction().await?;
+        let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert(

@@ -9,7 +9,7 @@ use log::{error, info};
 
 use commons_error::*;
 use commons_pg::sql_transaction::init_db_pool;
-use commons_pg::sql_transaction2::SQLConnection2;
+use commons_pg::sql_transaction2::{init_db_pool2, SQLConnection2};
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
@@ -63,9 +63,7 @@ async fn add_key(
 
 async fn read_toto() -> WebType<CustomerKeyReply> {
     let mut cnx = SQLConnection2::from_pool().await.unwrap();
-
-    let trans = cnx.sql_transaction().await.unwrap();
-
+    let trans = cnx.begin().await.unwrap();
     let customer_key_reply = CustomerKeyReply {
         keys: Default::default(),
     };
@@ -136,7 +134,7 @@ async fn main() {
         }
     };
 
-    init_db_pool(&connect_string, db_pool_size);
+    let r = init_db_pool2(&connect_string, db_pool_size).await;
 
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");

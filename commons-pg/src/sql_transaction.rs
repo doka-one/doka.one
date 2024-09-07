@@ -207,7 +207,6 @@ impl SQLDataSet {
 
         let row: &HashMap<String, CellValue> = self.data.deref().get(self.position - 1).unwrap();
         let cell = row.get(col_name).unwrap();
-        dbg!(&cell);
         cell.inner_value_int()
     }
 

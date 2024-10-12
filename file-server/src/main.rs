@@ -1,25 +1,26 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-
-use std::path::Path;
+use std::net::SocketAddr;
 use std::process::exit;
 
+use axum::extract::{DefaultBodyLimit, Multipart, Path};
+use axum::http::Method;
+use axum::routing::{get, post};
+use axum::Router;
 use log::*;
-use rocket::{Config, Data, Request, Response, routes};
-use rocket::{get, post};
-use rocket::config::Environment;
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::http::{ContentType, Method, RawStr, Status};
-use rocket_contrib::templates::Template;
+use tokio::io::AsyncReadExt;
+use tower_http::cors::{Any, CorsLayer};
 
 use commons_error::*;
-use commons_pg::init_db_pool;
-use commons_services::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,};
+use commons_pg::sql_transaction2::init_db_pool2;
+use commons_services::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply, UploadReply, WebType};
+use dkdto::{
+    DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply,
+    ListOfUploadInfoReply, UploadReply, WebType,
+};
 
 use crate::file_delegate::FileDelegate;
 
@@ -29,87 +30,101 @@ mod file_delegate;
 /// ✨  Upload the binary content of a file v2
 /// item_info : Base64Url encoded information representing a value from the possible target item (for instance, its filename)
 ///
-#[post("/upload2/<item_info>", data = "<file_data>")]
-pub fn upload2(item_info: &RawStr, file_data: Data, session_token : SessionToken) -> WebType<UploadReply> {
+// #[post("/upload2/<item_info>", data = "<file_data>")]
+pub async fn upload(
+    session_token: SessionToken,
+    Path(item_info): Path<String>,
+    mut file_data: Multipart,
+) -> WebType<UploadReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.upload2(item_info, file_data)
+    delegate.upload2(&item_info, &mut file_data).await
 }
 
 ///
 /// ✨ Get the information about the files being loaded
 ///
-#[get("/loading")]
-pub fn file_loading(session_token : SessionToken) -> WebType<ListOfUploadInfoReply> {
+// #[get("/loading")]
+pub async fn file_loading(session_token: SessionToken) -> WebType<ListOfUploadInfoReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.file_loading()
+    delegate.file_loading().await
 }
 
-///
-/// ✨ Get the information about the composition of a file [file_ref]
-///
-#[get("/info/<file_ref>")]
-pub fn file_info(file_ref: &RawStr, session_token : SessionToken) -> WebType<GetFileInfoReply> {
+//#[get("/info/<file_ref>")]
+pub async fn file_info(
+    session_token: SessionToken,
+    Path(file_ref): Path<String>,
+) -> WebType<Option<GetFileInfoReply>> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.file_info(file_ref)
-
+    delegate.file_info(&file_ref).await
 }
 
 ///
 /// ✨ Get the information about the loading status of a file [file_ref]
 ///
-#[get("/stats/<file_ref>")]
-pub fn file_stats(file_ref: &RawStr, session_token : SessionToken) -> WebType<GetFileInfoShortReply> {
+// #[get("/stats/<file_ref>")]
+pub async fn file_stats(
+    session_token: SessionToken,
+    Path(file_ref): Path<String>,
+) -> WebType<GetFileInfoShortReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.file_stats(file_ref)
+    delegate.file_stats(&file_ref).await
 }
 
-#[get("/list/<pattern>")]
-pub fn file_list(pattern: &RawStr, session_token : SessionToken) -> WebType<ListOfFileInfoReply> {
+/// ✨ Get the information about the composition of files [pattern of file_ref]
+// #[get("/list/<pattern>")]
+pub async fn file_list(
+    session_token: SessionToken,
+    Path(pattern): Path<String>,
+) -> WebType<ListOfFileInfoReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.file_list(pattern)
+    delegate.file_list(&pattern).await
 }
 
 ///
 /// ✨  Download the binary content of a file
 ///
-#[get("/download/<file_ref>")]
-pub fn download(file_ref: &RawStr, session_token : SessionToken) -> DownloadReply /*Content<Vec<u8>>*/ {
+// #[get("/download/<file_ref>")]
+pub async fn download(session_token: SessionToken, Path(file_ref): Path<String>) -> DownloadReply {
+    // let session_token = SessionToken { 0: "9ARks93f49KdpZ3sPnPYpSRZUOk9shmbQVZKn9If6RQmwi25yGtCN3vCis4JnYxGO46Hf07hDEZc9LFPRW5ncPFCeO-14VyW-Hdq-Q".to_string() };
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.download(file_ref)
+    delegate.download(&file_ref).await
 }
 
 #[derive(Debug)]
 pub struct CORS;
 
-impl Fairing for CORS {
-    fn info(&self) -> Info {
-        Info {
-            name: "Add CORS headers to responses",
-            kind: Kind::Response
-        }
-    }
+// impl Fairing for CORS {
+//     fn info(&self) -> Info {
+//         Info {
+//             name: "Add CORS headers to responses",
+//             kind: Kind::Response,
+//         }
+//     }
+//
+//     fn on_response(&self, request: &Request, response: &mut Response) {
+//         info!("On Response [{}]", &request);
+//         info!("On Response [{}]", &response.status());
+//
+//         let _ = response.status();
+//         // dbg!(&s);
+//
+//         if request.method() == Method::Options {
+//             response.set_status(Status::Ok);
+//         }
+//
+//         response.adjoin_header(ContentType::JSON);
+//         response.adjoin_raw_header(
+//             "Access-Control-Allow-Methods",
+//             "POST, GET, OPTIONS, PATCH, DELETE",
+//         );
+//         response.adjoin_raw_header("Access-Control-Allow-Origin", "*");
+//         response.adjoin_raw_header("Access-Control-Allow-Credentials", "true");
+//         response.adjoin_raw_header("Access-Control-Allow-Headers", "*");
+//     }
+// }
 
-    fn on_response(&self, request: &Request, response: &mut Response) {
-        info!("On Response [{}]", &request );
-        info!("On Response [{}]", &response.status() );
-
-        let _ = response.status();
-        // dbg!(&s);
-
-        if request.method() == Method::Options {
-            response.set_status(Status::Ok);
-        }
-
-        response.adjoin_header(ContentType::JSON );
-        response.adjoin_raw_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PATCH, DELETE");
-        response.adjoin_raw_header("Access-Control-Allow-Origin", "*");
-        response.adjoin_raw_header("Access-Control-Allow-Credentials", "true");
-        response.adjoin_raw_header("Access-Control-Allow-Headers", "*");
-    }
-}
-
-fn main() {
-
+#[tokio::main]
+async fn main() {
     const PROGRAM_NAME: &str = "File Server";
 
     println!("😎 Init {}", PROGRAM_NAME);
@@ -118,12 +133,18 @@ fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
+    println!(
+        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
+        PROJECT_CODE, VAR_NAME
+    );
 
     let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
+        .unwrap_or("".to_string())
+        .parse::<u16>()
+    else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -132,7 +153,7 @@ fn main() {
         eprintln!("💣 Cannot read the log4rs config");
         exit(-57);
     };
-    let log_config_path = Path::new(&log_config);
+    let log_config_path = std::path::Path::new(&log_config);
 
     // Read the global properties
     println!("😎 Read log properties from {:?}", &log_config_path);
@@ -145,18 +166,14 @@ fn main() {
         Ok(_) => {}
     }
 
-    log_info!("🚀 Start {}", PROGRAM_NAME);
-
     // Read the CEK
     log_info!("😎 Read Common Edible Key");
     read_cek_and_store();
 
-    // let new_prop = get_prop_value(CUSTOMER_EDIBLE_KEY_PROPERTY);
-    // dbg!(&new_prop);
-
     // Init DB pool
     let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information")) {
+        .map_err(err_fwd!("Cannot read the database connection information"))
+    {
         Ok(x) => x,
         Err(e) => {
             log_error!("{:?}", e);
@@ -164,25 +181,35 @@ fn main() {
         }
     };
 
-    init_db_pool(&connect_string, db_pool_size);
+    let r = init_db_pool2(&connect_string, db_pool_size).await;
 
-    let mut my_config = Config::new(Environment::Production);
-    my_config.set_port(port);
+    log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::PATCH, Method::DELETE])
+        .allow_origin(Any) // You can restrict origins instead of using Any
+        .allow_headers(Any)
+        //.allow_credentials(true)
+        ;
+
+    // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
+    let key_routes = Router::new()
+        .route("/upload2/:item_info", post(upload))
+        .route("/loading", get(file_loading))
+        .route("/info/:file_ref", get(file_info))
+        .route("/stats/:file_ref", get(file_stats))
+        .route("/list/:pattern", get(file_list))
+        // .route("/raw_download/:file_ref", get(raw_download))
+        .route("/download/:file_ref", get(download))
+        .layer(cors)
+        .layer(DefaultBodyLimit::max(usize::MAX));
 
-    let _ = rocket::custom(my_config)
-        .mount(&base_url, routes![
-            upload2,
-            file_loading,
-            file_info,
-            file_stats,
-            file_list,
-            download,
-        ])
-        .attach(CORS)
-        .attach(Template::fairing())
-        .launch();
+    let app = Router::new().nest(&base_url, key_routes);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 
     log_info!("🏁 End {}", PROGRAM_NAME);
 }
@@ -256,7 +283,7 @@ mod test {
     // #[test]
     // fn test_compute_tsvector() -> anyhow::Result<()> {
     //     init_test();
-    //     let mut r_cnx = SQLConnection::new();
+    //     let mut r_cnx = SQLConnection2::from_pool().await;
     //     let mut trans = open_transaction(&mut r_cnx)?;
     //     let ret = select_tsvector(&mut trans,Some("french"), "Planète Phase formation cœurs planétaires Phase formation noyaux telluriques moderne")?;
     //     assert_eq!("'coeur':4 'format':3,7 'modern':10 'noyal':8 'phas':2,6 'planet':1 'planetair':5 'tellur':9", ret);
@@ -266,7 +293,7 @@ mod test {
     // #[test]
     // fn test_insert_document() -> anyhow::Result<()> {
     //     init_test();
-    //     let mut r_cnx = SQLConnection::new();
+    //     let mut r_cnx = SQLConnection2::from_pool().await;
     //     let mut trans = open_transaction(&mut r_cnx)?;
     //
     //     let id = insert_document_part(&mut trans, "0f373b54-5dbb-4c75-98e7-98fd141593dc", 107,
@@ -278,5 +305,4 @@ mod test {
     //     assert!(id > 0);
     //     Ok(())
     // }
-
 }

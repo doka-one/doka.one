@@ -62,7 +62,7 @@ impl SessionDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&&INVALID_TOKEN);
+            return WebType::from_errorset(&INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
@@ -260,7 +260,7 @@ impl SessionDelegate {
         let r_update = self.update_renew_time(&mut trans, &session_id).await;
 
         if r_update.is_err() {
-            trans.rollback();
+            trans.rollback().await;
             log_warn!(
                 "💣 Rollback. Cannot update the renew time of the session, follower=[{}]",
                 &self.follower

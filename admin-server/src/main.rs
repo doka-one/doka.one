@@ -11,7 +11,7 @@ use log::*;
 use crate::customer::CustomerDelegate;
 use crate::login::LoginDelegate;
 use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
-use commons_pg::sql_transaction::init_db_pool;
+use commons_pg::sql_transaction2::init_db_pool2;
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
@@ -157,7 +157,7 @@ async fn main() {
         }
     };
 
-    init_db_pool(&connect_string, db_pool_size);
+    let r = init_db_pool2(&connect_string, db_pool_size).await;
 
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
@@ -166,9 +166,9 @@ async fn main() {
     let key_routes = Router::new()
         .route("/login", post(login))
         .route("/customer", post(create_customer))
-        .route("/customer/<:customer_code", delete(delete_customer))
+        .route("/customer/:customer_code", delete(delete_customer))
         .route(
-            "/session//customer/removable/<:customer_code",
+            "/customer/removable/:customer_code",
             patch(set_removable_flag_customer),
         );
 

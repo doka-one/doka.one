@@ -11,10 +11,9 @@ members = [
     "key-manager",
     "session-manager",
     "admin-server",
-    "file-server",
     "document-server",
+    "file-server",
     "doka-api-tests",
-    "doka-dbpool-test-server",
     "doka-one-installer",
 ]
 
@@ -56,10 +55,11 @@ bytes = "^1.2"
 num_cpus = "^1.13"
 rayon = "^1.6"
 
-reqwest = { version = "^0.11", features = ["blocking", "json"] }
+reqwest = { version = "^0.11", features = ["blocking", "json", "multipart"] }
 tokio = { version = "^1", features = ["full"] }
 async-trait = "0.1.81"
-axum = "^0.7"
+axum = { version = "^0.7", features = ["multipart"] }
+tower-http = { version = "^0.6", features = ["fs", "trace", "cors"] }
 sqlx = { version = "^0.8", features = ["postgres", "runtime-tokio-rustls", "chrono"]}
 chrono = { version = "^0.4", features = ["serde"] }
 #chrono = "^0.4"

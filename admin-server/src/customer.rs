@@ -1,30 +1,30 @@
+//
+
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::Json;
 use log::*;
-use postgres::{Client, NoTls};
 use rs_uuid::iso::uuid_v4;
 
 use commons_error::*;
-use commons_pg::sql_transaction::SQLDataSet;
-use commons_pg::sql_transaction::{
-    CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction,
-};
-use commons_services::database_lib::{open_transaction, run_blocking_spawn};
+use commons_pg::sql_transaction::{CellValue, SQLDataSet};
+use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use commons_services::token_lib::SecurityToken;
-use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{
-    CUSTOMER_CODE_ALREADY_TAKEN, CUSTOMER_NAME_ALREADY_TAKEN, CUSTOMER_NOT_REMOVABLE,
-    INTERNAL_DATABASE_ERROR, INVALID_PASSWORD, INVALID_TOKEN,
+    CUSTOMER_NAME_ALREADY_TAKEN, CUSTOMER_NOT_REMOVABLE, INTERNAL_DATABASE_ERROR,
+    INTERNAL_TECHNICAL_ERROR, INVALID_PASSWORD, INVALID_TOKEN, USER_NAME_ALREADY_TAKEN,
 };
 use dkdto::{
-    CreateCustomerReply, CreateCustomerRequest, SimpleMessage, WebResponse, WebType, WebTypeBuilder,
+    AddKeyRequest, CreateCustomerReply, CreateCustomerRequest, SimpleMessage, WebType,
+    WebTypeBuilder,
 };
+use doka_cli::async_request_client::KeyManagerClientAsync;
 use doka_cli::request_client::TokenType;
 
 use crate::dk_password::valid_password;
@@ -112,8 +112,8 @@ fn warning_fs_schema(customer_code: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn set_removable_flag_customer_from_db(
-    trans: &mut SQLTransaction,
+async fn set_removable_flag_customer_from_db(
+    trans: &mut SQLTransaction2<'_>,
     customer_code: &str,
 ) -> anyhow::Result<bool> {
     let mut params = HashMap::new();
@@ -122,25 +122,21 @@ fn set_removable_flag_customer_from_db(
         CellValue::from_raw_string(customer_code.to_string()),
     );
 
-    let query = SQLChange {
+    let query = SQLChange2 {
         sql_query:
             r"UPDATE dokaadmin.customer SET is_removable = TRUE  WHERE code = :p_customer_code"
                 .to_string(),
         params,
         sequence_name: "".to_string(),
     };
-    let nb = query.update(trans).map_err(err_fwd!("Query failed"))?;
-
-    if nb == 0 {
-        return Err(anyhow::anyhow!(
-            "We did not set any removable flag for any customer"
-        ));
-    }
+    let nb = query
+        .update(trans)
+        .await
+        .map_err(err_fwd!("Set removable flag for customer failed"))?;
 
     Ok(true)
 }
 
-#[derive(Clone)]
 pub(crate) struct CustomerDelegate {
     pub security_token: SecurityToken,
     pub follower: Follower,
@@ -194,21 +190,24 @@ impl CustomerDelegate {
             &self.follower
         );
 
-        // Open the transaction
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
 
-        let (mx_trans, cnx_ptr) = try_or_return!(
-            self.open_async()
-                .await
-                .map_err(err_fwd!("Open async failed")),
-            |e| { WebType::from(e) }
-        );
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
 
         // Verify if the customer name is not taken
         if self
-            .check_customer_name_not_taken_async(
-                Arc::clone(&mx_trans),
-                &customer_request.customer_name,
-            )
+            .check_customer_name_not_taken(&mut trans, &customer_request.customer_name)
             .await
             .is_err()
         {
@@ -216,12 +215,6 @@ impl CustomerDelegate {
                 "The customer name is already taken, follower=[{}]",
                 &self.follower
             );
-
-            // let r = self.test_change_lang(Arc::clone(&mx_trans), "").await;
-
-            log_info!("About to rollback");
-            let _ = self.rollback_async(Arc::clone(&mx_trans)).await;
-
             return WebType::from_errorset(&CUSTOMER_NAME_ALREADY_TAKEN);
         };
 
@@ -231,24 +224,25 @@ impl CustomerDelegate {
             &self.follower
         );
 
-        // // Verify if the customer's admin user is not taken
-        // if self
-        //     .check_user_name_not_taken(&mut trans, &customer_request.email)
-        //     .is_err()
-        // {
-        //     log_error!(
-        //         "The customer name is already taken, follower=[{}]",
-        //         &self.follower
-        //     );
-        //     return WebType::from_errorset(&USER_NAME_ALREADY_TAKEN);
-        // };
-        //
-        // log_info!(
-        //     "😎 Admin user name is available, user name=[{}], follower=[{}]",
-        //     &customer_request.email,
-        //     &self.follower
-        // );
-        //
+        // Verify if the customer's admin user is not taken
+        if self
+            .check_user_name_not_taken(&mut trans, &customer_request.email)
+            .await
+            .is_err()
+        {
+            log_error!(
+                "The customer name is already taken, follower=[{}]",
+                &self.follower
+            );
+            return WebType::from_errorset(&USER_NAME_ALREADY_TAKEN);
+        };
+
+        log_info!(
+            "😎 Admin user name is available, user name=[{}], follower=[{}]",
+            &customer_request.email,
+            &self.follower
+        );
+
         // Generate the customer code
         let customer_code: String;
         loop {
@@ -258,17 +252,20 @@ impl CustomerDelegate {
 
             // Verify if the customer code is unique in the table (loop)
 
-            match self
-                .check_code_not_taken_async(Arc::clone(&mx_trans), customer_code_str)
+            let Ok(not_taken) = self
+                .check_code_not_taken(&mut trans, customer_code_str)
                 .await
-            {
-                Ok(_) => {
-                    customer_code = String::from(customer_code_str);
-                    break;
-                }
-                Err(e) => {
-                    log_warn!("Customer code already taken [{}]", customer_code_str);
-                }
+                .map_err(err_fwd!(
+                    "Cannot verify the customer code uniqueness, follower=[{}]",
+                    &self.follower
+                ))
+            else {
+                return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            };
+
+            if not_taken {
+                customer_code = String::from(customer_code_str);
+                break;
             }
         }
 
@@ -277,434 +274,274 @@ impl CustomerDelegate {
             &customer_code,
             &self.follower
         );
-        //
-        // // Create the schema
-        //
-        // if let Err(e) = self.run_cs_script(&customer_code) {
-        //     log_error!(
-        //         "CS schema batch failed, error [{}], follower=[{}]",
-        //         e,
-        //         &self.follower
-        //     );
-        //     trans.rollback();
-        //     return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        // }
-        //
-        // log_info!(
-        //     "😎 Created the CS schema, customer=[{}], follower=[{}]",
-        //     &customer_code,
-        //     &self.follower
-        // );
-        //
-        // if let Err(e) = self.run_fs_script(&customer_code) {
-        //     log_error!(
-        //         "FS schema batch failed, error [{}], follower=[{}]",
-        //         e,
-        //         &self.follower
-        //     );
-        //     trans.rollback();
-        //     let _ = warning_cs_schema(&customer_code);
-        //     return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        // }
-        //
-        // log_info!(
-        //     "😎 Created the FS schema, customer=[{}], follower=[{}]",
-        //     &customer_code,
-        //     &self.follower
-        // );
-        //
-        // // Call the "key-manager" micro-service to create a secret master key
-        // let add_key_request = AddKeyRequest {
-        //     customer_code: customer_code.clone(),
-        // };
-        //
-        // let Ok(km_host) = get_prop_value(KEY_MANAGER_HOSTNAME_PROPERTY)
-        //     .map_err(err_fwd!("Cannot read the key manager hostname"))
-        // else {
-        //     log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
-        // };
-        // let Ok(km_port) = get_prop_value(KEY_MANAGER_PORT_PROPERTY)
-        //     .unwrap_or("".to_string())
-        //     .parse()
-        //     .map_err(err_fwd!("Cannot read the key manager port"))
-        // else {
-        //     log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
-        // };
-        // let kmc = KeyManagerClient::new(&km_host, km_port);
-        // let response = kmc.add_key(&add_key_request, &self.follower.token_type);
-        //
-        // if let Err(e) = response {
-        //     log_error!(
-        //         "💣 Key Manager failed with status=[{:?}], follower=[{}]",
-        //         e,
-        //         &self.follower
-        //     );
-        //     let _ = warning_cs_schema(&customer_code);
-        //     let _ = warning_fs_schema(&customer_code);
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
-        // }
-        //
-        // // Insert the customer in the table
-        //
-        // let mut params: HashMap<String, CellValue> = HashMap::new();
-        // params.insert(
-        //     "p_code".to_owned(),
-        //     CellValue::from_raw_string(customer_code.clone()),
-        // );
-        // params.insert(
-        //     "p_full_name".to_owned(),
-        //     CellValue::from_raw_string(customer_request.customer_name.clone()),
-        // );
-        // params.insert(
-        //     "p_default_language".to_owned(),
-        //     CellValue::from_raw_string("ENG".to_owned()),
-        // );
-        // params.insert(
-        //     "p_default_time_zone".to_owned(),
-        //     CellValue::from_raw_string("Europe/Paris".to_owned()),
-        // );
-        //
-        // let sql_insert = SQLChange {
-        //     sql_query: r#"INSERT INTO dokaadmin.customer (code, full_name, default_language, default_time_zone)
-        //                 VALUES (:p_code, :p_full_name, :p_default_language, :p_default_time_zone) "#.to_string(),
-        //     params,
-        //     sequence_name: "dokaadmin.customer_id_seq".to_string(),
-        // };
-        //
-        // let Ok(customer_id) = sql_insert.insert(&mut trans).map_err(err_fwd!(
-        //     "💣 Insertion of a new customer failed, follower=[{}]",
-        //     &self.follower
-        // )) else {
-        //     let _ = warning_cs_schema(&customer_code);
-        //     let _ = warning_fs_schema(&customer_code);
-        //     return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        // };
-        //
-        // log_info!(
-        //     "😎 Inserted new customer, customer id=[{}], follower=[{}]",
-        //     customer_id,
-        //     &self.follower
-        // );
-        //
-        // // Insert the admin user in the table
-        //
-        // // | Compute the hashed password
-        // let password_hash = DkEncrypt::hash_password(&customer_request.admin_password);
-        //
-        // let mut params: HashMap<String, CellValue> = HashMap::new();
-        // params.insert(
-        //     "p_login".to_owned(),
-        //     CellValue::from_raw_string(customer_request.email.clone()),
-        // );
-        // params.insert(
-        //     "p_full_name".to_owned(),
-        //     CellValue::from_raw_string(customer_request.email.clone()),
-        // );
-        // params.insert(
-        //     "p_password_hash".to_owned(),
-        //     CellValue::from_raw_string(password_hash.clone()),
-        // );
-        // params.insert(
-        //     "p_default_language".to_owned(),
-        //     CellValue::from_raw_string("ENG".to_owned()),
-        // );
-        // params.insert(
-        //     "p_default_time_zone".to_owned(),
-        //     CellValue::from_raw_string("Europe/Paris".to_owned()),
-        // );
-        // params.insert("p_admin".to_owned(), CellValue::from_raw_bool(true));
-        // params.insert(
-        //     "p_customer_id".to_owned(),
-        //     CellValue::from_raw_int(customer_id),
-        // );
-        //
-        // let sql_insert = SQLChange {
-        //     sql_query: r#"INSERT INTO dokaadmin.appuser(
-        // login, full_name, password_hash, default_language, default_time_zone, admin, customer_id)
-        // VALUES (:p_login, :p_full_name, :p_password_hash, :p_default_language, :p_default_time_zone, :p_admin, :p_customer_id)"#.to_string(),
-        //     params,
-        //     sequence_name: "dokaadmin.appuser_id_seq".to_string(),
-        // };
-        //
-        // let Ok(user_id) = sql_insert.insert(&mut trans).map_err(err_fwd!(
-        //     "💣 Insertion of a new admin user failed, follower=[{}]",
-        //     &self.follower
-        // )) else {
-        //     let _ = warning_cs_schema(&customer_code);
-        //     let _ = warning_fs_schema(&customer_code);
-        //     return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
-        // };
-        //
-        // log_info!(
-        //     "😎 Inserted new user, user id=[{}], follower=[{}]",
-        //     user_id,
-        //     &self.follower
-        // );
-        //
-        // Close the transaction
 
-        log_info!("About to close async");
-        let _ = self
-            .close_async(Arc::clone(&mx_trans), &customer_request.customer_name)
+        // Create the schema
+
+        if let Err(e) = self.run_cs_script(&customer_code).await {
+            log_error!(
+                "CS schema batch failed, error [{}], follower=[{}]",
+                e,
+                &self.follower
+            );
+            trans.rollback().await;
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!(
+            "😎 Created the CS schema, customer=[{}], follower=[{}]",
+            &customer_code,
+            &self.follower
+        );
+
+        if let Err(e) = self.run_fs_script(&customer_code).await {
+            log_error!(
+                "FS schema batch failed, error [{}], follower=[{}]",
+                e,
+                &self.follower
+            );
+            trans.rollback().await;
+            let _ = warning_cs_schema(&customer_code);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!(
+            "😎 Created the FS schema, customer=[{}], follower=[{}]",
+            &customer_code,
+            &self.follower
+        );
+
+        // Call the "key-manager" micro-service to create a secret master key
+
+        let add_key_request = AddKeyRequest {
+            customer_code: customer_code.clone(),
+        };
+
+        let Ok(km_host) = get_prop_value(KEY_MANAGER_HOSTNAME_PROPERTY)
+            .map_err(err_fwd!("Cannot read the key manager hostname"))
+        else {
+            log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        };
+        let Ok(km_port) = get_prop_value(KEY_MANAGER_PORT_PROPERTY)
+            .unwrap_or("".to_string())
+            .parse()
+            .map_err(err_fwd!("Cannot read the key manager port"))
+        else {
+            log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        };
+        let kmc = KeyManagerClientAsync::new(&km_host, km_port);
+        let response = kmc
+            .add_key(&add_key_request, &self.follower.token_type)
             .await;
 
-        //
-        // log_info!(
-        //     "😎 Committed. Customer created with success, follower=[{}]",
-        //     &self.follower
-        // );
-        //
-        // log_info!("🏁 End create_customer, follower=[{}]", &self.follower);
-        //
-        // WebType::from_item(
-        //     StatusCode::OK.as_u16(),
-        //     CreateCustomerReply {
-        //         customer_code,
-        //         customer_id,
-        //         admin_user_id: user_id,
-        //     },
-        // )
-
-        WebType::from_errorset(&INTERNAL_DATABASE_ERROR)
-    }
-
-    // async fn test_change_lang(&self, mx_trans: TransMut, customer_code: &str) -> WebResponse<()> {
-    //     let local_self = self.clone();
-    //     // let local_customer_code = customer_code.to_owned();
-    //     let local_trans = Arc::clone(&mx_trans);
-    //
-    //     let f = move || {
-    //         let mut params: HashMap<String, CellValue> = HashMap::new();
-    //         let sql_insert = SQLChange2 {
-    //             sql_query:
-    //             r#"UPDATE dokaadmin.customer SET default_language = 'FRA' WHERE code = '93f71785' "#
-    //                 .to_string(),
-    //             params,
-    //             sequence_name: "".to_string(),
-    //         };
-    //
-    //         let mut trans = local_trans.lock().unwrap();
-    //         let t = trans.as_mut().unwrap();
-    //
-    //         let Ok(count) = sql_insert.update(t).map_err(err_fwd!(
-    //             "💣 update TEST failed, follower=[{}]",
-    //             &local_self.follower
-    //         )) else {
-    //             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-    //         };
-    //         dbg!(count);
-    //         WebResponse::from_item(StatusCode::OK.as_u16(), ())
-    //     };
-    //
-    //     run_blocking_spawn(f, &self.follower).await
-    // }
-
-    async fn open_async(&self) -> WebResponse<(TransMut, u64)> {
-        let local_self = self.clone();
-        let f = move || {
-            let mut r_cnx = SQLConnection::new();
-            let Ok(mut cnx) = r_cnx else {
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            };
-
-            // TODO implement a Drop somewhere to get rid of the leak
-            let mut cnx_ref: &'static mut SQLConnection = Box::leak(Box::new(cnx));
-            let cnx_raw_ptr = cnx_ref as *const SQLConnection;
-            log_info!("New CNX created at : {:p}", cnx_raw_ptr);
-
-            let r_trans = open_transaction2(cnx_ref);
-
-            let r_trans = r_trans.map_err(err_fwd!(
-                "Open transaction error, follower=[{}]",
-                &local_self.follower
-            ));
-            let Ok(mut trans) = r_trans else {
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            };
-            WebResponse::from_item(
-                StatusCode::OK.as_u16(),
-                (Arc::new(Mutex::new(Some(trans))), cnx_raw_ptr as u64),
-            )
-        };
-
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    async fn close_async(&self, mx_trans: TransMut, customer_code: &str) -> WebResponse<()> {
-        let local_self = self.clone();
-        let local_customer_code = customer_code.to_owned();
-        let local_trans = Arc::clone(&mx_trans);
-
-        let f = move || {
-            let Ok(mut trans) = local_trans.lock().map_err(err_fwd!(
-                "Cannot lock the transaction [{}]",
-                &local_self.follower
-            )) else {
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            };
-            let Some(t) = std::mem::replace(&mut *trans, None) else {
-                log_error!("No transaction to replace [{}]", &local_self.follower);
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            };
-
-            match t
-                .commit()
-                .map_err(err_fwd!(
-                    "Commit failed, follower=[{}]",
-                    &local_self.follower
-                ))
-                .is_err()
-            {
-                true => {
-                    let _ = warning_cs_schema(&local_customer_code);
-                    let _ = warning_fs_schema(&local_customer_code);
-                    WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR)
-                }
-                false => WebResponse::from_item(StatusCode::OK.as_u16(), ()),
-            }
-        };
-
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    async fn rollback_async(&self, mx_trans: TransMut) -> WebResponse<()> {
-        let local_self = self.clone();
-        let local_trans = Arc::clone(&mx_trans);
-
-        let f = move || {
-            let Ok(mut trans) = local_trans.lock().map_err(err_fwd!(
-                "Cannot lock the transaction [{}]",
-                &local_self.follower
-            )) else {
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            };
-            let Some(t) = std::mem::replace(&mut *trans, None) else {
-                log_error!("No transaction to replace [{}]", &local_self.follower);
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            };
-            t.rollback();
-            WebResponse::from_item(StatusCode::OK.as_u16(), ())
-        };
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    async fn check_customer_name_not_taken_async(
-        &'_ self,
-        mx_trans: TransMut,
-        customer_name: &str,
-    ) -> WebResponse<()> {
-        let local_self = self.clone();
-        let local_customer_name = customer_name.to_owned();
-        let local_trans = Arc::clone(&mx_trans);
-        let f = move || local_self.check_customer_name_not_taken(local_trans, &local_customer_name);
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    ///
-    /// Check if the customer name is not taken
-    ///
-    fn check_customer_name_not_taken(
-        &self,
-        trans: &mut SQLTransaction,
-        customer_name: &str,
-    ) -> WebResponse<()> {
-        let p_customer_name = CellValue::from_raw_string(customer_name.to_owned());
-        let mut params = HashMap::new();
-        params.insert("p_customer_name".to_owned(), p_customer_name);
-        let sql_query =
-            r#" SELECT 1 FROM dokaadmin.customer WHERE full_name = :p_customer_name"#.to_owned();
-
-        let query = SQLQueryBlock {
-            sql_query,
-            params,
-            start: 0,
-            length: Some(1),
-        };
-
-        // let Ok(mut trans) = mx_trans
-        //     .lock()
-        //     .map_err(err_fwd!("Cannot lock the transaction [{}]", &self.follower))
-        // else {
-        //     return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-        // };
-
-        // let Some(t) = trans.as_mut() else {
-        //     log_error!("No transaction to replace [{}]", &self.follower);
-        //     return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-        // };
-
-        let sql_result: SQLDataSet = query.execute(trans).map_err(err_fwd!(
-            "Query failed, [{}], , follower=[{}]",
-            &query.sql_query,
-            &self.follower
-        ))?;
-
-        match sql_result.len() {
-            0 => Ok(()),
-            _ => WebResponse::from_errorset(&CUSTOMER_NAME_ALREADY_TAKEN),
+        if let Err(e) = response {
+            log_error!(
+                "💣 Key Manager failed with status=[{:?}], follower=[{}]",
+                e,
+                &self.follower
+            );
+            let _ = warning_cs_schema(&customer_code);
+            let _ = warning_fs_schema(&customer_code);
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         }
+
+        log_info!(
+            "😎 Key manager success, customer=[{}], follower=[{}]",
+            &customer_code,
+            &self.follower
+        );
+
+        // Insert the customer in the table
+
+        let mut params: HashMap<String, CellValue> = HashMap::new();
+        params.insert(
+            "p_code".to_owned(),
+            CellValue::from_raw_string(customer_code.clone()),
+        );
+        params.insert(
+            "p_full_name".to_owned(),
+            CellValue::from_raw_string(customer_request.customer_name.clone()),
+        );
+        params.insert(
+            "p_default_language".to_owned(),
+            CellValue::from_raw_string("ENG".to_owned()),
+        );
+        params.insert(
+            "p_default_time_zone".to_owned(),
+            CellValue::from_raw_string("Europe/Paris".to_owned()),
+        );
+
+        let sql_insert = SQLChange2 {
+            sql_query: r#"INSERT INTO dokaadmin.customer (code, full_name, default_language, default_time_zone)
+                        VALUES (:p_code, :p_full_name, :p_default_language, :p_default_time_zone) "#.to_string(),
+            params,
+            sequence_name: "dokaadmin.customer_id_seq".to_string(),
+        };
+
+        let Ok(customer_id) = sql_insert.insert(&mut trans).await.map_err(err_fwd!(
+            "💣 Insertion of a new customer failed, follower=[{}]",
+            &self.follower
+        )) else {
+            let _ = warning_cs_schema(&customer_code);
+            let _ = warning_fs_schema(&customer_code);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        log_info!(
+            "😎 Inserted new customer, customer id=[{}], follower=[{}]",
+            customer_id,
+            &self.follower
+        );
+
+        // Insert the admin user in the table
+
+        // | Compute the hashed password
+        let password_hash = DkEncrypt::hash_password(&customer_request.admin_password);
+
+        let mut params: HashMap<String, CellValue> = HashMap::new();
+        params.insert(
+            "p_login".to_owned(),
+            CellValue::from_raw_string(customer_request.email.clone()),
+        );
+        params.insert(
+            "p_full_name".to_owned(),
+            CellValue::from_raw_string(customer_request.email.clone()),
+        );
+        params.insert(
+            "p_password_hash".to_owned(),
+            CellValue::from_raw_string(password_hash.clone()),
+        );
+        params.insert(
+            "p_default_language".to_owned(),
+            CellValue::from_raw_string("ENG".to_owned()),
+        );
+        params.insert(
+            "p_default_time_zone".to_owned(),
+            CellValue::from_raw_string("Europe/Paris".to_owned()),
+        );
+        params.insert("p_admin".to_owned(), CellValue::from_raw_bool(true));
+        params.insert(
+            "p_customer_id".to_owned(),
+            CellValue::from_raw_int(customer_id),
+        );
+
+        let sql_insert = SQLChange2 {
+            sql_query: r#"INSERT INTO dokaadmin.appuser(
+        login, full_name, password_hash, default_language, default_time_zone, admin, customer_id)
+        VALUES (:p_login, :p_full_name, :p_password_hash, :p_default_language, :p_default_time_zone, :p_admin, :p_customer_id)"#.to_string(),
+            params,
+            sequence_name: "dokaadmin.appuser_id_seq".to_string(),
+        };
+
+        let Ok(user_id) = sql_insert.insert(&mut trans).await.map_err(err_fwd!(
+            "💣 Insertion of a new admin user failed, follower=[{}]",
+            &self.follower
+        )) else {
+            let _ = warning_cs_schema(&customer_code);
+            let _ = warning_fs_schema(&customer_code);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        log_info!(
+            "😎 Inserted new user, user id=[{}], follower=[{}]",
+            user_id,
+            &self.follower
+        );
+
+        // Close the transaction
+        if trans
+            .commit()
+            .await
+            .map_err(err_fwd!("Commit failed, follower=[{}]", &self.follower))
+            .is_err()
+        {
+            let _ = warning_cs_schema(&customer_code);
+            let _ = warning_fs_schema(&customer_code);
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!(
+            "😎 Committed. Customer created with success, follower=[{}]",
+            &self.follower
+        );
+
+        log_info!("🏁 End create_customer, follower=[{}]", &self.follower);
+
+        WebType::from_item(
+            StatusCode::OK.as_u16(),
+            CreateCustomerReply {
+                customer_code,
+                customer_id,
+                admin_user_id: user_id,
+            },
+        )
     }
 
-    async fn check_code_not_taken_async(
-        &'_ self,
-        mx_trans: TransMut,
-        customer_code: &str,
-    ) -> WebResponse<()> {
-        let local_self = self.clone();
-        let local_customer_code = customer_code.to_owned();
-        let local_trans = Arc::clone(&mx_trans);
-        let f = move || local_self.check_code_not_taken(local_trans, &local_customer_code);
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    ///
     /// Check if the customer code is not taken (true if it is not)
-    ///
-    fn check_code_not_taken(&self, mx_trans: TransMut, customer_code: &str) -> WebResponse<()> {
+    async fn check_code_not_taken(
+        &self,
+        mut trans: &mut SQLTransaction2<'_>,
+        customer_code: &str,
+    ) -> anyhow::Result<bool> {
         let p_customer_code = CellValue::from_raw_string(customer_code.to_owned());
         let mut params = HashMap::new();
         params.insert("p_customer_code".to_owned(), p_customer_code);
         let sql_query =
             r#" SELECT 1 FROM dokaadmin.customer WHERE code = :p_customer_code"#.to_owned();
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query,
             params,
             start: 0,
             length: Some(1),
         };
 
-        let Ok(mut trans) = mx_trans
-            .lock()
-            .map_err(err_fwd!("Cannot lock the transaction [{}]", &self.follower))
-        else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-        };
-
-        let Some(t) = trans.as_mut() else {
-            log_error!("No transaction to replace [{}]", &self.follower);
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-        };
-
-        let sql_result: SQLDataSet = query.execute(t).map_err(err_fwd!(
+        let sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
             "Query failed, [{}], , follower=[{}]",
             &query.sql_query,
             &self.follower
         ))?;
+        Ok(sql_result.len() == 0)
+    }
+
+    /// Check if the customer name is not taken    
+    async fn check_customer_name_not_taken(
+        &self,
+        mut trans: &mut SQLTransaction2<'_>,
+        customer_name: &str,
+    ) -> anyhow::Result<()> {
+        let p_customer_name = CellValue::from_raw_string(customer_name.to_owned());
+        let mut params = HashMap::new();
+        params.insert("p_customer_name".to_owned(), p_customer_name);
+        let sql_query =
+            r#" SELECT 1 FROM dokaadmin.customer WHERE full_name = :p_customer_name"#.to_owned();
+
+        let query = SQLQueryBlock2 {
+            sql_query,
+            params,
+            start: 0,
+            length: Some(1),
+        };
+
+        let sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
+            "Query failed, [{}], , follower=[{}]",
+            &query.sql_query,
+            &self.follower
+        ))?;
+
         match sql_result.len() {
             0 => Ok(()),
-            _ => WebResponse::from_errorset(&CUSTOMER_CODE_ALREADY_TAKEN),
+            _ => Err(anyhow!("Customer name already taken")),
         }
     }
 
     ///
     /// Check if the user name is not taken
     ///
-    fn check_user_name_not_taken(
+    async fn check_user_name_not_taken(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         user_name: &str,
     ) -> anyhow::Result<()> {
         let p_login = CellValue::from_raw_string(user_name.to_owned());
@@ -712,14 +549,14 @@ impl CustomerDelegate {
         params.insert("p_login".to_owned(), p_login);
         let sql_query = r#" SELECT 1 FROM dokaadmin.appuser WHERE login = :p_login"#.to_owned();
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query,
             params,
             start: 0,
             length: Some(1),
         };
 
-        let sql_result: SQLDataSet = query.execute(&mut trans).map_err(err_fwd!(
+        let sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
             "Query failed, [{}], , follower=[{}]",
             &query.sql_query,
             &self.follower
@@ -754,30 +591,23 @@ impl CustomerDelegate {
         // Change the token type to "Token"
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        // let customer_code = match customer_code.percent_decode().map_err(err_fwd!(
-        //     "💣 Invalid input parameter [{}], follower=[{}]",
-        //     customer_code,
-        //     &self.follower
-        // )) {
-        //     Ok(s) => s.to_string(),
-        //     Err(_) => {
-        //         return WebType::from_errorset(&INVALID_REQUEST);
-        //     }
-        // };
-
-        // | Open the transaction
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 Connection issue, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(&&INTERNAL_DATABASE_ERROR);
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Check if the customer is removable (flag is_removable)
 
-        match self.search_customer(&mut trans, &customer_code) {
+        match self.search_customer(&mut trans, &customer_code).await {
             Ok((_customer_id, is_removable)) => {
                 if is_removable {
                     log_info!(
@@ -789,6 +619,7 @@ impl CustomerDelegate {
 
                     if self
                         .delete_user_from_db(&mut trans, &customer_code)
+                        .await
                         .map_err(err_fwd!(
                             "💣 Cannot delete user, follower=[{}]",
                             &self.follower
@@ -805,6 +636,7 @@ impl CustomerDelegate {
 
                     if self
                         .delete_customer_from_db(&mut trans, &customer_code)
+                        .await
                         .map_err(err_fwd!(
                             "💣 Cannot delete customer, follower=[{}]",
                             &self.follower
@@ -835,31 +667,34 @@ impl CustomerDelegate {
 
         if self
             .drop_cs_schema_from_db(&customer_code)
+            .await
             .map_err(err_fwd!(
                 "💣 Cannot delete the CS schema, follower=[{}]",
                 &self.follower
             ))
             .is_err()
         {
-            trans.rollback();
+            trans.rollback().await;
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         if self
             .drop_fs_schema_from_db(&customer_code)
+            .await
             .map_err(err_fwd!(
                 "💣 Cannot delete the FS schema, follower=[{}]",
                 &self.follower
             ))
             .is_err()
         {
-            trans.rollback();
+            trans.rollback().await;
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         }
 
         // Close the transaction
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -885,63 +720,76 @@ impl CustomerDelegate {
         )
     }
 
-    fn run_fs_script(&self, customer_code: &str) -> anyhow::Result<()> {
-        // | Open a transaction on the cs database
+    async fn run_script(
+        &self,
+        dbi: DbServerInfo,
+        batch_script: &str,
+        title: &str,
+    ) -> anyhow::Result<()> {
+        // Open a transaction on the cs database
+        let connect_string = format!(
+            "postgresql://{}:{}@{}:{}/{}",
+            dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name
+        );
+
+        let Ok(mut cnx) = SQLConnection2::new(&connect_string).await.map_err(err_fwd!(
+            "💣 Connection issue, follower=[{}]",
+            &self.follower
+        )) else {
+            return Err(anyhow!("_"));
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
+            return Err(anyhow!("_"));
+        };
+
+        let process = SQLChange2 {
+            sql_query: batch_script.to_string(),
+            params: Default::default(),
+            sequence_name: "".to_string(),
+        };
+
+        let _ = process
+            .batch(&mut trans)
+            .await
+            .map_err(err_fwd!("{} batch script error", &title));
+
+        trans.commit().await.map_err(err_fwd!(
+            "💣 Impossible to commit batch for schema=[{}], follower=[{}]",
+            &title,
+            &self.follower
+        ))?;
+
+        log_info!(
+            "Finished db script for [{}] schema, follower=[{}]",
+            &title,
+            &self.follower
+        );
+
+        Ok(())
+    }
+
+    async fn run_fs_script(&self, customer_code: &str) -> anyhow::Result<()> {
         let dbi = DbServerInfo::for_fs();
-        let url = format!(
-            "postgresql://{}:{}@{}:{}/{}",
-            dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name
-        );
-
-        let mut fs_cnx =
-            Client::connect(&url, NoTls).map_err(err_fwd!("Cannot connect the FS database"))?;
-
-        // Run the commands to create the tables & co
-        log_info!(
-            "Generating the db script for FS schema, follower=[{}]",
-            &self.follower
-        );
-        let batch_script = generate_fs_schema_script(customer_code);
-
-        fs_cnx
-            .batch_execute(&batch_script)
-            .map_err(err_fwd!("FS batch script error"))?;
-
-        Ok(())
+        self.run_script(dbi, &generate_fs_schema_script(customer_code), "FS")
+            .await
     }
 
-    fn run_cs_script(&self, customer_code: &str) -> anyhow::Result<()> {
-        // | Open a transaction on the cs database
+    async fn run_cs_script(&self, customer_code: &str) -> anyhow::Result<()> {
         let dbi = DbServerInfo::for_cs();
-        let url = format!(
-            "postgresql://{}:{}@{}:{}/{}",
-            dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name
-        );
-
-        let mut cs_cnx =
-            Client::connect(&url, NoTls).map_err(err_fwd!("💣 Cannot connect the CS database"))?;
-
-        // Run the commands to create the tables & co
-        log_info!(
-            "Generating the db script for CS schema, follower=[{}]",
-            &self.follower
-        );
-        let batch_script = generate_cs_schema_script(customer_code);
-        cs_cnx
-            .batch_execute(&batch_script)
-            .map_err(err_fwd!("💣 CS batch script error"))?;
-
-        Ok(())
+        self.run_script(dbi, &generate_cs_schema_script(customer_code), "CS")
+            .await
     }
 
-    ///
     /// Find the customer in the db if it exists
     /// Return its id and the removable flag
     /// Or Err if not found
-    ///
-    fn search_customer(
+    async fn search_customer(
         &self,
-        trans: &mut SQLTransaction,
+        trans: &mut SQLTransaction2<'_>,
         customer_code: &str,
     ) -> anyhow::Result<(i64, bool)> {
         let mut params = HashMap::new();
@@ -950,7 +798,7 @@ impl CustomerDelegate {
             CellValue::from_raw_string(customer_code.to_string()),
         );
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query:
                 "SELECT id, is_removable FROM dokaadmin.customer WHERE code = :p_customer_code"
                     .to_string(),
@@ -958,7 +806,10 @@ impl CustomerDelegate {
             length: None,
             params,
         };
-        let mut data_set = query.execute(trans).map_err(err_fwd!("Query failed"))?;
+        let mut data_set = query
+            .execute(trans)
+            .await
+            .map_err(err_fwd!("Query failed"))?;
 
         if data_set.len() == 0 {
             return Err(anyhow::anyhow!("Customer code not found"));
@@ -970,83 +821,35 @@ impl CustomerDelegate {
             .get_bool("is_removable")
             .ok_or(anyhow!("Wrong column is_removable"))?;
 
-        // let Some(customer_id) = data_set.get_int("id") else {
-        //     return Err(anyhow!("Cannot read the id of the customer found"));
-        // };
-
         Ok((customer_id, flag))
     }
 
     ///
-    ///
-    ///
-    fn drop_cs_schema_from_db(&self, customer_code: &str) -> anyhow::Result<bool> {
-        // | Open a transaction on the cs database
+    async fn drop_cs_schema_from_db(&self, customer_code: &str) -> anyhow::Result<bool> {
         let dbi = DbServerInfo::for_cs();
-        let url = format!(
-            "postgresql://{}:{}@{}:{}/{}",
-            dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name
-        );
-
-        let mut cs_cnx = Client::connect(&url, NoTls).map_err(err_fwd!(
-            "💣 Cannot connect the CS database, follower=[{}]",
-            &self.follower
-        ))?;
-
-        // Run the commands to create the tables & co
-        let batch_script = format!(r"DROP SCHEMA cs_{} CASCADE", customer_code);
-        cs_cnx.batch_execute(&batch_script).map_err(err_fwd!(
-            "Dropping the CS schema failed, customer_code=[{}], follower=[{}]",
-            customer_code,
-            &self.follower
-        ))?;
-
+        self.run_script(
+            dbi,
+            &format!(r"DROP SCHEMA cs_{} CASCADE", customer_code),
+            "DROP_CS",
+        )
+        .await?;
         Ok(true)
-
-        // let query = SQLChange {
-        //     sql_query: format!( r"DROP SCHEMA cs_{} CASCADE", customer_code ),
-        //     params : Default::default(),
-        //     sequence_name: "".to_string(),
-        // };
-        // let _ = query.batch(trans).map_err(err_fwd!("Dropping the CS schema failed, customer_code=[{}]", customer_code))?;
-        // Ok(true)
     }
 
-    fn drop_fs_schema_from_db(&self, customer_code: &str) -> anyhow::Result<bool> {
-        // | Open a transaction on the cs database
+    async fn drop_fs_schema_from_db(&self, customer_code: &str) -> anyhow::Result<bool> {
         let dbi = DbServerInfo::for_fs();
-        let url = format!(
-            "postgresql://{}:{}@{}:{}/{}",
-            dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name
-        );
-
-        let mut cs_cnx = Client::connect(&url, NoTls).map_err(err_fwd!(
-            "💣 Cannot connect the FS database, follower=[{}]",
-            &self.follower
-        ))?;
-
-        // Run the commands to create the tables & co
-        let batch_script = format!(r"DROP SCHEMA fs_{} CASCADE", customer_code);
-        cs_cnx.batch_execute(&batch_script).map_err(err_fwd!(
-            "Dropping the FS schema failed, customer_code=[{}], follower=[{}]",
-            customer_code,
-            &self.follower
-        ))?;
-
+        self.run_script(
+            dbi,
+            &format!(r"DROP SCHEMA fs_{} CASCADE", customer_code),
+            "DROP_FS",
+        )
+        .await?;
         Ok(true)
-
-        // let query = SQLChange {
-        //     sql_query: format!( r"DROP SCHEMA fs_{} CASCADE", customer_code ),
-        //     params : Default::default(),
-        //     sequence_name: "".to_string(),
-        // };
-        // let _ = query.batch(trans).map_err(err_fwd!("Dropping the FS schema failed, customer_code=[{}]", customer_code))?;
-        // Ok(true)
     }
 
-    fn delete_user_from_db(
+    async fn delete_user_from_db(
         &self,
-        trans: &mut SQLTransaction,
+        trans: &mut SQLTransaction2<'_>,
         customer_code: &str,
     ) -> anyhow::Result<bool> {
         let mut params = HashMap::new();
@@ -1055,27 +858,24 @@ impl CustomerDelegate {
             CellValue::from_raw_string(customer_code.to_string()),
         );
 
-        let query = SQLChange {
+        let query = SQLChange2 {
             sql_query: r"DELETE FROM dokaadmin.appuser WHERE customer_id IN
         (SELECT id FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE)"
                 .to_string(),
             params,
             sequence_name: "".to_string(),
         };
-        let nb_delete = query.delete(trans).map_err(err_fwd!("Query failed"))?;
-
-        if nb_delete == 0 {
-            return Err(anyhow::anyhow!(
-                "We did not delete any user for the customer"
-            ));
-        }
+        let nb_delete = query
+            .delete(trans)
+            .await
+            .map_err(err_fwd!("Delete of the customer failed"))?;
 
         Ok(true)
     }
 
-    fn delete_customer_from_db(
+    async fn delete_customer_from_db(
         &self,
-        trans: &mut SQLTransaction,
+        trans: &mut SQLTransaction2<'_>,
         customer_code: &str,
     ) -> anyhow::Result<bool> {
         let mut params = HashMap::new();
@@ -1084,16 +884,15 @@ impl CustomerDelegate {
             CellValue::from_raw_string(customer_code.to_string()),
         );
 
-        let query = SQLChange {
+        let query = SQLChange2 {
             sql_query: r"DELETE FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE".to_string(),
             params,
             sequence_name: "".to_string(),
         };
-        let nb = query.delete(trans).map_err(err_fwd!("Query failed"))?;
-
-        if nb == 0 {
-            return Err(anyhow::anyhow!("We did not delete any customer"));
-        }
+        let nb = query
+            .delete(trans)
+            .await
+            .map_err(err_fwd!("Delete of customer failed"))?;
 
         Ok(true)
     }
@@ -1123,10 +922,41 @@ impl CustomerDelegate {
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        // Actual DB processing
-        let _success = try_or_return!(self.set_remove_flag_async(&customer_code).await, |e| {
-            WebType::from(e)
-        });
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        if set_removable_flag_customer_from_db(&mut trans, &customer_code)
+            .await
+            .map_err(err_fwd!(
+                "💣 Cannot set the removable flag, follower=[{}]",
+                &self.follower
+            ))
+            .is_err()
+        {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        }
+
+        // Close the transaction
+        if trans
+            .commit()
+            .await
+            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
+            .is_err()
+        {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        }
 
         log_info!(
             "😎 Set removable flag with success,follower=[{}]",
@@ -1145,47 +975,5 @@ impl CustomerDelegate {
                 message: "OK".to_string(),
             },
         )
-    }
-
-    async fn set_remove_flag_async(&self, customer_code: &str) -> WebResponse<bool> {
-        let local_self = self.clone();
-        let local_customer_code = customer_code.to_owned();
-        let f = move || local_self.set_remove_flag(&local_customer_code);
-        run_blocking_spawn(f, &self.follower).await
-    }
-
-    fn set_remove_flag(&self, customer_code: &str) -> WebResponse<bool> {
-        // | Open the transaction
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = match open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
-            &self.follower
-        )) {
-            Ok(x) => x,
-            Err(_) => {
-                return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-            }
-        };
-
-        if set_removable_flag_customer_from_db(&mut trans, &customer_code)
-            .map_err(err_fwd!(
-                "💣 Cannot set the removable flag, follower=[{}]",
-                &self.follower
-            ))
-            .is_err()
-        {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-        }
-
-        // Close the transaction
-        if trans
-            .commit()
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
-            .is_err()
-        {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
-        }
-
-        WebResponse::from_item(StatusCode::OK.as_u16(), true)
     }
 }

@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 
 use regex::Regex;
-use rocket::http::private::Indexed;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};

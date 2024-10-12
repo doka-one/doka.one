@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use log::warn;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use reqwest::blocking::RequestBuilder;
+use reqwest::blocking::{multipart, RequestBuilder};
 use reqwest::StatusCode;
 use serde::{de, Serialize};
 use url::Url;
@@ -15,10 +15,10 @@ use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
     AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply,
-    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply,
-    GetItemReply, GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply, LoginReply,
-    LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage,
-    TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
+    DeleteFullTextRequest, ErrorMessage, FullTextReply, FullTextRequest, GetFileInfoReply,
+    GetFileInfoShortReply, GetItemReply, GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply,
+    LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply,
+    SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
 };
 
 use crate::request_client::TokenType::{Sid, Token};
@@ -112,13 +112,14 @@ impl WebServer {
     ) -> anyhow::Result<WebResponse<V>> {
         let wt = match request_builder.send() {
             Ok(v) => {
-                // dbg!(&v);
+                dbg!(&v);
                 let status_code = v.status();
-                // dbg!(&status_code);
+                dbg!(&status_code);
                 let wt = if status_code.as_u16() >= 300 {
-                    let value: Result<SimpleMessage, reqwest::Error> = v.json(); // TODO
-                    let v_value = value.unwrap();
-                    WebResponse::from_simple(status_code.as_u16(), v_value)
+                    Err(ErrorMessage {
+                        http_error_code: status_code.as_u16(),
+                        message: HTTP_CLIENT_ERROR.err_message.to_string(),
+                    })
                 } else {
                     let value: Result<V, reqwest::Error> = v.json(); // TODO
                     let v_value = value.unwrap();
@@ -243,8 +244,15 @@ impl WebServer {
         let request_builder = reqwest::blocking::Client::new()
             .post(Url::parse(url)?)
             .timeout(TIMEOUT);
+        let form = multipart::Form::new().part(
+            "data",
+            multipart::Part::bytes(request).file_name("111-Bright_Snow.jpg"),
+        );
+
+        dbg!(&url);
+        dbg!(&token);
         let request_builder_2 = Self::add_header(request_builder, &token);
-        Self::send_request_builder(request_builder_2.body(request))
+        Self::send_request_builder(request_builder_2.multipart(form))
     }
 
     ///
@@ -856,18 +864,35 @@ mod test {
 
     #[test]
     fn test_post_bytes_basic() -> anyhow::Result<()> {
-        let byte_buf = std::fs::read("C:/Users/denis/wks-poc/tika/content.en.txt")?;
+        let byte_buf = std::fs::read("/home/denis/Dropbox/Upload/111-Bright_Snow.jpg")?;
 
-        let url = "http://localhost:30080/file-server/upload";
+        let url = "http://localhost:30080/file-server/upload2/very_dicky";
+
+        // let request_builder = reqwest::blocking::Client::new()
+        //     .post(Url::parse(url)?)
+        //     .header("Content-Type", "multipart/form-data")
+        //     //.header("Accept", "application/json")
+        //     .header(
+        //         "sid",
+        //         "9ARks93f49KdpZ3sPnPYpSRZUOk9shmbQVZKn9If6RQmwi25yGtCN3vCis4JnYxGO46Hf07hDEZc9LFPRW5ncPFCeO-14VyW-Hdq-Q",
+        //     );
+
+        use reqwest::blocking::multipart;
+
+        let form = multipart::Form::new().part(
+            "data",
+            multipart::Part::bytes(byte_buf).file_name("111-Bright_Snow.jpg"),
+        );
 
         let request_builder = reqwest::blocking::Client::new()
             .post(Url::parse(url)?)
-            .header("Accept", "application/json")
             .header(
                 "sid",
-                "jPA93edZEA8pzJz5LvjnA1qEpWqNPf2Wsio_N9oHvQOKWDo3SwtS4hdqL2MOIb9x",
-            );
-        let reply = request_builder.body(byte_buf).send()?.text()?;
+                "9ARks93f49KdpZ3sPnPYpSRZUOk9shmbQVZKn9If6RQmwi25yGtCN3vCis4JnYxGO46Hf07hDEZc9LFPRW5ncPFCeO-14VyW-Hdq-Q",
+            )
+            .multipart(form);
+
+        let reply = request_builder.send()?.text()?;
 
         let _ = dbg!(reply);
         Ok(())

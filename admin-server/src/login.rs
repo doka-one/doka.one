@@ -7,9 +7,8 @@ use log::*;
 use rs_uuid::iso::uuid_v4;
 
 use commons_error::*;
-use commons_pg::sql_transaction::{SQLConnection, SQLQueryBlock, SQLTransaction};
-use commons_pg::sql_transaction2::CellValue;
-use commons_services::database_lib::{open_transaction, run_blocking_spawn};
+use commons_pg::sql_transaction::CellValue;
+use commons_pg::sql_transaction2::{SQLConnection2, SQLQueryBlock2, SQLTransaction2};
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY,
 };
@@ -21,12 +20,9 @@ use dkdto::error_codes::{
     INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK, INVALID_TOKEN,
     SESSION_LOGIN_DENIED,
 };
-use dkdto::{
-    LoginReply, LoginRequest, OpenSessionReply, OpenSessionRequest, WebResponse, WebType,
-    WebTypeBuilder,
-};
+use dkdto::{LoginReply, LoginRequest, OpenSessionRequest, WebResponse, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::SessionManagerClientAsync;
-use doka_cli::request_client::{SessionManagerClient, TokenType};
+use doka_cli::request_client::TokenType;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LoginDelegate {
@@ -81,10 +77,10 @@ impl LoginDelegate {
         self.follower.token_type = TokenType::Sid(session_id);
 
         // Get the password hash and the open session request
-        let (open_session_request, password_hash) = try_or_return!(
-            self.find_user_and_company_async(&login_request).await,
-            |e| { WebType::from(e) }
-        );
+        let (open_session_request, password_hash) =
+            try_or_return!(self.find_user_and_company(&login_request).await, |e| {
+                WebType::from(e)
+            });
 
         // Verify the password
 
@@ -165,36 +161,41 @@ impl LoginDelegate {
         Ok(SessionManagerClientAsync::new(&sm_host, sm_port))
     }
 
-    async fn find_user_and_company_async(
-        &self,
-        login_request: &LoginRequest,
-    ) -> WebResponse<(OpenSessionRequest, String)> {
-        let local_self = self.clone();
-        let local_login_request = login_request.clone();
-        let sync_call = move || local_self.find_user_and_company(&local_login_request);
-        run_blocking_spawn(sync_call, &self.follower).await
-    }
+    // async fn find_user_and_company_async(
+    //     &self,
+    //     login_request: &LoginRequest,
+    // ) -> WebResponse<(OpenSessionRequest, String)> {
+    //     let local_self = self.clone();
+    //     let local_login_request = login_request.clone();
+    //     let sync_call = move || local_self.find_user_and_company(&local_login_request);
+    //     run_blocking_spawn(sync_call, &self.follower).await
+    // }
 
     /// Find the user and its company, and grab the hashed password from it.
-    fn find_user_and_company(
+    async fn find_user_and_company(
         &self,
         login_request: &LoginRequest,
     ) -> WebResponse<(OpenSessionRequest, String)> {
-        let mut r_cnx = SQLConnection::new();
-        // let-else
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
+            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
             return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok((open_session_request, password_hash)) =
-            self.search_user(&mut trans, &login_request.login)
+            self.search_user(&mut trans, &login_request.login).await
         else {
             log_warn!(
-                "⛔ login not found, login=[{}], follower=[{}]",
+                "⛔ user not found, login=[{}], follower=[{}]",
                 &login_request.login,
                 &self.follower
             );
@@ -203,6 +204,7 @@ impl LoginDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
@@ -216,9 +218,9 @@ impl LoginDelegate {
     }
 
     ///
-    fn search_user(
+    async fn search_user(
         &self,
-        trans: &mut SQLTransaction,
+        trans: &mut SQLTransaction2<'_>,
         login: &str,
     ) -> anyhow::Result<(OpenSessionRequest, String)> {
         let mut params = HashMap::new();
@@ -227,7 +229,7 @@ impl LoginDelegate {
             CellValue::from_raw_string(login.to_string()),
         );
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query : r"SELECT u.id, u.customer_id, u.login, u.password_hash, u.default_language, u.default_time_zone, u.admin,
                         c.code as customer_code,  u.full_name as user_name, c.full_name as company_name
                         FROM dokaadmin.appuser u INNER JOIN dokaadmin.customer c ON (c.id = u.customer_id)
@@ -237,12 +239,11 @@ impl LoginDelegate {
             params,
         };
 
-        let mut sql_result = query.execute(trans).map_err(err_fwd!(
+        let mut sql_result = query.execute(trans).await.map_err(err_fwd!(
             "💣 Query failed, [{}], follower=[{}]",
             &query.sql_query,
             &self.follower
         ))?;
-
         let session_and_pass = match sql_result.next() {
             true => {
                 let user_id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
@@ -288,7 +289,7 @@ impl LoginDelegate {
                     password_hash,
                 )
             }
-            _ => {
+            false => {
                 log_warn!(
                     "⛔ login not found, login=[{}], follower=[{}]",
                     login,

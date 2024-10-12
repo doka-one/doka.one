@@ -1,12 +1,13 @@
+use axum::http::StatusCode;
+use axum::Json;
 use std::collections::HashMap;
 
 use log::*;
-use rocket::http::Status;
-use rocket_contrib::json::Json;
 use serde::de::DeserializeOwned;
 
 use commons_error::*;
-use commons_pg::{CellValue, SQLChange, SQLConnection, SQLQueryBlock, SQLTransaction};
+use commons_pg::sql_transaction::{CellValue, SQLTransaction};
+use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
 use commons_services::database_lib::open_transaction;
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
@@ -21,6 +22,7 @@ use dkdto::{
     DeleteFullTextRequest, ErrorSet, FullTextReply, FullTextRequest, SimpleMessage, WebType,
     WebTypeBuilder,
 };
+use doka_cli::async_request_client::TikaServerClientAsync;
 use doka_cli::request_client::{TikaServerClient, TokenType};
 
 use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
@@ -42,7 +44,7 @@ impl FullTextDelegate {
         }
     }
 
-    fn web_type_error<T>() -> impl Fn(ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
@@ -54,7 +56,7 @@ impl FullTextDelegate {
 
     /// ✨ Delete the information linked to the document full text indexing information
     /// Service called from the file-server
-    pub fn delete_text_indexing(
+    pub async fn delete_text_indexing(
         mut self,
         delete_text_request: Json<DeleteFullTextRequest>,
     ) -> WebType<SimpleMessage> {
@@ -64,12 +66,14 @@ impl FullTextDelegate {
         );
 
         let entry_session = try_or_return!(
-            valid_sid_get_session(&self.session_token, &mut self.follower),
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
             Self::web_type_error()
         );
 
         // Delete all the document related to the file reference
-        let _ = self.delete_document(&delete_text_request.file_ref, &entry_session.customer_code);
+        let _ = self
+            .delete_document(&delete_text_request.file_ref, &entry_session.customer_code)
+            .await;
 
         log_info!(
             "😎 Deleted the document part entries, follower=[{}]",
@@ -80,7 +84,7 @@ impl FullTextDelegate {
             &self.follower
         );
         WebType::from_item(
-            Status::Ok.code,
+            StatusCode::OK.as_u16(),
             SimpleMessage {
                 message: "Ok".to_string(),
             },
@@ -88,12 +92,10 @@ impl FullTextDelegate {
     }
 
     ///
-    fn delete_document(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
-        let mut r_cnx = SQLConnection::new();
-        let mut trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
-            &self.follower
-        ))?;
+    async fn delete_document(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
+        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
+
         let sql_delete = format!(
             r"DELETE FROM cs_{0}.document WHERE file_ref = :p_file_ref",
             customer_code
@@ -102,26 +104,27 @@ impl FullTextDelegate {
         let mut params = HashMap::new();
         params.insert("p_file_ref".to_string(), CellValue::from_raw_str(file_ref));
 
-        let query = SQLChange {
+        let query = SQLChange2 {
             sql_query: sql_delete.to_string(),
             params,
             sequence_name: "".to_string(),
         };
 
-        let _id = query.delete(&mut trans).map_err(err_fwd!(
+        let _id = query.delete(&mut trans).await.map_err(err_fwd!(
             "💣 Query failed, [{}], , follower=[{}]",
             &query.sql_query,
             &self.follower
         ))?;
         trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
         Ok(())
     }
 
     /// ✨ Parse the raw text data and create the document parts
     /// Service called from the file-server
-    pub fn fulltext_indexing(
+    pub async fn fulltext_indexing(
         mut self,
         raw_text_request: Json<FullTextRequest>,
     ) -> WebType<FullTextReply> {
@@ -131,11 +134,15 @@ impl FullTextDelegate {
         );
 
         let entry_session = try_or_return!(
-            valid_sid_get_session(&self.session_token, &mut self.follower),
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
             Self::web_type_error()
         );
 
-        let Ok(customer_key) = fetch_customer_key(&entry_session.customer_code, &self.follower)
+        let customer_code = entry_session.customer_code.as_str();
+
+        // Get the crypto key
+        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
+            .await
             .map_err(err_fwd!(
                 "💣 Cannot get the customer key, follower=[{}]",
                 &self.follower
@@ -144,12 +151,18 @@ impl FullTextDelegate {
             return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
@@ -161,6 +174,7 @@ impl FullTextDelegate {
                 &entry_session.customer_code,
                 &customer_key,
             )
+            .await
             .map_err(err_fwd!(
                 "💣 Indexing process failed, follower=[{}]",
                 &self.follower
@@ -171,6 +185,7 @@ impl FullTextDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -183,12 +198,12 @@ impl FullTextDelegate {
             &self.follower
         );
 
-        WebType::from_item(Status::Ok.code, FullTextReply { part_count })
+        WebType::from_item(StatusCode::OK.as_u16(), FullTextReply { part_count })
     }
 
-    fn indexing(
+    async fn indexing(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         raw_text_request: &FullTextRequest,
         customer_code: &str,
         customer_key: &str,
@@ -204,7 +219,7 @@ impl FullTextDelegate {
             .parse::<u16>()
             .map_err(tr_fwd!())?;
 
-        let tsc = TikaServerClient::new(&tika_server_host, tika_server_port);
+        let tsc = TikaServerClientAsync::new(&tika_server_host, tika_server_port);
         // Clean up the raw text
         let mut ftt = FTTokenizer::new(&raw_text_request.raw_text);
 
@@ -221,10 +236,13 @@ impl FullTextDelegate {
             }
 
             // language detection on the language of the pure word block
-            let meta_data = tsc.read_meta(&pure_word_block.join(" ")).map_err(err_fwd!(
-                "Cannot read meta information, follower=[{}]",
-                &self.follower
-            ))?;
+            let meta_data = tsc
+                .read_meta(&pure_word_block.join(" "))
+                .await
+                .map_err(err_fwd!(
+                    "Cannot read meta information, follower=[{}]",
+                    &self.follower
+                ))?;
             let lang_code = map_code(&meta_data.language);
 
             let language_words = match language_buffer_block.get_mut(lang_code) {
@@ -289,6 +307,7 @@ impl FullTextDelegate {
                             customer_code,
                             customer_key,
                         )
+                        .await
                         .map_err(err_fwd!(
                             "Cannot insert the part no [{}], follower=[{}]",
                             part_no,
@@ -312,9 +331,9 @@ impl FullTextDelegate {
     }
 
     ///
-    fn insert_document_part(
+    async fn insert_document_part(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         file_ref: &str,
         part_no: u32,
         words_text: &str,
@@ -335,6 +354,7 @@ impl FullTextDelegate {
 
         let tsv = self
             .select_tsvector(&mut trans, Some(lang), words_text)
+            .await
             .map_err(err_fwd!(
                 "Cannot build the tsvector, follower=[{}]",
                 &self.follower
@@ -380,7 +400,7 @@ impl FullTextDelegate {
             CellValue::from_raw_string(lang.to_string()),
         );
 
-        let sql_insert = SQLChange {
+        let sql_insert = SQLChange2 {
             sql_query,
             params,
             sequence_name,
@@ -388,15 +408,16 @@ impl FullTextDelegate {
 
         let document_id = sql_insert
             .insert(&mut trans)
+            .await
             .map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
 
         Ok(document_id)
     }
 
     ///
-    fn select_tsvector(
+    async fn select_tsvector(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         lang: Option<&str>,
         text: &str,
     ) -> anyhow::Result<String> {
@@ -416,7 +437,7 @@ impl FullTextDelegate {
             "p_doc_text".to_string(),
             CellValue::from_raw_string(text.to_string()),
         );
-        let sql_block = SQLQueryBlock {
+        let sql_block = SQLQueryBlock2 {
             sql_query: sql_query.to_string(),
             start: 0,
             length: None,
@@ -425,6 +446,7 @@ impl FullTextDelegate {
 
         let mut data = sql_block
             .execute(&mut trans)
+            .await
             .map_err(err_fwd!("Error compute tsvector"))?;
 
         let tsv = if data.next() {

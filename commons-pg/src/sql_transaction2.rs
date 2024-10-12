@@ -14,8 +14,8 @@ use postgres_types::ToSql;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgArguments, PgPoolOptions};
 use sqlx::{
-    Arguments, Column, Connection, Encode, Execute, Executor, PgPool, Pool, Postgres, Row,
-    Transaction, Type, TypeInfo,
+    Arguments, Column, Connection, Encode, Execute, Executor, PgConnection, PgPool, Pool, Postgres,
+    Row, Transaction, Type, TypeInfo,
 };
 
 use commons_error::*;
@@ -54,6 +54,8 @@ pub(crate) fn parse_query2<'a>(
     let mut new_sql_string = string_template.to_string();
     let mut v_params: Vec<CellValue> = vec![];
 
+    dbg!(&new_sql_string);
+
     for p in params {
         let param_name = p.0;
         let param_value = p.1;
@@ -65,6 +67,8 @@ pub(crate) fn parse_query2<'a>(
         v_params.push(owned_cell);
         counter = counter + 1;
     }
+
+    dbg!(&new_sql_string);
 
     (new_sql_string, v_params)
 }
@@ -102,6 +106,20 @@ pub struct SQLConnection2 {
 }
 
 impl SQLConnection2 {
+    pub async fn new(connect_string: &str) -> anyhow::Result<Self> {
+        // Configure le pool de connexions
+        let pool = PgPoolOptions::new()
+            .min_connections(1) // Taille minimale du pool
+            .max_connections(1) // Taille maximale du pool
+            .idle_timeout(Duration::from_secs(30)) // Timeout pour se connecter
+            .idle_timeout(Some(Duration::from_secs(10))) // Timeout d'inactivité des connexions
+            .max_lifetime(Some(Duration::from_secs(300))) // Durée de vie maximale d'une connexion
+            .connect(connect_string)
+            .await?;
+        let cnx = pool.acquire().await?;
+        Ok(Self { client: cnx })
+    }
+
     pub async fn from_pool() -> anyhow::Result<SQLConnection2> {
         let sql_pool = match SQL_POOL2.get() {
             Some(p) => p,
@@ -198,6 +216,9 @@ impl SQLQueryBlock2 {
             }
         }
 
+        dbg!(&new_sql_string);
+        dbg!(&self.params);
+
         let mut query_builder = sqlx::query(new_sql_string.as_str());
 
         let v_params_debug = v_params.clone();
@@ -255,7 +276,7 @@ impl SQLQueryBlock2 {
                         let option_cell = CellValue::Bool(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
-                    "varchar" | "bpchar" | "text" => {
+                    "varchar" | "bpchar" | "char" | "text" => {
                         let db_value: Option<&str> = row
                             .try_get(name)
                             .map_err(err_fwd!("Error reading column: {}", name))?;

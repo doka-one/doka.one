@@ -1,10 +1,11 @@
+use axum::body::Body;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use axum::Json;
 use chrono::{DateTime, NaiveDate, Utc};
-use http::StatusCode;
+use http::{HeaderMap, StatusCode};
 use serde::de;
 use serde_derive::{Deserialize, Serialize};
 
@@ -458,24 +459,29 @@ pub struct UploadReply {
     pub block_count: u32,
 }
 
+pub type DownloadReply = Result<(HeaderMap, Body), (axum::http::StatusCode, String)>;
 // pub type DownloadReply = Custom<Content<Vec<u8>>>;
+// pub type DownloadReply = Vec<u8>; // TODO
 //
-// impl WebTypeBuilder<Vec<u8>> for DownloadReply {
-//     fn from_simple(code: u16, _simple: SimpleMessage) -> Self {
-//         let status = Status::from_code(code).unwrap();
-//         Custom(status, Content(ContentType::HTML, vec![]))
-//     }
-//
-//     fn from_item(code: u16, item: Vec<u8>) -> Self {
-//         Custom(Status::from_code(code).unwrap(), Content(ContentType::HTML, item))
-//     }
-//
-//     fn from_errorset(error: ErrorSet<'static>) -> Self {
-//         let s = Status::raw(error.http_error_code);
-//         Custom(s, Content(ContentType::HTML, vec![]))
-//     }
-//
-// }
+impl WebTypeBuilder<Vec<u8>> for DownloadReply {
+    fn from_simple(code: u16, simple: SimpleMessage) -> Self {
+        let status = StatusCode::from_u16(code).unwrap();
+        Err((status, simple.message))
+    }
+
+    fn from_item(code: u16, item: Vec<u8>) -> Self {
+        panic!("from_item is no implemented for DownloadReply")
+        // Custom(
+        //     Status::from_code(code).unwrap(),
+        //     Content(ContentType::HTML, item),
+        // )
+    }
+
+    fn from_errorset(error: &ErrorSet<'static>) -> Self {
+        let status = StatusCode::from_u16(error.http_error_code).unwrap();
+        Err((status, error.err_message.to_owned()))
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetFileInfoReply {

@@ -62,12 +62,12 @@ where
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let token = parts
             .headers
-            .get("token")
+            .get("sid")
             .and_then(|value| value.to_str().ok())
             .map(|value| SessionToken(value.to_string()))
             .ok_or((
                 StatusCode::UNAUTHORIZED,
-                "Missing or invalid token header".into(),
+                "Missing or invalid session token header".into(),
             ))?;
 
         Ok(token)

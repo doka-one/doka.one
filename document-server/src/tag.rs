@@ -1,17 +1,15 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
+use axum::http::StatusCode;
+use axum::Json;
 use log::{debug, error, info};
-use rocket::http::Status;
-use rocket_contrib::json::Json;
+use serde::de::DeserializeOwned;
 
 use commons_error::*;
-use commons_pg::sql_transaction::{
-    iso_to_datetime, iso_to_naivedate, CellValue, SQLChange, SQLConnection, SQLDataSet,
-    SQLQueryBlock, SQLTransaction,
-};
-use commons_services::database_lib::open_transaction;
-use commons_services::session_lib::fetch_entry_session;
+use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate, CellValue, SQLDataSet};
+use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
@@ -19,8 +17,7 @@ use dkdto::error_codes::{
     INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE,
     INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
     INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME,
-    INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN,
-    STILL_IN_USE,
+    INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, STILL_IN_USE,
 };
 use dkdto::{
     AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TagElement, WebType,
@@ -50,7 +47,7 @@ impl TagDelegate {
     ///
     /// ✨ Find all the existing tags by pages
     ///
-    pub fn get_all_tag(
+    pub async fn get_all_tag(
         mut self,
         start_page: Option<u32>,
         page_size: Option<u32>,
@@ -58,31 +55,43 @@ impl TagDelegate {
         log_info!("🚀 Start get_all_tag api, follower=[{}]", &self.follower);
 
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!(
-                "💣 Invalid session token, token=[{:?}], follower=[{}]",
-                &self.session_token,
-                &self.follower
-            );
-            return WebType::from_errorset(&INVALID_TOKEN);
-        }
+
+        let entry_session = try_or_return!(
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
+            Self::web_type_error()
+        );
+
+        // if !self.session_token.is_valid() {
+        //     log_error!(
+        //         "💣 Invalid session token, token=[{:?}], follower=[{}]",
+        //         &self.session_token,
+        //         &self.follower
+        //     );
+        //     return WebType::from_errorset(&INVALID_TOKEN);
+        // }
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
-        // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
-            err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
-        ) else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
-        };
+        // // Read the session information
+        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
+        //     err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
+        // ) else {
+        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        // };
 
         // Query the items
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
@@ -94,6 +103,7 @@ impl TagDelegate {
                 page_size,
                 &entry_session.customer_code,
             )
+            .await
             .map_err(err_fwd!(
                 "💣 Cannot find the tag by id, follower=[{}]",
                 &self.follower
@@ -104,6 +114,7 @@ impl TagDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -112,14 +123,14 @@ impl TagDelegate {
 
         log_info!("🏁 End get_all_tag api, follower=[{}]", &self.follower);
 
-        WebType::from_item(Status::Ok.code, GetTagReply { tags })
+        WebType::from_item(StatusCode::OK.as_u16(), GetTagReply { tags })
     }
 
     /// Search items by id
     /// If no item id provided, return all existing items
-    pub(crate) fn search_tag_by_id(
+    pub(crate) async fn search_tag_by_id(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         tag_id: Option<i64>,
         start_page: Option<u32>,
         page_size: Option<u32>,
@@ -138,14 +149,14 @@ impl TagDelegate {
             customer_code
         );
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query,
             start: start_page.unwrap_or(0) * page_size.unwrap_or(0),
             length: page_size,
             params,
         };
 
-        let mut sql_result: SQLDataSet = query.execute(&mut trans).map_err(err_fwd!(
+        let mut sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
             "Query failed, sql=[{}], follower=[{}]",
             &query.sql_query,
             &self.follower
@@ -183,9 +194,9 @@ impl TagDelegate {
     }
 
     /// Search items by name
-    pub(crate) fn search_tag_by_name(
+    pub(crate) async fn search_tag_by_name(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         tag_name: &str,
         customer_code: &str,
     ) -> anyhow::Result<TagElement> {
@@ -202,14 +213,14 @@ impl TagDelegate {
             customer_code
         );
 
-        let query = SQLQueryBlock {
+        let query = SQLQueryBlock2 {
             sql_query,
             start: 0,
             length: None,
             params,
         };
 
-        let mut sql_result: SQLDataSet = query.execute(&mut trans).map_err(err_fwd!(
+        let mut sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
             "Query failed, sql=[{}], follower=[{}]",
             &query.sql_query,
             &self.follower
@@ -251,26 +262,31 @@ impl TagDelegate {
     ///
     /// ✨ Delete a tag
     ///
-    pub fn delete_tag(mut self, tag_id: i64) -> WebType<SimpleMessage> {
+    pub async fn delete_tag(mut self, tag_id: i64) -> WebType<SimpleMessage> {
         log_info!("🚀 Start delete_tag api, follower={}", &self.follower);
 
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!(
-                "💣 Invalid session token, token=[{:?}], follower=[{}]",
-                &self.session_token,
-                &self.follower
-            );
-            return WebType::from_errorset(&INVALID_TOKEN);
-        }
+        let entry_session = try_or_return!(
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
+            Self::web_type_error()
+        );
+
+        // if !self.session_token.is_valid() {
+        //     log_error!(
+        //         "💣 Invalid session token, token=[{:?}], follower=[{}]",
+        //         &self.session_token,
+        //         &self.follower
+        //     );
+        //     return WebType::from_errorset(&INVALID_TOKEN);
+        // }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
         // Read the session information
-        let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
-            err_fwd!("💣 Session Manager failed, follower={}", &self.follower),
-        ) else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
-        };
+        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
+        //     err_fwd!("💣 Session Manager failed, follower={}", &self.follower),
+        // ) else {
+        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        // };
 
         let customer_code = entry_session.customer_code.as_str();
 
@@ -280,14 +296,18 @@ impl TagDelegate {
             &self.follower
         );
 
-        // Open the transaction
-
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower={}",
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
@@ -295,6 +315,7 @@ impl TagDelegate {
 
         if self
             .check_tag_usage(&mut trans, tag_id, customer_code)
+            .await
             .is_err()
         {
             log_error!(
@@ -322,13 +343,13 @@ impl TagDelegate {
         let mut params = HashMap::new();
         params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
 
-        let sql_delete = SQLChange {
+        let sql_delete = SQLChange2 {
             sql_query,
             params,
             sequence_name: "".to_string(),
         };
 
-        let Ok(_tag_id) = sql_delete.delete(&mut trans).map_err(err_fwd!(
+        let Ok(_tag_id) = sql_delete.delete(&mut trans).await.map_err(err_fwd!(
             "💣 Tag delete failed, tag_id=[{}], follower=[{}]",
             tag_id,
             &self.follower
@@ -338,6 +359,7 @@ impl TagDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower))
             .is_err()
         {
@@ -353,16 +375,16 @@ impl TagDelegate {
         log_info!("🏁 End delete_tag api, follower=[{}]", &self.follower);
 
         WebType::from_item(
-            Status::Ok.code,
+            StatusCode::OK.as_u16(),
             SimpleMessage {
                 message: "Ok".to_string(),
             },
         )
     }
 
-    fn check_tag_usage(
+    async fn check_tag_usage(
         &self,
-        trans: &mut SQLTransaction,
+        trans: &mut SQLTransaction2<'_>,
         tag_id: i64,
         customer_code: &str,
     ) -> anyhow::Result<()> {
@@ -375,14 +397,14 @@ impl TagDelegate {
         let mut params = HashMap::new();
         params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
 
-        let sql = SQLQueryBlock {
+        let sql = SQLQueryBlock2 {
             sql_query,
             start: 0,
             length: Some(1),
             params,
         };
 
-        let dataset = sql.execute(trans).map_err(tr_fwd!())?;
+        let dataset = sql.execute(trans).await.map_err(tr_fwd!())?;
 
         if dataset.len() > 0 {
             return Err(anyhow::anyhow!(
@@ -397,28 +419,32 @@ impl TagDelegate {
     ///
     /// ✨ Create a new tag
     ///
-    pub fn add_tag(mut self, add_tag_request: Json<AddTagRequest>) -> WebType<AddTagReply> {
+    pub async fn add_tag(mut self, add_tag_request: Json<AddTagRequest>) -> WebType<AddTagReply> {
         log_info!("🚀 Start add_tag api, follower=[{}]", &self.follower);
 
+        let entry_session = try_or_return!(
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
+            Self::web_type_error()
+        );
         // Check if the token is valid
-        if !self.session_token.is_valid() {
-            log_error!(
-                "💣 Invalid session token, token=[{:?}], follower=[{}]",
-                &self.session_token,
-                &self.follower
-            );
-            return WebType::from_errorset(&INVALID_TOKEN);
-        }
+        // if !self.session_token.is_valid() {
+        //     log_error!(
+        //         "💣 Invalid session token, token=[{:?}], follower=[{}]",
+        //         &self.session_token,
+        //         &self.follower
+        //     );
+        //     return WebType::from_errorset(&INVALID_TOKEN);
+        // }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
         // Read the session information
-        let entry_session = try_or_return!(
-            fetch_entry_session(&self.follower.token_type.value()).map_err(err_fwd!(
-                "💣 Session Manager failed, follower=[{}]",
-                &self.follower
-            )),
-            |_e| WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
-        );
+        // let entry_session = try_or_return!(
+        //     fetch_entry_session(&self.follower.token_type.value()).await.map_err(err_fwd!(
+        //         "💣 Session Manager failed, follower=[{}]",
+        //         &self.follower
+        //     )),
+        //     |_e| WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
+        // );
 
         let customer_code = entry_session.customer_code.as_str();
 
@@ -437,18 +463,24 @@ impl TagDelegate {
             return WebType::from_errorset(e);
         }
 
-        // Open the transaction
-        let mut r_cnx = SQLConnection::new();
-        let r_trans = open_transaction(&mut r_cnx).map_err(err_fwd!(
-            "💣 Open transaction error, follower=[{}]",
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
             &self.follower
-        ));
-        let Ok(mut trans) = r_trans else {
+        )) else {
+            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(tag_id) = self
             .insert_tag_definition(&mut trans, &add_tag_request, customer_code)
+            .await
             .map_err(err_fwd!(
                 "💣 Insertion of a new tag failed, follower=[{}]",
                 &self.follower
@@ -459,6 +491,7 @@ impl TagDelegate {
 
         if trans
             .commit()
+            .await
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
@@ -472,12 +505,12 @@ impl TagDelegate {
         );
         log_info!("🏁 End add_tag api, follower=[{}]", &self.follower);
 
-        WebType::from_item(Status::Ok.code, AddTagReply { tag_id })
+        WebType::from_item(StatusCode::OK.as_u16(), AddTagReply { tag_id })
     }
 
-    pub(crate) fn insert_tag_definition(
+    pub(crate) async fn insert_tag_definition(
         &self,
-        mut trans: &mut SQLTransaction,
+        mut trans: &mut SQLTransaction2<'_>,
         add_tag_request: &AddTagRequest,
         customer_code: &str,
     ) -> anyhow::Result<i64> {
@@ -503,13 +536,13 @@ impl TagDelegate {
         params.insert("p_string_tag_length".to_string(), length);
         params.insert("p_default_value".to_string(), default_value);
 
-        let sql_insert = SQLChange {
+        let sql_insert = SQLChange2 {
             sql_query,
             params,
             sequence_name,
         };
 
-        let tag_id = sql_insert.insert(&mut trans).map_err(err_fwd!(
+        let tag_id = sql_insert.insert(&mut trans).await.map_err(err_fwd!(
             "💣 Insertion of a new tag failed, follower=[{}]",
             &self.follower
         ))?;
@@ -523,7 +556,7 @@ impl TagDelegate {
     pub(crate) fn check_input_values(
         &self,
         add_tag_request: &AddTagRequest,
-    ) -> Result<(), ErrorSet<'static>> {
+    ) -> Result<(), &ErrorSet<'static>> {
         log_info!(
             "Check the tag definition, add_tag_request=[{:?}], follower=[{}]",
             add_tag_request,
@@ -532,11 +565,11 @@ impl TagDelegate {
 
         // Check the tag name
         if has_not_printable_char(&add_tag_request.name) {
-            return Err(INCORRECT_CHAR_TAG_NAME);
+            return Err(&INCORRECT_CHAR_TAG_NAME);
         }
 
         if add_tag_request.name.len() > 50 {
-            return Err(INCORRECT_LENGTH_TAG_NAME);
+            return Err(&INCORRECT_LENGTH_TAG_NAME);
         }
 
         // Check the input values ( ie tag_type, length limit, default_value type, etc )
@@ -546,7 +579,7 @@ impl TagDelegate {
                 const MAX_STRING_LENGTH: usize = 2000;
                 if let Some(default_string) = &add_tag_request.default_value {
                     if default_string.len() > MAX_STRING_LENGTH as usize {
-                        return Err(INCORRECT_DEFAULT_STRING_LENGTH);
+                        return Err(&INCORRECT_DEFAULT_STRING_LENGTH);
                     }
                 }
             }
@@ -555,28 +588,28 @@ impl TagDelegate {
                 const MAX_LINK_LENGTH: usize = 400;
                 if let Some(default_string) = &add_tag_request.default_value {
                     if default_string.len() > MAX_LINK_LENGTH as usize {
-                        return Err(INCORRECT_DEFAULT_LINK_LENGTH);
+                        return Err(&INCORRECT_DEFAULT_LINK_LENGTH);
                     }
                 }
             }
             TAG_TYPE_BOOL => {
                 if let Some(v) = &add_tag_request.default_value {
                     if v != "true" && v != "false" {
-                        return Err(INCORRECT_DEFAULT_BOOLEAN_VALUE);
+                        return Err(&INCORRECT_DEFAULT_BOOLEAN_VALUE);
                     }
                 }
             }
             TAG_TYPE_INT => {
                 if let Some(v) = &add_tag_request.default_value {
                     if v.parse::<i64>().is_err() {
-                        return Err(INCORRECT_DEFAULT_INTEGER_VALUE);
+                        return Err(&INCORRECT_DEFAULT_INTEGER_VALUE);
                     }
                 }
             }
             TAG_TYPE_DOUBLE => {
                 if let Some(d) = &add_tag_request.default_value {
                     if d.parse::<f64>().is_err() {
-                        return Err(INCORRECT_DEFAULT_DOUBLE_VALUE);
+                        return Err(&INCORRECT_DEFAULT_DOUBLE_VALUE);
                     }
                 }
             }
@@ -584,7 +617,7 @@ impl TagDelegate {
                 if let Some(d_str) = &add_tag_request.default_value {
                     // Check if the default is a valid date  ISO8601 1977-04-22
                     if iso_to_naivedate(d_str).is_err() {
-                        return Err(INCORRECT_DEFAULT_DATE_VALUE);
+                        return Err(&INCORRECT_DEFAULT_DATE_VALUE);
                     }
                 }
             }
@@ -592,16 +625,26 @@ impl TagDelegate {
                 if let Some(dt_str) = &add_tag_request.default_value {
                     // Check if the default is a valid datetime ISO8601 "1977-04-22T06:00:00Z"
                     if iso_to_datetime(dt_str).is_err() {
-                        return Err(INCORRECT_DEFAULT_DATETIME_VALUE);
+                        return Err(&INCORRECT_DEFAULT_DATETIME_VALUE);
                     }
                 }
             }
             _ => {
-                return Err(INCORRECT_TAG_TYPE);
+                return Err(&INCORRECT_TAG_TYPE);
             }
         };
 
         Ok(())
+    }
+
+    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    where
+        T: DeserializeOwned,
+    {
+        |e| {
+            log_error!("💣 Error after try {:?}", e);
+            WebType::from_errorset(e)
+        }
     }
 }
 
@@ -609,7 +652,7 @@ impl TagDelegate {
 mod test {
     use chrono::{DateTime, Datelike, Timelike, Utc};
 
-    use commons_pg::{iso_to_datetime, iso_to_naivedate};
+    use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate};
 
     #[test]
     fn is_valid_datetime_test() {

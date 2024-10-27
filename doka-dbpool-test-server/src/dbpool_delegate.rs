@@ -1,14 +1,11 @@
 use std::collections::HashMap;
-use std::thread;
-use std::time::Duration;
-
-use log::*;
-use rocket::http::Status;
 
 use commons_error::*;
 use commons_pg::{CellValue, SQLChange, SQLConnection};
-use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
 use dkdto::{WebType, WebTypeBuilder};
+use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
+use log::*;
+use rocket::http::Status;
 
 pub(crate) struct DbPoolDelegate {}
 

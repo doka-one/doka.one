@@ -7,22 +7,24 @@ use log::{debug, error, info};
 use serde::de::DeserializeOwned;
 
 use commons_error::*;
-use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate, CellValue, SQLDataSet};
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_pg::sql_transaction::{CellValue, iso_to_datetime, iso_to_naivedate, SQLDataSet};
+use commons_pg::sql_transaction_async::{
+    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
+use dkdto::{
+    AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE,
+    TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagElement,
+    WebType, WebTypeBuilder,
+};
 use dkdto::error_codes::{
-    INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE,
-    INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
+    INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE,
+    INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
     INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME,
     INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, STILL_IN_USE,
-};
-use dkdto::{
-    AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TagElement, WebType,
-    WebTypeBuilder, TAG_TYPE_BOOL, TAG_TYPE_DATE, TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT,
-    TAG_TYPE_LINK, TAG_TYPE_STRING,
 };
 use doka_cli::request_client::TokenType;
 
@@ -81,7 +83,7 @@ impl TagDelegate {
 
         // Query the items
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -130,7 +132,7 @@ impl TagDelegate {
     /// If no item id provided, return all existing items
     pub(crate) async fn search_tag_by_id(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         tag_id: Option<i64>,
         start_page: Option<u32>,
         page_size: Option<u32>,
@@ -149,7 +151,7 @@ impl TagDelegate {
             customer_code
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: start_page.unwrap_or(0) * page_size.unwrap_or(0),
             length: page_size,
@@ -196,7 +198,7 @@ impl TagDelegate {
     /// Search items by name
     pub(crate) async fn search_tag_by_name(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         tag_name: &str,
         customer_code: &str,
     ) -> anyhow::Result<TagElement> {
@@ -213,7 +215,7 @@ impl TagDelegate {
             customer_code
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: 0,
             length: None,
@@ -297,7 +299,7 @@ impl TagDelegate {
         );
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -343,7 +345,7 @@ impl TagDelegate {
         let mut params = HashMap::new();
         params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
 
-        let sql_delete = SQLChange2 {
+        let sql_delete = SQLChangeAsync {
             sql_query,
             params,
             sequence_name: "".to_string(),
@@ -384,7 +386,7 @@ impl TagDelegate {
 
     async fn check_tag_usage(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         tag_id: i64,
         customer_code: &str,
     ) -> anyhow::Result<()> {
@@ -397,7 +399,7 @@ impl TagDelegate {
         let mut params = HashMap::new();
         params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
 
-        let sql = SQLQueryBlock2 {
+        let sql = SQLQueryBlockAsync {
             sql_query,
             start: 0,
             length: Some(1),
@@ -464,7 +466,7 @@ impl TagDelegate {
         }
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -510,7 +512,7 @@ impl TagDelegate {
 
     pub(crate) async fn insert_tag_definition(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         add_tag_request: &AddTagRequest,
         customer_code: &str,
     ) -> anyhow::Result<i64> {
@@ -536,7 +538,7 @@ impl TagDelegate {
         params.insert("p_string_tag_length".to_string(), length);
         params.insert("p_default_value".to_string(), default_value);
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -650,7 +652,7 @@ impl TagDelegate {
 
 #[cfg(test)]
 mod test {
-    use chrono::{DateTime, Datelike, Timelike, Utc};
+    use chrono::{Datelike, DateTime, Timelike, Utc};
 
     use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate};
 

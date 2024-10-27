@@ -1,7 +1,13 @@
-use crate::request_client::TokenType::{Sid, Token};
-use crate::request_client::{CustomHeaders, KeyManagerClient, TokenType};
+use std::fmt::Display;
+use std::time::Duration;
+
 use anyhow::anyhow;
-use commons_error::*;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use reqwest::{Client, RequestBuilder};
+use serde::de::DeserializeOwned;
+use serde::{de, Serialize};
+use url::Url;
+
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
@@ -9,21 +15,13 @@ use dkdto::{
     FullTextRequest, GetItemReply, GetTagReply, OpenSessionReply, OpenSessionRequest, SessionReply,
     SimpleMessage, TikaMeta, TikaParsing, WebResponse, WebTypeBuilder,
 };
-use log::warn;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use reqwest::{Client, RequestBuilder};
-use serde::de::DeserializeOwned;
-use serde::{de, Serialize};
-use std::fmt::Display;
-use std::future::Future;
-use std::pin::Pin;
-use std::time::Duration;
-use tokio::time::sleep;
-use url::Url;
+
+use crate::request_client::TokenType::{Sid, Token};
+use crate::request_client::{CustomHeaders, TokenType};
 
 const TIMEOUT: Duration = Duration::from_secs(60 * 60);
-const MAX_HTTP_RETRY: u32 = 5;
-const LAPS: u32 = 2_000;
+// const MAX_HTTP_RETRY: u32 = 5;
+// const LAPS: u32 = 2_000;
 
 pub struct KeyManagerClientAsync {
     server: WebServerAsync,
@@ -355,24 +353,24 @@ impl WebServerAsync {
         }
     }
 
-    async fn retry<F, T>(&self, mut operation: F) -> anyhow::Result<T>
-    where
-        // F: FnMut() -> anyhow::Result<T>,
-        F: FnMut() -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>,
-    {
-        let mut count: u32 = 0;
-        loop {
-            let operation_result = operation().await;
-            if operation_result.is_ok() || count >= MAX_HTTP_RETRY {
-                return operation_result;
-            }
-            let t = LAPS as u64;
-            eprintln!("Wait for {} ms", t);
-            sleep(Duration::from_millis(t)).await;
-            log_warn!("Operation failed, attempt=[{}]", count);
-            count += 1;
-        }
-    }
+    // async fn retry<F, T>(&self, mut operation: F) -> anyhow::Result<T>
+    // where
+    //     // F: FnMut() -> anyhow::Result<T>,
+    //     F: FnMut() -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>,
+    // {
+    //     let mut count: u32 = 0;
+    //     loop {
+    //         let operation_result = operation().await;
+    //         if operation_result.is_ok() || count >= MAX_HTTP_RETRY {
+    //             return operation_result;
+    //         }
+    //         let t = LAPS as u64;
+    //         eprintln!("Wait for {} ms", t);
+    //         sleep(Duration::from_millis(t)).await;
+    //         log_warn!("Operation failed, attempt=[{}]", count);
+    //         count += 1;
+    //     }
+    // }
 
     async fn get_data_retry<V: de::DeserializeOwned>(
         &self,

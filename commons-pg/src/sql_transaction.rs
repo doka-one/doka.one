@@ -1,16 +1,18 @@
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use commons_error::*;
-use lazy_static::*;
-use log::*;
-use mut_static::MutStatic;
-use postgres::types::ToSql;
-use postgres::{NoTls, Transaction};
-use r2d2_postgres::r2d2::{Pool, PooledConnection};
-use r2d2_postgres::{r2d2, PostgresConnectionManager};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use lazy_static::*;
+use log::*;
+use mut_static::MutStatic;
+use postgres::{NoTls, Transaction};
+use postgres::types::ToSql;
+use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use r2d2_postgres::r2d2::{Pool, PooledConnection};
+
+use commons_error::*;
 
 lazy_static! {
     static ref SQL_POOL: MutStatic<SQLPool> = MutStatic::new();
@@ -691,10 +693,11 @@ mod tests {
     use std::process::exit;
     use std::sync::Once;
 
-    use crate::sql_transaction::{
-        init_db_pool, CellValue, SQLChange, SQLConnection, SQLPool, SQLQueryBlock,
-    };
     use commons_error::*;
+
+    use crate::sql_transaction::{
+        CellValue, init_db_pool, SQLChange, SQLConnection, SQLPool, SQLQueryBlock,
+    };
 
     static INIT: Once = Once::new();
 

@@ -6,11 +6,10 @@ use axum::http::Method;
 use axum::routing::{get, post};
 use axum::Router;
 use log::*;
-use tokio::io::AsyncReadExt;
 use tower_http::cors::{Any, CorsLayer};
 
 use commons_error::*;
-use commons_pg::sql_transaction2::init_db_pool2;
+use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
@@ -181,7 +180,7 @@ async fn main() {
         }
     };
 
-    let r = init_db_pool2(&connect_string, db_pool_size).await;
+    let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 

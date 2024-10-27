@@ -1,8 +1,8 @@
-use axum::body::Body;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use axum::body::Body;
 use axum::Json;
 use chrono::{DateTime, NaiveDate, Utc};
 use http::{HeaderMap, StatusCode};
@@ -469,12 +469,8 @@ impl WebTypeBuilder<Vec<u8>> for DownloadReply {
         Err((status, simple.message))
     }
 
-    fn from_item(code: u16, item: Vec<u8>) -> Self {
+    fn from_item(_code: u16, _item: Vec<u8>) -> Self {
         panic!("from_item is no implemented for DownloadReply")
-        // Custom(
-        //     Status::from_code(code).unwrap(),
-        //     Content(ContentType::HTML, item),
-        // )
     }
 
     fn from_errorset(error: &ErrorSet<'static>) -> Self {

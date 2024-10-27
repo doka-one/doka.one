@@ -4,7 +4,7 @@ use std::fmt;
 use log::warn;
 
 use crate::filter_ast::FilterValue::{ValueInt, ValueString};
-use crate::filter_lexer::{lex3, LexerError};
+use crate::filter_lexer::lex3;
 use crate::filter_normalizer::normalize_lexeme;
 
 #[cfg(test)]
@@ -53,20 +53,20 @@ pub(crate) enum LogicalOperator {
 }
 
 impl LogicalOperator {
-    pub fn from_str(lop: &str) -> Self {
-        match lop {
-            "AND" => LogicalOperator::AND,
-            "OR" => LogicalOperator::OR,
-            _ => panic!(),
-        }
-    }
+    // pub fn from_str(lop: &str) -> Self {
+    //     match lop {
+    //         "AND" => LogicalOperator::AND,
+    //         "OR" => LogicalOperator::OR,
+    //         _ => panic!(),
+    //     }
+    // }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            LogicalOperator::AND => "AND".to_string(),
-            LogicalOperator::OR => "OR".to_string(),
-        }
-    }
+    // pub fn to_string(&self) -> String {
+    //     match self {
+    //         LogicalOperator::AND => "AND".to_string(),
+    //         LogicalOperator::OR => "OR".to_string(),
+    //     }
+    // }
 }
 
 #[derive(Debug)]

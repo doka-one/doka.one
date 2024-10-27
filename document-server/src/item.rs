@@ -13,7 +13,9 @@ use commons_error::*;
 use commons_pg::sql_transaction::{
     date_time_to_iso, iso_to_datetime, iso_to_naivedate, naivedate_to_iso, CellValue, SQLDataSet,
 };
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_pg::sql_transaction_async::{
+    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
@@ -73,7 +75,7 @@ impl ItemDelegate {
         let filter_tokens: Box<FilterExpressionAST> =
             match analyse_expression(&filters.unwrap_or("()".to_owned())) {
                 Ok(v) => v,
-                Err(e) => {
+                Err(_) => {
                     // TODO
                     panic!("Cannot lex the expression");
                 }
@@ -96,7 +98,7 @@ impl ItemDelegate {
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -192,7 +194,7 @@ impl ItemDelegate {
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -245,7 +247,7 @@ impl ItemDelegate {
     /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
     async fn search_item_with_filter(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         filters: &FilterExpressionAST,
         start_page: Option<u32>,
         page_size: Option<u32>,
@@ -269,7 +271,7 @@ impl ItemDelegate {
             customer_code, sql_condition
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: start_page.unwrap_or(0) * page_size.unwrap_or(0),
             length: page_size,
@@ -290,7 +292,7 @@ impl ItemDelegate {
     /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
     async fn search_item_by_id(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         item_id: Option<i64>,
         start_page: Option<u32>,
         page_size: Option<u32>,
@@ -309,7 +311,7 @@ impl ItemDelegate {
             customer_code
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: start_page.unwrap_or(0) * page_size.unwrap_or(0),
             length: page_size,
@@ -362,7 +364,7 @@ impl ItemDelegate {
     ///
     async fn find_item_properties(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         item_id: i64,
         customer_code: &str,
     ) -> anyhow::Result<Vec<TagValueElement>> {
@@ -382,7 +384,7 @@ impl ItemDelegate {
             customer_code, customer_code
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: 0,
             length: None,
@@ -503,7 +505,7 @@ impl ItemDelegate {
 
         // Query the item
         // | Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -600,7 +602,7 @@ impl ItemDelegate {
         );
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -747,7 +749,7 @@ impl ItemDelegate {
         );
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -846,7 +848,7 @@ impl ItemDelegate {
         );
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -928,7 +930,7 @@ impl ItemDelegate {
     /// Add tags on an item
     async fn update_tags_on_item(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         item_id: i64,
         customer_code: &str,
         properties: &Vec<AddTagValue>,
@@ -1050,7 +1052,7 @@ impl ItemDelegate {
     ///
     async fn change_item_tag_value(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         tag: &AddTagValue,
         tag_value_id: i64,
         customer_code: &str,
@@ -1076,7 +1078,7 @@ impl ItemDelegate {
             CellValue::from_raw_int(tag_value_id),
         );
         params = self.build_params_for_insert_and_update(&tag, params);
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_update.to_string(),
             params,
             sequence_name: "".to_string(),
@@ -1092,7 +1094,7 @@ impl ItemDelegate {
     ///
     async fn delete_item_tag_value(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         item_id: i64,
         tag_name: &str,
         customer_code: &str,
@@ -1109,7 +1111,7 @@ impl ItemDelegate {
 
         params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
         params.insert("p_tag_name".to_string(), CellValue::from_raw_str(tag_name));
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_delete.to_string(),
             params,
             sequence_name: "".to_string(),
@@ -1126,7 +1128,7 @@ impl ItemDelegate {
     /// find if the tag is already assigned to the item
     async fn is_tags_on_item(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         item_id: i64,
         tag_id: i64,
         customer_code: &str,
@@ -1143,7 +1145,7 @@ impl ItemDelegate {
         params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
         params.insert("p_item_id".to_string(), CellValue::from_raw_int(item_id));
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: 0,
             length: None,
@@ -1167,7 +1169,7 @@ impl ItemDelegate {
     ///
     async fn create_item(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         item_name: &str,
         customer_code: &str,
         file_ref: Option<String>,
@@ -1196,7 +1198,7 @@ impl ItemDelegate {
         );
         params.insert("p_file_ref".to_string(), CellValue::String(file_ref));
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -1214,7 +1216,7 @@ impl ItemDelegate {
     /// Ensure the tag_id exists
     async fn check_tag_id_validity(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         tag_id: i64,
         prop: &AddTagValue,
         customer_code: &str,
@@ -1262,7 +1264,7 @@ impl ItemDelegate {
     ///
     async fn define_tag_if_needed(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         prop: &AddTagValue,
         customer_code: &str,
     ) -> anyhow::Result<i64> {
@@ -1331,7 +1333,7 @@ impl ItemDelegate {
     ///
     async fn create_item_property(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         tag: &AddTagValue,
         item_id: i64,
         customer_code: &str,
@@ -1356,7 +1358,7 @@ impl ItemDelegate {
 
         params = self.build_params_for_insert_and_update(&tag, params);
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query,
             params,
             sequence_name: format!("cs_{}.tag_value_id_seq", customer_code),

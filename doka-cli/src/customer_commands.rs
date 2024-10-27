@@ -2,10 +2,10 @@ use anyhow::anyhow;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
-use dkdto::{CreateCustomerRequest};
+use dkdto::CreateCustomerRequest;
 use doka_cli::request_client::AdminServerClient;
-use crate::token_commands::read_security_token;
 
+use crate::token_commands::read_security_token;
 
 ///
 pub (crate) fn create_customer(customer_name: &str, email : &str, admin_password : &str) -> anyhow::Result<()> {

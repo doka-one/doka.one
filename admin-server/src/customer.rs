@@ -10,7 +10,9 @@ use rs_uuid::iso::uuid_v4;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_pg::sql_transaction_async::{
+    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::{Follower, XRequestID};
@@ -113,7 +115,7 @@ fn warning_fs_schema(customer_code: &str) -> anyhow::Result<()> {
 }
 
 async fn set_removable_flag_customer_from_db(
-    trans: &mut SQLTransaction2<'_>,
+    trans: &mut SQLTransactionAsync<'_>,
     customer_code: &str,
 ) -> anyhow::Result<bool> {
     let mut params = HashMap::new();
@@ -122,14 +124,14 @@ async fn set_removable_flag_customer_from_db(
         CellValue::from_raw_string(customer_code.to_string()),
     );
 
-    let query = SQLChange2 {
+    let query = SQLChangeAsync {
         sql_query:
             r"UPDATE dokaadmin.customer SET is_removable = TRUE  WHERE code = :p_customer_code"
                 .to_string(),
         params,
         sequence_name: "".to_string(),
     };
-    let nb = query
+    let _nb = query
         .update(trans)
         .await
         .map_err(err_fwd!("Set removable flag for customer failed"))?;
@@ -191,7 +193,7 @@ impl CustomerDelegate {
         );
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -372,7 +374,7 @@ impl CustomerDelegate {
             CellValue::from_raw_string("Europe/Paris".to_owned()),
         );
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query: r#"INSERT INTO dokaadmin.customer (code, full_name, default_language, default_time_zone)
                         VALUES (:p_code, :p_full_name, :p_default_language, :p_default_time_zone) "#.to_string(),
             params,
@@ -426,7 +428,7 @@ impl CustomerDelegate {
             CellValue::from_raw_int(customer_id),
         );
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query: r#"INSERT INTO dokaadmin.appuser(
         login, full_name, password_hash, default_language, default_time_zone, admin, customer_id)
         VALUES (:p_login, :p_full_name, :p_password_hash, :p_default_language, :p_default_time_zone, :p_admin, :p_customer_id)"#.to_string(),
@@ -481,7 +483,7 @@ impl CustomerDelegate {
     /// Check if the customer code is not taken (true if it is not)
     async fn check_code_not_taken(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         customer_code: &str,
     ) -> anyhow::Result<bool> {
         let p_customer_code = CellValue::from_raw_string(customer_code.to_owned());
@@ -490,7 +492,7 @@ impl CustomerDelegate {
         let sql_query =
             r#" SELECT 1 FROM dokaadmin.customer WHERE code = :p_customer_code"#.to_owned();
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             params,
             start: 0,
@@ -508,7 +510,7 @@ impl CustomerDelegate {
     /// Check if the customer name is not taken    
     async fn check_customer_name_not_taken(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         customer_name: &str,
     ) -> anyhow::Result<()> {
         let p_customer_name = CellValue::from_raw_string(customer_name.to_owned());
@@ -517,7 +519,7 @@ impl CustomerDelegate {
         let sql_query =
             r#" SELECT 1 FROM dokaadmin.customer WHERE full_name = :p_customer_name"#.to_owned();
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             params,
             start: 0,
@@ -541,7 +543,7 @@ impl CustomerDelegate {
     ///
     async fn check_user_name_not_taken(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         user_name: &str,
     ) -> anyhow::Result<()> {
         let p_login = CellValue::from_raw_string(user_name.to_owned());
@@ -549,7 +551,7 @@ impl CustomerDelegate {
         params.insert("p_login".to_owned(), p_login);
         let sql_query = r#" SELECT 1 FROM dokaadmin.appuser WHERE login = :p_login"#.to_owned();
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             params,
             start: 0,
@@ -591,7 +593,7 @@ impl CustomerDelegate {
         // Change the token type to "Token"
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 Connection issue, follower=[{}]",
             &self.follower
         )) else {
@@ -732,10 +734,13 @@ impl CustomerDelegate {
             dbi.db_user, dbi.password, dbi.host, dbi.port, dbi.db_name
         );
 
-        let Ok(mut cnx) = SQLConnection2::new(&connect_string).await.map_err(err_fwd!(
-            "💣 Connection issue, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(mut cnx) = SQLConnectionAsync::new(&connect_string)
+            .await
+            .map_err(err_fwd!(
+                "💣 Connection issue, follower=[{}]",
+                &self.follower
+            ))
+        else {
             return Err(anyhow!("_"));
         };
 
@@ -746,7 +751,7 @@ impl CustomerDelegate {
             return Err(anyhow!("_"));
         };
 
-        let process = SQLChange2 {
+        let process = SQLChangeAsync {
             sql_query: batch_script.to_string(),
             params: Default::default(),
             sequence_name: "".to_string(),
@@ -789,7 +794,7 @@ impl CustomerDelegate {
     /// Or Err if not found
     async fn search_customer(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         customer_code: &str,
     ) -> anyhow::Result<(i64, bool)> {
         let mut params = HashMap::new();
@@ -798,7 +803,7 @@ impl CustomerDelegate {
             CellValue::from_raw_string(customer_code.to_string()),
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query:
                 "SELECT id, is_removable FROM dokaadmin.customer WHERE code = :p_customer_code"
                     .to_string(),
@@ -849,7 +854,7 @@ impl CustomerDelegate {
 
     async fn delete_user_from_db(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         customer_code: &str,
     ) -> anyhow::Result<bool> {
         let mut params = HashMap::new();
@@ -858,7 +863,7 @@ impl CustomerDelegate {
             CellValue::from_raw_string(customer_code.to_string()),
         );
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: r"DELETE FROM dokaadmin.appuser WHERE customer_id IN
         (SELECT id FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE)"
                 .to_string(),
@@ -875,7 +880,7 @@ impl CustomerDelegate {
 
     async fn delete_customer_from_db(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         customer_code: &str,
     ) -> anyhow::Result<bool> {
         let mut params = HashMap::new();
@@ -884,12 +889,12 @@ impl CustomerDelegate {
             CellValue::from_raw_string(customer_code.to_string()),
         );
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: r"DELETE FROM dokaadmin.customer WHERE code = :p_customer_code AND is_removable = TRUE".to_string(),
             params,
             sequence_name: "".to_string(),
         };
-        let nb = query
+        let _nb = query
             .delete(trans)
             .await
             .map_err(err_fwd!("Delete of customer failed"))?;
@@ -923,7 +928,7 @@ impl CustomerDelegate {
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {

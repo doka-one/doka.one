@@ -161,7 +161,7 @@ fn exp_lexer_index(
             ' ' => {
                 println(&format!("Blank space"), depth);
             }
-            c => {
+            _c => {
                 match expected_lexem {
                     ExpressionExpectedLexeme::ExpressionOrCondition => {
                         // Here we are at a "expression" level, so the chars is the start for a new condition

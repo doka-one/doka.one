@@ -1,7 +1,6 @@
 use termcolor::{BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
 
-pub fn color_println(text : &str, color : Color ) -> anyhow::Result<()> {
-
+pub fn color_println(text: &str, color: Color) -> anyhow::Result<()> {
     use std::io::Write;
 
     let bufwtr = BufferWriter::stderr(ColorChoice::Always);
@@ -19,16 +18,14 @@ pub fn color_println(text : &str, color : Color ) -> anyhow::Result<()> {
     Ok(())
 }
 
-
-pub(crate) fn step_println(text : &str)  -> anyhow::Result<()> {
+pub(crate) fn step_println(text: &str) -> anyhow::Result<()> {
     color_println(text, Color::Yellow)
 }
 
-pub(crate) fn end_println(text : &str)  -> anyhow::Result<()> {
+pub(crate) fn end_println(text: &str) -> anyhow::Result<()> {
     color_println(text, Color::Green)
 }
 
-
-pub(crate) fn main_println(text : &str)  -> anyhow::Result<()> {
+pub(crate) fn main_println(text: &str) -> anyhow::Result<()> {
     color_println(text, Color::Red)
 }

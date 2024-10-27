@@ -1,3 +1,21 @@
+use std::fs;
+use std::path::Path;
+use std::process::exit;
+
+use clap::Parser;
+use clap::Subcommand;
+
+use commons_error::*;
+
+use crate::application_properties::generate_all_app_properties;
+use crate::artefacts::download_artefacts;
+use crate::color_text::{end_println, main_println, step_println};
+use crate::config::{Config, OperatingSystem};
+use crate::databases::{create_all_admin_schemas, create_databases, test_db_connection};
+use crate::ports::{find_service_port, Ports};
+use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
+use crate::templates::{DEF_FILE_TEMPLATE, STD_APP_PROPERTIES_TEMPLATE};
+
 mod templates;
 mod artefacts;
 mod config;
@@ -9,24 +27,6 @@ mod schema_dokaadmin;
 mod schema_dokasys;
 mod schema_keymanager;
 mod application_properties;
-
-use std::{fs};
-
-use std::path::{Path};
-use std::process::{exit};
-
-
-
-use commons_error::*;
-use crate::application_properties::generate_all_app_properties;
-use crate::artefacts::download_artefacts;
-use crate::color_text::{end_println, main_println, step_println};
-use crate::config::{Config, OperatingSystem};
-use crate::databases::{create_all_admin_schemas, create_databases, test_db_connection};
-use crate::ports::{find_service_port, Ports};
-use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
-use crate::templates::{DEF_FILE_TEMPLATE, STD_APP_PROPERTIES_TEMPLATE};
-
 
 ///
 ///   <intallation_path>
@@ -128,9 +128,6 @@ fn verification(config: &Config) -> anyhow::Result<()> {
 
     Ok(())
 }
-
-use clap::Parser;
-use clap::Subcommand;
 
 /// Doka Installer for Windows
 

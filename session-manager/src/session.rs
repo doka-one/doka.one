@@ -9,8 +9,9 @@ use log::*;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
-use commons_services::database_lib::run_blocking_spawn;
+use commons_pg::sql_transaction_async::{
+    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
@@ -80,7 +81,7 @@ impl SessionDelegate {
         &self,
         session_request: &OpenSessionRequest,
     ) -> WebResponse<String> {
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 Connection issue, follower=[{}]",
             &self.follower
         )) else {
@@ -127,7 +128,7 @@ impl SessionDelegate {
             CellValue::from_raw_systemtime(current_datetime),
         );
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_insert.to_string(),
             params,
             sequence_name: "dokasys.sessions_id_seq".to_string(),
@@ -189,7 +190,7 @@ impl SessionDelegate {
 
     async fn read_session_and_update(&self, session_id: &str) -> WebResponse<SessionReply> {
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -286,7 +287,7 @@ impl SessionDelegate {
     /// Search the session information from the session id
     async fn search_session_by_sid(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         session_id: Option<&str>,
     ) -> anyhow::Result<Vec<EntrySession>> {
         let p_sid = CellValue::from_opt_str(session_id);
@@ -294,7 +295,7 @@ impl SessionDelegate {
         let mut params = HashMap::new();
         params.insert("p_sid".to_owned(), p_sid);
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query : r"SELECT id, customer_code, customer_id, user_name, user_id, session_id, start_time_gmt, renew_time_gmt, termination_time_gmt
                     FROM dokasys.sessions
                     WHERE session_id = :p_sid OR :p_sid IS NULL ".to_string(),
@@ -364,7 +365,7 @@ impl SessionDelegate {
     /// Set the renew timestamp of the session to the current UTC time.
     async fn update_renew_time(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         session_id: &str,
     ) -> anyhow::Result<bool> {
         let p_sid = CellValue::from_raw_string(session_id.to_owned());
@@ -376,7 +377,7 @@ impl SessionDelegate {
                              SET renew_time_gmt = ( NOW() at time zone 'UTC'  )
                              WHERE session_id = :p_session_id "#;
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_update.to_string(),
             params,
             sequence_name: "".to_string(),

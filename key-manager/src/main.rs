@@ -7,7 +7,7 @@ use axum::Router;
 use log::{error, info};
 
 use commons_error::*;
-use commons_pg::sql_transaction2::init_db_pool2;
+use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
@@ -16,7 +16,7 @@ use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType, WebTypeBuilder};
+use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
 
 use crate::key::KeyDelegate;
 
@@ -123,7 +123,7 @@ async fn main() {
         }
     };
 
-    let r = init_db_pool2(&connect_string, db_pool_size).await;
+    let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");

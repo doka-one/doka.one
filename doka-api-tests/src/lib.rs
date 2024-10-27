@@ -1,9 +1,11 @@
 use std::collections::HashMap;
-use dkdto::{CreateCustomerRequest};
-use doka_cli::request_client::AdminServerClient;
-use lazy_static::*;
 use std::sync::{Mutex, MutexGuard};
+
+use lazy_static::*;
 use rs_uuid::iso::uuid_v4;
+
+use dkdto::CreateCustomerRequest;
+use doka_cli::request_client::AdminServerClient;
 
 pub enum TestStatus {
     INIT,

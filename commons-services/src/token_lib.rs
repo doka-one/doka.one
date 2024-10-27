@@ -1,12 +1,14 @@
-use crate::COMMON_EDIBLE_KEY_PROPERTY;
 use axum::async_trait;
-use axum::extract::{FromRequest, FromRequestParts, Request};
+use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
+
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use serde::{Deserialize, Serialize};
+
+use crate::COMMON_EDIBLE_KEY_PROPERTY;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SecurityToken(pub String);

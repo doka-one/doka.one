@@ -7,7 +7,9 @@ use log::*;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_pg::sql_transaction_async::{
+    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::property_name::COMMON_EDIBLE_KEY_PROPERTY;
 use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
@@ -105,7 +107,7 @@ impl KeyDelegate {
         customer_code: &str,
         enc_password: &str,
     ) -> WebResponse<i64> {
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 Open connection error, follower=[{}]",
             &self.follower
         )) else {
@@ -159,7 +161,7 @@ impl KeyDelegate {
             CellValue::from_raw_str(enc_password),
         );
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_insert.to_string(),
             params,
             sequence_name: "keymanager.customer_keys_id_seq".to_string(),
@@ -188,7 +190,7 @@ impl KeyDelegate {
     // If the customer code is not present, returns all the keys
     async fn search_key_by_customer_code(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         customer_code: Option<&str>,
     ) -> anyhow::Result<HashMap<String, EntryReply>> {
         let p_customer_code = CellValue::from_opt_str(customer_code);
@@ -196,7 +198,7 @@ impl KeyDelegate {
         let mut params = HashMap::new();
         params.insert("p_customer_code".to_owned(), p_customer_code);
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query: r"SELECT id, customer_code, ciphered_key FROM keymanager.customer_keys
                     WHERE customer_code = :p_customer_code OR :p_customer_code IS NULL "
                 .to_string(),
@@ -319,7 +321,7 @@ impl KeyDelegate {
     }
 
     async fn read_entries(&self, customer_code: Option<&str>) -> WebResponse<CustomerKeyReply> {
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 Open connection error, follower=[{}]",
             &self.follower
         )) else {

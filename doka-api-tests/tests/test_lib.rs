@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
+
+use lazy_static::*;
+use rs_uuid::iso::uuid_v4;
+
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkdto::{CreateCustomerRequest, LoginRequest};
 use doka_cli::request_client::AdminServerClient;
-use lazy_static::*;
-use rs_uuid::iso::uuid_v4;
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
 
 pub enum TestStatus {
     INIT,

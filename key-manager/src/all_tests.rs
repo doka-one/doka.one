@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod test {
-    use serde::Deserialize;
     use std::fs;
     use std::fs::File;
     use std::io::{BufReader, Read, Write};
     use std::path::Path;
+
+    use serde::Deserialize;
+
     // use crate::dk_crypto::DkEncrypt;
     // use rocket::local::Client;
     use dkcrypto::dk_crypto::DkEncrypt;

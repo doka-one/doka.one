@@ -1,12 +1,10 @@
-use crate::try_or_return;
-use crate::x_request_id::Follower;
-use anyhow::anyhow;
+use tokio::sync::oneshot;
+
 use commons_error::*;
 use commons_pg::sql_transaction::{SQLConnection, SQLTransaction};
-use commons_pg::sql_transaction2::{SQLConnection2, SQLTransaction2};
-use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
-use dkdto::{WebResponse, WebTypeBuilder};
-use tokio::sync::oneshot;
+use dkdto::WebResponse;
+
+use crate::x_request_id::Follower;
 
 ///
 /// Start a new database transaction
@@ -28,19 +26,6 @@ pub fn open_transaction(
         .map_err(err_fwd!("Fail starting a transaction"))?;
     Ok(trans)
 }
-
-// pub async fn open_transaction2<'a>() -> anyhow::Result<SQLTransaction2<'a>> {
-//     let mut cnx = SQLConnection2::from_pool()
-//         .await
-//         .map_err(err_fwd!("💣 Open connection error"))?;
-//
-//     let mut trans = cnx
-//         .sql_transaction()
-//         .await
-//         .map_err(err_fwd!("💣 Open transaction error"))?;
-//
-//     Ok(trans)
-// }
 
 pub async fn run_blocking_spawn<R, F>(f: F, follower: &Follower) -> WebResponse<R>
 where

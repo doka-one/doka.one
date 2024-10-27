@@ -1,41 +1,34 @@
-use std::any::Any;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::anyhow;
 use chrono::NaiveDateTime;
-use futures::future::Lazy;
 use futures::TryStreamExt;
 use lazy_static::*;
 use log::*;
-use mut_static::MutStatic;
-use postgres_types::ToSql;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgArguments, PgPoolOptions};
-use sqlx::{
-    Arguments, Column, Connection, Encode, Execute, Executor, PgConnection, PgPool, Pool, Postgres,
-    Row, Transaction, Type, TypeInfo,
-};
+use sqlx::{Column, Connection, Executor, Pool, Postgres, Row, Transaction, TypeInfo};
 
 use commons_error::*;
 
 use crate::sql_transaction::{naive_datetime_to_system_time, CellValue, SQLDataSet};
 
 lazy_static! {
-    static ref SQL_POOL2: OnceLock<SQLPool2> = OnceLock::new();
+    static ref SQL_POOL_ASYNC: OnceLock<SQLPoolAsync> = OnceLock::new();
 }
 
-pub async fn init_db_pool2(connect_string: &str, pool_size: u32) -> anyhow::Result<()> {
-    if SQL_POOL2.get().is_none() {
-        let pool = match SQLPool2::new(connect_string, pool_size)
+pub async fn init_db_pool_async(connect_string: &str, pool_size: u32) -> anyhow::Result<()> {
+    if SQL_POOL_ASYNC.get().is_none() {
+        let pool = match SQLPoolAsync::new(connect_string, pool_size)
             .await
             .map_err(err_fwd!("Cannot create the DB pool"))
         {
             Ok(p) => p,
             Err(_) => return Err(anyhow!("_")),
         };
-        match SQL_POOL2.set(pool) {
+        match SQL_POOL_ASYNC.set(pool) {
             Ok(_) => {}
             Err(_) => return Err(anyhow!("Impossible to set the pool")),
         }
@@ -45,7 +38,7 @@ pub async fn init_db_pool2(connect_string: &str, pool_size: u32) -> anyhow::Resu
 
 /// Analyse the template query with named params and compare it to the list of input parameters.
 /// Return the actual Sql query with $ parameters and an ordered list of usable parameter.
-pub(crate) fn parse_query2<'a>(
+pub(crate) fn parse_query_async<'a>(
     string_template: &str,
     params: &'a HashMap<String, CellValue>,
     _parent_scope: &'a String,
@@ -73,11 +66,11 @@ pub(crate) fn parse_query2<'a>(
     (new_sql_string, v_params)
 }
 
-pub struct SQLPool2 {
+pub struct SQLPoolAsync {
     pool: Pool<Postgres>,
 }
 
-impl SQLPool2 {
+impl SQLPoolAsync {
     pub async fn new(connect_string: &str, pool_size: u32) -> anyhow::Result<Self> {
         // connect_string :  "postgres://doka:doka@localhost:5432/ad_test_03";
 
@@ -101,11 +94,11 @@ impl SQLPool2 {
     }
 }
 
-pub struct SQLConnection2 {
+pub struct SQLConnectionAsync {
     pub client: PoolConnection<Postgres>,
 }
 
-impl SQLConnection2 {
+impl SQLConnectionAsync {
     pub async fn new(connect_string: &str) -> anyhow::Result<Self> {
         // Configure le pool de connexions
         let pool = PgPoolOptions::new()
@@ -120,29 +113,29 @@ impl SQLConnection2 {
         Ok(Self { client: cnx })
     }
 
-    pub async fn from_pool() -> anyhow::Result<SQLConnection2> {
-        let sql_pool = match SQL_POOL2.get() {
+    pub async fn from_pool() -> anyhow::Result<SQLConnectionAsync> {
+        let sql_pool = match SQL_POOL_ASYNC.get() {
             Some(p) => p,
             None => return Err(anyhow!("Cannot read the pool")),
         };
         let client = sql_pool.pick_connection().await?;
-        Ok(SQLConnection2 { client })
+        Ok(SQLConnectionAsync { client })
     }
 
-    pub async fn begin<'a>(&'a mut self) -> anyhow::Result<SQLTransaction2<'a>> {
+    pub async fn begin<'a>(&'a mut self) -> anyhow::Result<SQLTransactionAsync<'a>> {
         let t = self.client.begin().await?;
-        Ok(SQLTransaction2 {
+        Ok(SQLTransactionAsync {
             inner_transaction: t,
         })
     }
 }
 
-pub struct SQLTransaction2<'a> {
+pub struct SQLTransactionAsync<'a> {
     // inner_transaction: &'a PgConnection,
     inner_transaction: Transaction<'a, Postgres>,
 }
 
-impl<'a> SQLTransaction2<'a> {
+impl<'a> SQLTransactionAsync<'a> {
     pub fn new(inner_transaction: Transaction<'a, Postgres>) -> Self {
         Self { inner_transaction }
     }
@@ -156,7 +149,7 @@ impl<'a> SQLTransaction2<'a> {
     }
 }
 
-pub struct SQLQueryBlock2 {
+pub struct SQLQueryBlockAsync {
     pub sql_query: String,
     pub start: u32,
     pub length: Option<u32>,
@@ -197,15 +190,15 @@ fn bind_cell_to_query<'q>(
     }
 }
 
-impl SQLQueryBlock2 {
+impl SQLQueryBlockAsync {
     /// Main routine to perform a select query
     pub async fn execute(
         &self,
-        sql_transaction: &mut SQLTransaction2<'_>,
+        sql_transaction: &mut SQLTransactionAsync<'_>,
     ) -> anyhow::Result<SQLDataSet> {
         let null_str = "".to_owned();
         let (mut new_sql_string, v_params) =
-            parse_query2(self.sql_query.as_str(), &self.params, &null_str);
+            parse_query_async(self.sql_query.as_str(), &self.params, &null_str);
 
         match self.length {
             None => {
@@ -316,14 +309,14 @@ impl SQLQueryBlock2 {
 
 // For Update and insert
 #[derive(Debug)]
-pub struct SQLChange2 {
+pub struct SQLChangeAsync {
     pub sql_query: String,
     pub params: HashMap<String, CellValue>,
     pub sequence_name: String,
 }
 
-impl SQLChange2 {
-    pub async fn batch(&self, sql_transaction: &mut SQLTransaction2<'_>) -> anyhow::Result<()> {
+impl SQLChangeAsync {
+    pub async fn batch(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<()> {
         let _ = sql_transaction
             .inner_transaction
             .execute(self.sql_query.as_str())
@@ -337,16 +330,16 @@ impl SQLChange2 {
     }
 
     /// Base routine for update, insert and delete
-    async fn change(&self, sql_transaction: &mut SQLTransaction2<'_>) -> anyhow::Result<()> {
+    async fn change(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<()> {
         let null_str = "".to_owned();
-        let (mut new_sql_string, v_params) =
-            parse_query2(self.sql_query.as_str(), &self.params, &null_str);
+        let (new_sql_string, v_params) =
+            parse_query_async(self.sql_query.as_str(), &self.params, &null_str);
         let mut query_builder = sqlx::query(new_sql_string.as_str());
         let v_params_debug = v_params.clone();
         for param in v_params {
             query_builder = bind_cell_to_query(param, query_builder);
         }
-        let r = query_builder
+        let _ = query_builder
             .execute(&mut *sql_transaction.inner_transaction)
             .await
             .map_err(err_fwd!(
@@ -359,34 +352,43 @@ impl SQLChange2 {
     }
 
     /// Return the id of the new row if success
-    pub async fn insert(&self, sql_transaction: &mut SQLTransaction2<'_>) -> anyhow::Result<i64> {
+    pub async fn insert(
+        &self,
+        sql_transaction: &mut SQLTransactionAsync<'_>,
+    ) -> anyhow::Result<i64> {
         let _ = self.change(sql_transaction).await?;
         let sql = format!("SELECT currval('{}')", self.sequence_name);
 
-        let mut query_builder = sqlx::query(&sql);
-        let r = query_builder
+        let query_builder = sqlx::query(&sql);
+        let result = query_builder
             .fetch_one(&mut *sql_transaction.inner_transaction)
             .await?;
 
-        let pk: i64 = r.try_get(0)?;
+        let pk: i64 = result.try_get(0)?;
         log_debug!("Primary key : [{}]", &pk);
         Ok(pk)
     }
 
     pub async fn insert_no_pk(
         &self,
-        sql_transaction: &mut SQLTransaction2<'_>,
+        sql_transaction: &mut SQLTransactionAsync<'_>,
     ) -> anyhow::Result<()> {
         let insert_info = self.change(sql_transaction).await?;
         Ok(insert_info)
     }
 
-    pub async fn update(&self, sql_transaction: &mut SQLTransaction2<'_>) -> anyhow::Result<()> {
+    pub async fn update(
+        &self,
+        sql_transaction: &mut SQLTransactionAsync<'_>,
+    ) -> anyhow::Result<()> {
         let update_info = self.change(sql_transaction).await?;
         Ok(update_info)
     }
 
-    pub async fn delete(&self, sql_transaction: &mut SQLTransaction2<'_>) -> anyhow::Result<()> {
+    pub async fn delete(
+        &self,
+        sql_transaction: &mut SQLTransactionAsync<'_>,
+    ) -> anyhow::Result<()> {
         let delete_info = self.change(sql_transaction).await?;
         Ok(delete_info)
     }
@@ -395,23 +397,21 @@ impl SQLChange2 {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::fmt::format;
     use std::path::Path;
     use std::process::exit;
     use std::sync::Once;
-    use std::thread;
     use std::time::{Duration, SystemTime};
 
     use chrono::NaiveDate;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{query, Acquire, PgConnection, Row, Transaction};
     use tokio::sync::Mutex;
-    use tokio::task;
     use tokio::task::JoinHandle;
 
     use crate::sql_transaction::CellValue;
-    use crate::sql_transaction2::{
-        init_db_pool2, SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2,
+    use crate::sql_transaction_async::{
+        init_db_pool_async, SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync,
+        SQLTransactionAsync,
     };
 
     /// ```sql
@@ -470,7 +470,7 @@ mod tests {
     }
 
     async fn init_pool() -> anyhow::Result<()> {
-        init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await
+        init_db_pool_async("postgres://doka:doka@localhost:5432/ad_test_03", 3).await
     }
 
     async fn create(trans: &mut PgConnection, title: &str) -> anyhow::Result<()> {
@@ -516,8 +516,8 @@ mod tests {
         Ok(())
     }
 
-    async fn create_book(trans: &mut SQLTransaction2<'_>, title: &str) -> anyhow::Result<()> {
-        let query = SQLQueryBlock2 {
+    async fn create_book(trans: &mut SQLTransactionAsync<'_>, title: &str) -> anyhow::Result<()> {
+        let query = SQLQueryBlockAsync {
             sql_query:
             "INSERT INTO public.book (id, title) VALUES(nextval('book_id_seq'), 'L''aventurier')"
                 .to_string(),
@@ -538,7 +538,7 @@ mod tests {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         create_book(&mut trans, "Super book").await?;
@@ -582,13 +582,13 @@ mod tests {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert("p_id".to_owned(), CellValue::from_raw_int(2000));
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query: "SELECT id, title FROM public.book WHERE id = :p_id AND id < :p_id + 10 ORDER BY title"
                 .to_string(),
             start: 0,
@@ -619,7 +619,7 @@ mod tests {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
@@ -636,7 +636,7 @@ mod tests {
             CellValue::from_raw_systemtime(SystemTime::now()),
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query:
                 "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
              :p_title, :p_isbn, :p_created_dt, :p_precision_time)"
@@ -660,7 +660,7 @@ mod tests {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
@@ -677,7 +677,7 @@ mod tests {
             CellValue::from_raw_systemtime(SystemTime::now()),
         );
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query:
             "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
              :p_title, :p_isbn, :p_created_dt, :p_precision_time)"
@@ -702,13 +702,13 @@ mod tests {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert("p_id".to_owned(), CellValue::from_raw_int(2000));
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query: "SELECT id, title, isbn, created_dt, precision_time  FROM public.book  WHERE id < :p_id + 10 ORDER BY title"
                 .to_string(),
             start: 0,
@@ -745,13 +745,13 @@ mod tests {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
         params.insert("p_id".to_owned(), CellValue::from_raw_int(2000));
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query: "SELECT id, title, isbn, created_dt, precision_time  FROM public.book  \
                                 WHERE id < :p_id + 10 ORDER BY id"
                 .to_string(),
@@ -773,12 +773,12 @@ mod tests {
     async fn a50_query_syntax_error() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
         let mut params = HashMap::new();
         params.insert("p_title".to_owned(), CellValue::from_raw_str("Game"));
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query: "SELECT idd, title, isbn, created_dt, precision_time FROM public.book WHERE title LIKE ':p_title%' "
                 .to_string(),
             start: 0,
@@ -799,7 +799,7 @@ mod tests {
     }
 
     async fn task_for_parallel(thread_number: i32) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await?;
+        let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
@@ -816,7 +816,7 @@ mod tests {
             CellValue::from_raw_systemtime(SystemTime::now()),
         );
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query:
             "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
              :p_title, :p_isbn, :p_created_dt, :p_precision_time)"

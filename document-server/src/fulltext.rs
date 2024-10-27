@@ -1,14 +1,15 @@
-use axum::http::StatusCode;
-use axum::Json;
 use std::collections::HashMap;
 
+use axum::http::StatusCode;
+use axum::Json;
 use log::*;
 use serde::de::DeserializeOwned;
 
 use commons_error::*;
-use commons_pg::sql_transaction::{CellValue, SQLTransaction};
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2, SQLTransaction2};
-use commons_services::database_lib::open_transaction;
+use commons_pg::sql_transaction::CellValue;
+use commons_pg::sql_transaction_async::{
+    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
 use commons_services::session_lib::valid_sid_get_session;
@@ -17,13 +18,13 @@ use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use dkdto::{
     DeleteFullTextRequest, ErrorSet, FullTextReply, FullTextRequest, SimpleMessage, WebType,
     WebTypeBuilder,
 };
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use doka_cli::async_request_client::TikaServerClientAsync;
-use doka_cli::request_client::{TikaServerClient, TokenType};
+use doka_cli::request_client::TokenType;
 
 use crate::ft_tokenizer::{encrypt_tsvector, FTTokenizer};
 use crate::language::{lang_name_from_code_2, map_code};
@@ -93,7 +94,7 @@ impl FullTextDelegate {
 
     ///
     async fn delete_document(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_delete = format!(
@@ -104,7 +105,7 @@ impl FullTextDelegate {
         let mut params = HashMap::new();
         params.insert("p_file_ref".to_string(), CellValue::from_raw_str(file_ref));
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_delete.to_string(),
             params,
             sequence_name: "".to_string(),
@@ -152,7 +153,7 @@ impl FullTextDelegate {
         };
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -203,7 +204,7 @@ impl FullTextDelegate {
 
     async fn indexing(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         raw_text_request: &FullTextRequest,
         customer_code: &str,
         customer_key: &str,
@@ -333,7 +334,7 @@ impl FullTextDelegate {
     ///
     async fn insert_document_part(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         file_ref: &str,
         part_no: u32,
         words_text: &str,
@@ -400,7 +401,7 @@ impl FullTextDelegate {
             CellValue::from_raw_string(lang.to_string()),
         );
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -417,7 +418,7 @@ impl FullTextDelegate {
     ///
     async fn select_tsvector(
         &self,
-        mut trans: &mut SQLTransaction2<'_>,
+        mut trans: &mut SQLTransactionAsync<'_>,
         lang: Option<&str>,
         text: &str,
     ) -> anyhow::Result<String> {
@@ -437,7 +438,7 @@ impl FullTextDelegate {
             "p_doc_text".to_string(),
             CellValue::from_raw_string(text.to_string()),
         );
-        let sql_block = SQLQueryBlock2 {
+        let sql_block = SQLQueryBlockAsync {
             sql_query: sql_query.to_string(),
             start: 0,
             length: None,

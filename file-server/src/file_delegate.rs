@@ -1,30 +1,27 @@
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::collections::HashMap;
-use std::io::Read;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::SystemTime;
 
 use anyhow::anyhow;
-use axum::body::{Body, HttpBody};
+use axum::body::Body;
 use axum::extract::Multipart;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use base64::Engine;
 use bytes::Bytes;
+use futures::future;
 use futures::stream::Stream;
-use futures::{future, stream};
 use log::*;
 use mime::Mime;
 use rs_uuid::iso::uuid_v4;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use tokio::io::AsyncWriteExt;
 use tokio::task;
-// use tokio::stream;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
-use commons_pg::sql_transaction2::{SQLChange2, SQLConnection2, SQLQueryBlock2};
+use commons_pg::sql_transaction_async::{SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync};
 use commons_services::key_lib::fetch_customer_key;
 use commons_services::property_name::{
     DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY,
@@ -44,6 +41,8 @@ use dkdto::{
 };
 use doka_cli::async_request_client::{DocumentServerClientAsync, TikaServerClientAsync};
 use doka_cli::request_client::TokenType;
+
+// use tokio::stream;
 
 const TIKA_CONTENT_META: &str = "X-TIKA:content";
 const CONTENT_TYPE_META: &str = "Content-Type";
@@ -136,7 +135,7 @@ impl FileDelegate {
         &self,
         item_info: &str,
         file_ref: &str,
-        mut file_data: &mut Multipart,
+        file_data: &mut Multipart,
         entry_session: &EntrySession,
     ) -> anyhow::Result<(usize, u32)> {
         // Create parts
@@ -155,9 +154,6 @@ impl FileDelegate {
         while let Some(mut field) = file_data.next_field().await.unwrap() {
             let file_name = field.file_name().unwrap_or("default_name").to_string();
             println!("Receiving file: {}", file_name);
-
-            // Lire les données du fichier par blocs
-            let mut count = 0;
 
             use bytes::Bytes;
             let mut buffer = Bytes::new();
@@ -193,8 +189,6 @@ impl FileDelegate {
                     // Rester les octets non écrits dans le buffer
                     buffer = buffer.slice(Self::BLOCK_SIZE..);
                 }
-
-                count += 1;
             }
 
             // Si le buffer contient encore des données (moins que BLOCK_SIZE), les écrire
@@ -331,7 +325,7 @@ impl FileDelegate {
             &self.follower
         );
 
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_str = r"
@@ -351,7 +345,7 @@ impl FileDelegate {
             CellValue::from_raw_string(file_ref.to_string()),
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: 0,
             length: None,
@@ -382,7 +376,7 @@ impl FileDelegate {
         enc_data: &str,
         customer_code: &str,
     ) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_query = format!(
@@ -405,7 +399,7 @@ impl FileDelegate {
         );
         params.insert("p_part_data".to_string(), CellValue::from_raw_str(enc_data));
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -533,7 +527,7 @@ impl FileDelegate {
     pub async fn upload2(
         &mut self,
         item_info: &str,
-        mut file_data: &mut Multipart,
+        file_data: &mut Multipart,
     ) -> WebType<UploadReply> {
         // Pre-processing
         log_info!(
@@ -788,7 +782,7 @@ impl FileDelegate {
             &self.follower
         );
 
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         for (block_num, block) in block_set {
@@ -839,13 +833,13 @@ impl FileDelegate {
             );
             params.insert("p_part_data".to_string(), CellValue::from_raw_string(data));
 
-            let sql_insert = SQLChange2 {
+            let sql_insert = SQLChangeAsync {
                 sql_query,
                 params,
                 sequence_name: "".to_uppercase(),
             };
 
-            let r = sql_insert
+            let _ = sql_insert
                 .insert_no_pk(&mut trans)
                 .await
                 .map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
@@ -1072,7 +1066,7 @@ impl FileDelegate {
         file_ref: &str,
         metadata: &Map<String, Value>,
     ) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_query = format!(
@@ -1093,7 +1087,7 @@ impl FileDelegate {
                     CellValue::from_raw_string(value.to_string()),
                 );
 
-                let sql_insert = SQLChange2 {
+                let sql_insert = SQLChangeAsync {
                     sql_query: sql_query.clone(),
                     params,
                     sequence_name: sequence_name.clone(),
@@ -1121,7 +1115,7 @@ impl FileDelegate {
         file_ref: &str,
         customer_code: &str,
     ) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_query = format!(
@@ -1139,7 +1133,7 @@ impl FileDelegate {
             CellValue::from_raw_string(file_ref.to_string()),
         );
 
-        let sql_update = SQLChange2 {
+        let sql_update = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -1263,7 +1257,7 @@ impl FileDelegate {
             customer_code
         );
 
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
         let mut params = HashMap::new();
         params.insert(
@@ -1273,7 +1267,7 @@ impl FileDelegate {
 
         dbg!(&sql_query);
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query: sql_query.to_string(),
             start: 0,
             length: None,
@@ -1410,7 +1404,7 @@ impl FileDelegate {
             sql_query: String,
             follower: &Follower,
         ) -> anyhow::Result<SQLDataSet> {
-            let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+            let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
             let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
             let mut params = HashMap::new();
@@ -1419,7 +1413,7 @@ impl FileDelegate {
                 CellValue::from_raw_int(entry_session.user_id),
             );
 
-            let query = SQLQueryBlock2 {
+            let query = SQLQueryBlockAsync {
                 sql_query,
                 start: 0,
                 length: None,
@@ -1541,7 +1535,7 @@ impl FileDelegate {
             file_ref: &str,
             follower: &Follower,
         ) -> anyhow::Result<SQLDataSet> {
-            let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+            let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
             let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
             let mut params = HashMap::new();
@@ -1550,7 +1544,7 @@ impl FileDelegate {
                 CellValue::from_raw_string(file_ref.to_string()),
             );
 
-            let query = SQLQueryBlock2 {
+            let query = SQLQueryBlockAsync {
                 sql_query: sql_query.to_string(),
                 start: 0,
                 length: None,
@@ -1763,7 +1757,7 @@ impl FileDelegate {
 
         let sql_query = sql_str.replace("{customer_code}", customer_code);
 
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let mut params = HashMap::new();
@@ -1772,7 +1766,7 @@ impl FileDelegate {
             CellValue::from_raw_string(file_ref.to_string()),
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query,
             start: 0,
             length: None,
@@ -1831,27 +1825,27 @@ impl FileDelegate {
     }
 
     //
-    fn merge_parts(&self, clear_parts_slides: &IndexedParts) -> anyhow::Result<Vec<u8>> {
-        let mut bytes = vec![];
-        //let mut part_index: u32 = 0;
-        for i in 0..clear_parts_slides.len() {
-            log_info!(
-                "Join part, part number=[{}], follower=[{}]",
-                i,
-                &self.follower
-            );
-            let index = i as u32;
-            let parts = clear_parts_slides
-                .get(&index)
-                .ok_or(anyhow!("Wrong index"))
-                .map_err(tr_fwd!())?;
-            for b in parts {
-                bytes.push(*b);
-            }
-            //     part_index +=1;
-        }
-        Ok(bytes)
-    }
+    // fn merge_parts(&self, clear_parts_slides: &IndexedParts) -> anyhow::Result<Vec<u8>> {
+    //     let mut bytes = vec![];
+    //     //let mut part_index: u32 = 0;
+    //     for i in 0..clear_parts_slides.len() {
+    //         log_info!(
+    //             "Join part, part number=[{}], follower=[{}]",
+    //             i,
+    //             &self.follower
+    //         );
+    //         let index = i as u32;
+    //         let parts = clear_parts_slides
+    //             .get(&index)
+    //             .ok_or(anyhow!("Wrong index"))
+    //             .map_err(tr_fwd!())?;
+    //         for b in parts {
+    //             bytes.push(*b);
+    //         }
+    //         //     part_index +=1;
+    //     }
+    //     Ok(bytes)
+    // }
 
     // N = Number of threads = Number of Cores - 1;
     // 5 cores , 20 parts => 4 decrypt by core
@@ -2059,7 +2053,6 @@ impl FileDelegate {
                     &self.follower
                 ))?;
 
-            let clear_content_size = clear_content.len();
             clear_slides.insert(index, clear_content);
         }
 
@@ -2072,7 +2065,7 @@ impl FileDelegate {
     }
 
     async fn create_file_reference(&self, customer_code: &str) -> anyhow::Result<(i64, String)> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let file_ref = uuid_v4();
@@ -2100,7 +2093,7 @@ impl FileDelegate {
         params.insert("p_encrypted_file_size".to_string(), CellValue::Int(None));
         params.insert("p_total_part".to_string(), CellValue::Int32(None));
 
-        let sql_insert = SQLChange2 {
+        let sql_insert = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -2134,7 +2127,7 @@ impl FileDelegate {
         media_type: &str,
         customer_code: &str,
     ) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_query = format!(
@@ -2165,7 +2158,7 @@ impl FileDelegate {
             CellValue::from_raw_string(media_type.to_string()),
         );
 
-        let sql_update = SQLChange2 {
+        let sql_update = SQLChangeAsync {
             sql_query,
             params,
             sequence_name,
@@ -2191,7 +2184,7 @@ impl FileDelegate {
         file_id: i64,
         customer_code: &str,
     ) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_delete = format!(
@@ -2202,7 +2195,7 @@ impl FileDelegate {
         let mut params = HashMap::new();
         params.insert("p_file_id".to_string(), CellValue::from_raw_int(file_id));
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_delete.to_string(),
             params,
             sequence_name: "".to_string(),
@@ -2226,7 +2219,7 @@ impl FileDelegate {
         file_ref: &str,
         customer_code: &str,
     ) -> anyhow::Result<()> {
-        let mut cnx = SQLConnection2::from_pool().await.map_err(tr_fwd!())?;
+        let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let sql_delete = format!(
@@ -2237,7 +2230,7 @@ impl FileDelegate {
         let mut params = HashMap::new();
         params.insert("p_file_ref".to_string(), CellValue::from_raw_str(&file_ref));
 
-        let query = SQLChange2 {
+        let query = SQLChangeAsync {
             sql_query: sql_delete.to_string(),
             params,
             sequence_name: "".to_string(),

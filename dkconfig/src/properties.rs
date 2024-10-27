@@ -1,9 +1,11 @@
-use anyhow::anyhow;
-use commons_error::*;
-use lazy_static::*;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::sync::RwLock;
+
+use anyhow::anyhow;
+use lazy_static::*;
+
+use commons_error::*;
 
 lazy_static! {
     static ref PROPS: RwLock<HashMap<u32, &'static mut HashMap<String, String>>> = RwLock::new({

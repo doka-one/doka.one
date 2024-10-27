@@ -8,7 +8,9 @@ use rs_uuid::iso::uuid_v4;
 
 use commons_error::*;
 use commons_pg::sql_transaction::CellValue;
-use commons_pg::sql_transaction2::{SQLConnection2, SQLQueryBlock2, SQLTransaction2};
+use commons_pg::sql_transaction_async::{
+    SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
+};
 use commons_services::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY,
 };
@@ -177,7 +179,7 @@ impl LoginDelegate {
         login_request: &LoginRequest,
     ) -> WebResponse<(OpenSessionRequest, String)> {
         // Open Db connection
-        let Ok(mut cnx) = SQLConnection2::from_pool().await.map_err(err_fwd!(
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
@@ -220,7 +222,7 @@ impl LoginDelegate {
     ///
     async fn search_user(
         &self,
-        trans: &mut SQLTransaction2<'_>,
+        trans: &mut SQLTransactionAsync<'_>,
         login: &str,
     ) -> anyhow::Result<(OpenSessionRequest, String)> {
         let mut params = HashMap::new();
@@ -229,7 +231,7 @@ impl LoginDelegate {
             CellValue::from_raw_string(login.to_string()),
         );
 
-        let query = SQLQueryBlock2 {
+        let query = SQLQueryBlockAsync {
             sql_query : r"SELECT u.id, u.customer_id, u.login, u.password_hash, u.default_language, u.default_time_zone, u.admin,
                         c.code as customer_code,  u.full_name as user_name, c.full_name as company_name
                         FROM dokaadmin.appuser u INNER JOIN dokaadmin.customer c ON (c.id = u.customer_id)

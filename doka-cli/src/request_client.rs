@@ -4,14 +4,13 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use log::warn;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use reqwest::blocking::{multipart, RequestBuilder};
 use reqwest::StatusCode;
 use serde::{de, Serialize};
 use url::Url;
 
 use commons_error::*;
-use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
     AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply,
@@ -20,6 +19,7 @@ use dkdto::{
     LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply,
     SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
 };
+use dkdto::error_codes::HTTP_CLIENT_ERROR;
 
 use crate::request_client::TokenType::{Sid, Token};
 
@@ -800,8 +800,9 @@ impl FileServerClient {
 
 #[cfg(test)]
 mod test {
-    use dkdto::TikaParsing;
     use url::Url;
+
+    use dkdto::TikaParsing;
 
     use crate::request_client::{DocumentServerClient, TikaServerClient};
 

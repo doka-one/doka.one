@@ -1,20 +1,19 @@
-
 ///  Ensure a string is a correct password
 ///  Verify if only a few special characters are being used
-pub fn valid_password( pass : &str ) -> bool {
-
-    let special_chars : Vec<char> = vec!['€', '$', '%', ';', ',', '.', ':', '_', '-', '/', '&', '!', '?', '#', '*', '+' ];
+pub fn valid_password(pass: &str) -> bool {
+    let special_chars: Vec<char> = vec![
+        '€', '$', '%', ';', ',', '.', ':', '_', '-', '/', '&', '!', '?', '#', '*', '+',
+    ];
 
     if pass.chars().count() < 8 {
         return false;
     }
 
-    let mut valid : bool = true;
-    let mut nb_upper : u16 = 0u16;
-    let mut nb_digit : u16 = 0u16;
-    let mut nb_symbol : u16 = 0u16;
+    let mut valid: bool = true;
+    let mut nb_upper: u16 = 0u16;
+    let mut nb_digit: u16 = 0u16;
+    let mut nb_symbol: u16 = 0u16;
     for c in pass.chars() {
-
         match is_latin_base_char(c) {
             CharType::DIGIT => {
                 nb_digit += 1;
@@ -27,8 +26,7 @@ pub fn valid_password( pass : &str ) -> bool {
             CharType::LOWER => {
                 continue;
             }
-            CharType::WRONG => {
-            }
+            CharType::WRONG => {}
         }
 
         if special_chars.contains(&c) {
@@ -40,7 +38,7 @@ pub fn valid_password( pass : &str ) -> bool {
         break;
     }
 
-    if nb_upper == 0u16  || nb_digit == 0u16 || nb_symbol == 0u16 {
+    if nb_upper == 0u16 || nb_digit == 0u16 || nb_symbol == 0u16 {
         return false;
     }
 
@@ -54,32 +52,36 @@ enum CharType {
     WRONG,
 }
 
-
-fn is_latin_base_char(c : char) -> CharType {
-
+fn is_latin_base_char(c: char) -> CharType {
     let b = c as u32;
     // 0 to 9
-    if b >= 48  && b <= 57 {
+    if b >= 48 && b <= 57 {
         return CharType::DIGIT;
     }
 
     // A to Z
-    if b >= 65  && b <= 90 {
+    if b >= 65 && b <= 90 {
         return CharType::UPPER;
     }
 
     // a to z
-    if b >= 97  && b <= 122 {
+    if b >= 97 && b <= 122 {
         return CharType::LOWER;
     }
 
     CharType::WRONG
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::dk_password::valid_password;
+
+    #[test]
+    fn correct_password() {
+        let pass1 = "dokaone.3XXX";
+        let test1 = valid_password(pass1);
+        assert_eq!(true, test1);
+    }
 
     #[test]
     fn many_special_chars() {
@@ -145,5 +147,4 @@ mod tests {
         let test1 = valid_password(pass1);
         assert_eq!(true, test1);
     }
-
 }

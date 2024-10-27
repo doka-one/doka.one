@@ -166,11 +166,7 @@ impl CustomerDelegate {
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
-            log_error!(
-                "💣 Invalid security token, token=[{:?}], follower=[{}]",
-                &self.security_token,
-                &self.follower
-            );
+            log_error!("💣 Invalid security token, follower=[{}]", &self.follower);
             return WebType::from_errorset(&INVALID_TOKEN);
         }
 
@@ -182,6 +178,10 @@ impl CustomerDelegate {
         // | length >= 8  + 1 symbol + 1 digit + 1 capital letter
         // | All chars are symbol OR [0-9, a-z, A-Z]
         if !valid_password(&customer_request.admin_password) {
+            log_error!(
+                "💣 Password breaks the syntax rules, follower=[{}]",
+                &self.follower
+            );
             return WebType::from_errorset(&INVALID_PASSWORD);
         };
 

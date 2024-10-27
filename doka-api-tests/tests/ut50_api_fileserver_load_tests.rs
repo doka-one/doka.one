@@ -4,11 +4,13 @@ const TEST_TO_RUN : &[&str] = &["t10_upload_mass_file"];
 
 #[cfg(test)]
 mod api_fileserver_load_tests {
-    use std::thread;
     use core::time::Duration;
     use std::collections::HashMap;
+    use std::thread;
+
     use dkdto::{ErrorMessage, UploadReply};
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
+
     use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
 

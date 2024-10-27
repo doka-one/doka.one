@@ -7,9 +7,6 @@ edition = "2021"
 
 [dependencies]
 chrono = { workspace = true }
-rocket = { workspace = true }
-rocket_contrib = { workspace = true }
-rocket_okapi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
@@ -19,13 +16,14 @@ log4rs = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
 
 lazy_static = { workspace = true }
 mut_static = { workspace = true }
 # For direct connection to the cs and fs database
 postgres = { workspace = true }
 postgres-types = { workspace = true }
-
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}

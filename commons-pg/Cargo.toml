@@ -11,13 +11,18 @@ log = { workspace = true }
 postgres = { workspace = true }
 postgres-types = { workspace = true }
 r2d2_postgres = { workspace = true }
-chrono = { workspace = true }
+
 anyhow = { workspace = true }
 lazy_static = { workspace = true }
 mut_static = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+
 
 #dkdto = {path="../dkdto"}
 commons-error = {path="../commons-error"}
+futures = { version = "0.3.30", features = [] }
 
 [dev-dependencies]
 log4rs = { workspace = true }

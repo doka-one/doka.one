@@ -3,11 +3,6 @@
 use std::path::Path;
 use std::process::exit;
 
-use log::*;
-use rocket::*;
-use rocket::config::Environment;
-use rocket_contrib::templates::Template;
-
 use commons_error::*;
 use commons_pg::init_db_pool;
 use commons_services::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
@@ -15,6 +10,10 @@ use commons_services::read_cek_and_store;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkdto::WebType;
+use log::*;
+use rocket::*;
+use rocket::config::Environment;
+use rocket_contrib::templates::Template;
 
 use crate::dbpool_delegate::DbPoolDelegate;
 

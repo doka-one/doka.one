@@ -7,14 +7,12 @@ edition = "2021"
 
 [dependencies]
 chrono = { workspace = true }
-rocket = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
 rs-uuid = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-rocket_okapi = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
@@ -22,10 +20,10 @@ uuid = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 bytes = { workspace = true }
-colored = "2.0.0"
-regex = "1.7.1"
-url = "2.2"
-
+colored = "^2.0"
+regex = "^1.7"
+url = "^2.2"
+percent-encoding = "^2.3"
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}
 dkdto = {path="../dkdto"}

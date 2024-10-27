@@ -1,15 +1,15 @@
-
 #[cfg(test)]
 mod test {
-    use std::path::Path;
     use std::fs;
-    use serde::{Deserialize};
     use std::fs::File;
     use std::io::{BufReader, Read, Write};
-    //use crate::dk_crypto::DkEncrypt;
-    use rocket::local::Client;
-    use dkcrypto::dk_crypto::DkEncrypt;
+    use std::path::Path;
 
+    use serde::Deserialize;
+
+    // use crate::dk_crypto::DkEncrypt;
+    // use rocket::local::Client;
+    use dkcrypto::dk_crypto::DkEncrypt;
 
     // #[test]
     // fn http_post_add_key() {
@@ -31,7 +31,8 @@ mod test {
     fn export_doka() {
         let target = r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#;
 
-        let paths = fs::read_dir(r#"C:\Users\denis\wks-tools\doka-export\data\denis_file\"#).unwrap();
+        let paths =
+            fs::read_dir(r#"C:\Users\denis\wks-tools\doka-export\data\denis_file\"#).unwrap();
         let mut f: Option<File> = None;
         let mut reference_base = String::from("");
         for path in paths {
@@ -52,8 +53,10 @@ mod test {
             }
 
             // Write the part
-            let s0 = DkEncrypt::decrypt_file(p.path().to_str().unwrap()
-                                             /*&string_name[..]*/, "ZMBy1nxeze7dv59OCSeCoDayVijUQD96HyLev3YvhqM");
+            let s0 = DkEncrypt::decrypt_file(
+                p.path().to_str().unwrap(), /*&string_name[..]*/
+                "ZMBy1nxeze7dv59OCSeCoDayVijUQD96HyLev3YvhqM",
+            );
             let b0 = &s0.unwrap()[..];
 
             if let Some(ff) = f.as_mut() {
@@ -65,14 +68,12 @@ mod test {
         }
     }
 
-
     #[derive(Deserialize)]
     struct Record {
         /*    year: u16,
         make: String,
         model: String,
         description: String,*/
-
         label: String,
         label_2: String,
         name: String,
@@ -83,16 +84,18 @@ mod test {
 
     #[test]
     fn organize_doka() {
-        let file = File::open(r#"C:\Users\denis\wks-tools\doka-export\data\data.csv"#).expect("Cannot read the customer file");
+        let file = File::open(r#"C:\Users\denis\wks-tools\doka-export\data\data.csv"#)
+            .expect("Cannot read the customer file");
         let mut buf_reader = BufReader::new(file);
         let mut buf: Vec<u8> = vec![];
-        let _n = buf_reader.read_to_end(&mut buf).expect("Didn't read enough");
+        let _n = buf_reader
+            .read_to_end(&mut buf)
+            .expect("Didn't read enough");
 
-
-// Read the CSV file
-//     let csv = "year,make,model,description
-// 1948,Porsche,356,Luxury sports car
-// 1967,Ford,Mustang fastback 1967,American car";
+        // Read the CSV file
+        //     let csv = "year,make,model,description
+        // 1948,Porsche,356,Luxury sports car
+        // 1967,Ford,Mustang fastback 1967,American car";
 
         let mut reader = csv::Reader::from_reader(/*csv.as_bytes()*/ &buf[..]);
         // Loop over the csv data
@@ -100,10 +103,7 @@ mod test {
             let record: Record = record.unwrap();
             println!(
                 "{}, {} , {} , {}",
-                record.label,
-                record.label_2,
-                record.name,
-                record.file_identifier
+                record.label, record.label_2, record.name, record.file_identifier
             );
 
             let target = r#"C:\Users\denis\wks-tools\doka-export\data\organized_file\"#;
@@ -116,7 +116,13 @@ mod test {
             // find the corresponding file
 
             // move it into the new folder and rename it
-            let source = format!("{}{}{}{}", r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#, "x.", record.file_identifier, ".pdf");
+            let source = format!(
+                "{}{}{}{}",
+                r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#,
+                "x.",
+                record.file_identifier,
+                ".pdf"
+            );
             let cible = format!("{}\\{}", new_folder, record.name);
             dbg!(&source, &cible);
             fs::rename(&source, &cible);

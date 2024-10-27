@@ -7,8 +7,10 @@ const TEST_TO_RUN : &[&str] = &["t10_create_document", "t20_create_document_with
 mod api_document_tests {
     use anyhow::anyhow;
     use rand::Rng;
+
     use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, ErrorMessage, GetItemReply};
     use doka_cli::request_client::{AdminServerClient, DocumentServerClient};
+
     use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
 

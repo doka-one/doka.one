@@ -7,20 +7,21 @@ edition = "2021"
 
 [dependencies]
 chrono = { workspace = true }
-rocket = { workspace = true }
-rocket_contrib = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
 rs-uuid = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-rocket_okapi = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
 unicode-segmentation = { workspace = true }
 rayon = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+
+regex = "1.10.2"
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}
@@ -29,6 +30,8 @@ dkcrypto = {path="../dkcrypto"}
 commons-services = {path= "../commons-services" }
 dkdto = {path="../dkdto"}
 doka-cli = {path="../doka-cli"}
+
+
 
 # For API client
 #reqwest = { version = "0.11", features = ["blocking", "json"] }

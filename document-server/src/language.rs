@@ -23,9 +23,11 @@ pub const SWEDISH: LanguageCode = ("swedish", "sv", "swe");
 pub const TAMIL: LanguageCode = ("tamil", "ta", "tam");
 pub const TURKISH: LanguageCode = ("turkish", "tr", "tur");
 
-pub static LANGUAGES: [LanguageCode; 22] = [ARABIC, DANISH, DUTCH, ENGLISH, FINNISH, FRENCH, GERMAN, GREEK,
-                                        HUNGARIAN, INDONESIAN, IRISH, ITALIAN, LITHUANIAN, NEPALI, NORWEGIAN, PORTUGUESE,
-                                        ROMANIAN, RUSSIAN, SPANISH, SWEDISH, TAMIL, TURKISH];
+pub static LANGUAGES: [LanguageCode; 22] = [
+    ARABIC, DANISH, DUTCH, ENGLISH, FINNISH, FRENCH, GERMAN, GREEK, HUNGARIAN, INDONESIAN, IRISH,
+    ITALIAN, LITHUANIAN, NEPALI, NORWEGIAN, PORTUGUESE, ROMANIAN, RUSSIAN, SPANISH, SWEDISH, TAMIL,
+    TURKISH,
+];
 
 // pub(crate) fn lang_code_2_from( lang_name: &'_ str) -> &'_ str {
 //     let mut found_lg = ENGLISH;
@@ -47,14 +49,14 @@ pub static LANGUAGES: [LanguageCode; 22] = [ARABIC, DANISH, DUTCH, ENGLISH, FINN
 //     found_lg.2  // Code 3
 // }
 
-pub(crate) fn lang_name_from_code_2( lang_code_2: &'_ str) -> &'_ str {
+pub(crate) fn lang_name_from_code_2(lang_code_2: &'_ str) -> &'_ str {
     search_from_code_2(lang_code_2).0
 }
 
 ///
 /// (private) Find the language Code from the code-2 iso
 ///
-fn search_from_code_2( lang_code_2: &'_ str) -> LanguageCode {
+fn search_from_code_2(lang_code_2: &'_ str) -> LanguageCode {
     let mut found_lg = ENGLISH;
     for lg in LANGUAGES {
         if lg.1 == lang_code_2 {
@@ -72,12 +74,8 @@ fn search_from_code_2( lang_code_2: &'_ str) -> LanguageCode {
 pub(crate) fn map_code(lang_code_2: &'_ str) -> &'_ str {
     match lang_code_2 {
         // Créole haïtien
-        "ht" => {
-            FRENCH.1
-        }
-        _ => {
-            search_from_code_2(lang_code_2).1
-        }
+        "ht" => FRENCH.1,
+        _ => search_from_code_2(lang_code_2).1,
     }
 }
 

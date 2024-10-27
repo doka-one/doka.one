@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+
 use dkcrypto::dk_crypto::DkEncrypt;
 
 pub fn d10_performance() {

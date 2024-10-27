@@ -1,6 +1,4 @@
-
-pub (crate) const CS_SCHEMA: &str =  r#"
-
+pub(crate) const CS_SCHEMA: &str = r#"
 CREATE SCHEMA {customer_schema} AUTHORIZATION doka;
 
 SET search_path = {customer_schema}, pg_catalog;

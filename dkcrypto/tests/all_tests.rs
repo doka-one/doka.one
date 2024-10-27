@@ -4,9 +4,11 @@ mod tests {
     use std::path::Path;
     use std::process::exit;
     use std::sync::Once;
-    use dkcrypto::dk_crypto::*;
+
     use log::*;
+
     use commons_error::*;
+    use dkcrypto::dk_crypto::*;
 
     static INIT: Once = Once::new();
 

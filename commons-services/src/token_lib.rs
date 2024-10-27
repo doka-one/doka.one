@@ -1,22 +1,40 @@
-use serde::{Serialize, Deserialize};
-use rocket::{Request, request};
-use rocket::request::FromRequest;
+use axum::async_trait;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
+use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
+
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::DkEncrypt;
+
 use crate::COMMON_EDIBLE_KEY_PROPERTY;
 
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SecurityToken(pub String);
 
-impl<'a, 'r> FromRequest<'a, 'r> for SecurityToken {
-    type Error = ();
-    fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
-        let map = my_request.headers();
-        // It's fine, if the token is not present, we consider it as an empty string
-        let token_id = map.get_one("token").unwrap_or("");
-        request::Outcome::Success(SecurityToken(token_id.to_string()))
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenHeader(pub String);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for SecurityToken
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let token = parts
+            .headers
+            .get("token")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| SecurityToken(value.to_string()))
+            .ok_or((
+                StatusCode::UNAUTHORIZED,
+                "Missing or invalid token header".into(),
+            ))?;
+
+        Ok(token)
     }
 }
 
@@ -33,16 +51,28 @@ impl SecurityToken {
     }
 }
 
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SessionToken(pub String);
 
-impl<'a, 'r> FromRequest<'a, 'r> for SessionToken {
-    type Error = ();
-    fn from_request(my_request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
-        let map = my_request.headers();
-        let token_id = map.get_one("sid").unwrap_or("");
-        request::Outcome::Success(SessionToken(token_id.to_string()))
+#[async_trait]
+impl<S> FromRequestParts<S> for SessionToken
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let token = parts
+            .headers
+            .get("sid")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| SessionToken(value.to_string()))
+            .ok_or((
+                StatusCode::UNAUTHORIZED,
+                "Missing or invalid session token header".into(),
+            ))?;
+
+        Ok(token)
     }
 }
 

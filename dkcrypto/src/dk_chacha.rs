@@ -1,8 +1,7 @@
 use anyhow::{bail, Context, ensure, Result};
 use orion::aead::SecretKey;
-use rand::{RngCore, thread_rng};
-
 use orion::hazardous::stream::chacha20::SecretKey as XSecretKey;
+use rand::{RngCore, thread_rng};
 
 // Inspired by the great doc over here https://github.com/Internet-of-People/iop-rs/tree/develop/keyvault
 

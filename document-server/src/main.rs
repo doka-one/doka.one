@@ -43,22 +43,6 @@ pub struct PageQuery {
     pub page_size: Option<u32>,
 }
 
-pub async fn toto() -> WebType<GetItemReply> {
-    // let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    // delegate
-    //     .get_all_item(/*page.start_page, page.page_size*/ None, None)
-    //     .await
-
-    log_info!(">>> hey !");
-
-    WebType::from_simple(
-        200,
-        SimpleMessage {
-            message: "oh oh oh".to_string(),
-        },
-    )
-}
-
 ///  deprecated
 /// ✨ Find all the items at page [start_page]
 /// **NORM
@@ -346,7 +330,6 @@ async fn main() {
         .route("/tag", post(add_tag))
         .route("/tag/:tag_id", delete(delete_tag))
         .route("/fulltext_indexing", post(fulltext_indexing))
-        .route("/toto", get(toto))
         .route("/delete_text_indexing", post(delete_text_indexing));
 
     let app = Router::new().nest(&base_url, key_routes);

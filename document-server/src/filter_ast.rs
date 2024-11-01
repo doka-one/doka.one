@@ -459,11 +459,39 @@ mod tests {
         Operator, ValueInt, ValueString,
     };
     use crate::filter_ast::{
-        parse_tokens, parse_tokens_with_index, to_canonical_form, to_sql_form, ComparisonOperator,
-        TokenParseError,
+        analyse_expression, parse_tokens, parse_tokens_with_index, to_canonical_form, to_sql_form,
+        ComparisonOperator, TokenParseError,
     };
     use crate::filter_lexer::lex3;
     use crate::filter_normalizer::normalize_lexeme;
+
+    #[test]
+    pub fn global_analyser_1() {
+        // let input = " age < 40 AND (( limit == 5 OR birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\") ";
+        let input1 = " (country == \"FR\"  AND  (science >= 40) OR (lost_in_hell == \"TRUE\") )";
+        let input2 = "((country==\"FR\" AND (science>=40)) OR (lost_in_hell==\"TRUE\") )";
+        let input3 = "country == \"FR\"  AND  (science => 40) OR (lost_in_hell == \"TRUE\")";
+        let input4 = "country == \"FR\"  AND  science >= 40 OR lost_in_hell == \"TRUE\"";
+
+        println!("Analyse...");
+        let tree1 = analyse_expression(input1).unwrap();
+        let tree2 = analyse_expression(input2).unwrap();
+        let tree3 = analyse_expression(input3).unwrap();
+        let tree4 = analyse_expression(input4).unwrap();
+
+        let canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
+        let canonical2 = to_canonical_form(tree2.as_ref()).unwrap();
+        let canonical3 = to_canonical_form(tree3.as_ref()).unwrap();
+        let canonical4 = to_canonical_form(tree4.as_ref()).unwrap();
+
+        println!("canonical...{canonical1}");
+
+        let expected = "(([country<EQ>\"FR\"]AND[science<GTE>40])OR[lost_in_hell<EQ>\"TRUE\"])";
+        assert_eq!(expected, &canonical1);
+        assert_eq!(expected, &canonical2);
+        assert_eq!(expected, &canonical3);
+        assert_eq!(expected, &canonical4);
+    }
 
     #[test]
     pub fn global_test_1() {
@@ -494,6 +522,22 @@ mod tests {
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([A<LT>40]OR([B<GT>21]AND[C<EQ>6]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_2_2() {
+        let input = "(A < 40) AND (B > 21) AND (C == 6)";
+        println!("Lexer...");
+        let mut tokens = lex3(input).unwrap();
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+
+        println!("Parsing...");
+        let r = parse_tokens(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "(([A<LT>40]AND[B<GT>21])AND[C<EQ>6])";
         assert_eq!(expected, s.unwrap());
     }
 

@@ -80,8 +80,9 @@ impl ItemDelegate {
                     panic!("Cannot lex the expression");
                 }
             };
+
         let s = to_sql_form(&filter_tokens.deref()).unwrap(); // TODO
-        println!("sql = {:}", &s);
+        log_info!("sql = {}", &s);
 
         // let r_lexemes = filter_lexer::lex3(&filters.0);
         // // Normalise !!!

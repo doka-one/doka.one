@@ -107,7 +107,6 @@ async fn main() {
     );
 
     let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
-
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)

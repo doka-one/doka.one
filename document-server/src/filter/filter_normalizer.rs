@@ -1,4 +1,4 @@
-use crate::filter_ast::{LogicalOperator, Token};
+use crate::filter::filter_ast::{LogicalOperator, Token};
 
 ///
 ///
@@ -458,8 +458,9 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter_ast::{ComparisonOperator, LogicalOperator, Token};
-    use crate::filter_normalizer::{
+    use crate::filter::{ComparisonOperator, LogicalOperator};
+    use crate::filter::filter_ast::Token;
+    use crate::filter::filter_normalizer::{
         n1_remove_successive_logical_open_close, n2_mark_condition_open_close,
         n3_binary_logical_operator,
     };

@@ -67,7 +67,7 @@ mod api_document_tests {
         let p2 = AddTagValue {
             tag_id: None,
             tag_name: Some(prop2.to_owned()),
-            value: EnumTagValue::String(Option::from("My prop2 value".to_owned())),
+            value: EnumTagValue::Text(Option::from("My prop2 value".to_owned())),
         };
 
         let request = AddItemRequest {
@@ -131,7 +131,7 @@ mod api_document_tests {
         let p2 = AddTagValue {
             tag_id: None,
             tag_name: Some(prop2.to_owned()),
-            value: EnumTagValue::String(Option::from("My prop2 value".to_owned())),
+            value: EnumTagValue::Text(Option::from("My prop2 value".to_owned())),
         };
 
         let add_item_tag_request = AddItemTagRequest {
@@ -185,7 +185,7 @@ mod api_document_tests {
         let p2 = AddTagValue {
             tag_id: None,
             tag_name: Some(prop2.to_owned()),
-            value: EnumTagValue::String(Option::from("My prop2 value".to_owned())),
+            value: EnumTagValue::Text(Option::from("My prop2 value".to_owned())),
         };
 
         let request = AddItemRequest {
@@ -208,7 +208,7 @@ mod api_document_tests {
         let p2 = AddTagValue {
             tag_id: None,
             tag_name: Some(prop2.to_owned()),
-            value: EnumTagValue::String(Option::from("Une histoire de tag".to_owned())),
+            value: EnumTagValue::Text(Option::from("Une histoire de tag".to_owned())),
         };
 
         let add_item_tag_request = AddItemTagRequest {

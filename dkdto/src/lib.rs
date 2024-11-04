@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -247,7 +248,7 @@ pub struct LoginReply {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum EnumTagValue {
-    String(Option<String>),
+    Text(Option<String>),
     Boolean(Option<bool>),
     Integer(Option<i64>),
     Double(Option<f64>),
@@ -259,7 +260,7 @@ pub enum EnumTagValue {
 impl EnumTagValue {
     pub fn to_string(&self) -> String {
         match self {
-            EnumTagValue::String(v) => v.clone().unwrap_or("".to_string()),
+            EnumTagValue::Text(v) => v.clone().unwrap_or("".to_string()),
             EnumTagValue::Boolean(v) => v.clone().unwrap_or(false).to_string(),
             EnumTagValue::Integer(v) => v.clone().unwrap_or(0_i64).to_string(),
             EnumTagValue::Double(v) => v.clone().unwrap_or(0.0_f64).to_string(),
@@ -271,7 +272,7 @@ impl EnumTagValue {
 
     pub fn from_string(tag_value: &str, tag_type: &str) -> Result<Self, String> {
         match tag_type.to_lowercase().as_str() {
-            TAG_TYPE_STRING => Ok(Self::String(Some(tag_value.to_owned()))),
+            TAG_TYPE_TEXT => Ok(Self::Text(Some(tag_value.to_owned()))),
             TAG_TYPE_BOOL => match bool::from_str(tag_value) {
                 Ok(b) => Ok(Self::Boolean(Some(b))),
                 Err(e) => Err(format!("Bad boolean value: {}", e.to_string())),
@@ -321,44 +322,15 @@ pub struct AddTagValue {
 #[derive(Debug)]
 pub struct DeleteTagsRequest(pub Vec<String>);
 
-// TODO This code below must be adapted for Axum
-//      It simply parse the tag ids when passed as query parameters
-// Mise en œuvre de FromFormValue pour traiter la liste de chaînes
-// impl<'v> FromFormValue<'v> for DeleteTagsRequest {
-//     type Error = &'v RawStr;
-//
-//     fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
-//         let tags: Vec<String> = form_value
-//             .split(',')
-//             .map(|tag| tag.to_string())
-//             .collect();
-//
-//         Ok(DeleteTagsRequest(tags))
-//     }
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct FilterCondition {
+//     pub tag: String,
+//     pub op: String,
+//     pub value: String,
 // }
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FilterCondition {
-    pub tag: String,
-    pub op: String,
-    pub value: String,
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct QueryFilters(pub String);
-
-// TODO This code below must be adapted for Axum
-//      It simply unescape the query filter parameters
-// impl<'v> FromFormValue<'v> for QueryFilters {
-//     type Error = &'v RawStr;
-//
-//     fn from_form_value(form_value: &'v RawStr) -> Result<Self, Self::Error> {
-//         // TODO : We could do a base64url decoding instead ....
-//         let s=  form_value.percent_decode().unwrap().to_string();
-//         dbg!(&s);
-//         Ok(QueryFilters(s))
-//     }
-// }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddItemReply {
@@ -399,13 +371,63 @@ pub struct TagValueElement {
 
 // Tag
 
-pub const TAG_TYPE_STRING: &str = "text";
-pub const TAG_TYPE_BOOL: &str = "bool";
-pub const TAG_TYPE_INT: &str = "int";
-pub const TAG_TYPE_DOUBLE: &str = "decimal";
-pub const TAG_TYPE_DATE: &str = "date";
-pub const TAG_TYPE_DATETIME: &str = "datetime";
-pub const TAG_TYPE_LINK: &str = "link";
+const TAG_TYPE_TEXT: &str = "text";
+const TAG_TYPE_BOOL: &str = "bool";
+const TAG_TYPE_INT: &str = "int";
+const TAG_TYPE_DOUBLE: &str = "decimal";
+const TAG_TYPE_DATE: &str = "date";
+const TAG_TYPE_DATETIME: &str = "datetime";
+const TAG_TYPE_LINK: &str = "link";
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum TagType {
+    Text,
+    Bool,
+    Int,
+    Double,
+    Date,
+    DateTime,
+    Link,
+}
+
+impl TagType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            TagType::Text => TAG_TYPE_TEXT,
+            TagType::Bool => TAG_TYPE_BOOL,
+            TagType::Int => TAG_TYPE_INT,
+            TagType::Double => TAG_TYPE_DOUBLE,
+            TagType::Date => TAG_TYPE_DATE,
+            TagType::DateTime => TAG_TYPE_DATETIME,
+            TagType::Link => TAG_TYPE_LINK,
+        }
+    }
+}
+
+impl FromStr for TagType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            TAG_TYPE_TEXT => Ok(TagType::Text),
+            TAG_TYPE_BOOL => Ok(TagType::Bool),
+            TAG_TYPE_INT => Ok(TagType::Int),
+            TAG_TYPE_DOUBLE => Ok(TagType::Double),
+            TAG_TYPE_DATE => Ok(TagType::Date),
+            TAG_TYPE_DATETIME => Ok(TagType::DateTime),
+            TAG_TYPE_LINK => Ok(TagType::Link),
+            _ => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for TagType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddTagRequest {

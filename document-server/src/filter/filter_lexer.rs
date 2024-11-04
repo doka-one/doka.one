@@ -3,9 +3,9 @@ use std::cell::RefCell;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
-use crate::filter_ast::Token::{LogicalClose, LogicalOpen};
-use crate::filter_ast::{LogicalOperator, Token};
+use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
+use crate::filter::filter_ast::Token::{LogicalClose, LogicalOpen};
+use crate::filter::filter_ast::{LogicalOperator, Token};
 
 enum ExpressionExpectedLexeme {
     ExpressionOrCondition,
@@ -519,8 +519,9 @@ fn append_value(value: &mut String, tokens: &mut Vec<Token>, index: u32) -> Resu
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter_ast::{ComparisonOperator, LogicalOperator, Token};
-    use crate::filter_lexer::lex3;
+    use crate::filter::{ComparisonOperator, LogicalOperator};
+    use crate::filter::filter_ast::Token;
+    use crate::filter::filter_lexer::lex3;
 
     // ok
     #[test]

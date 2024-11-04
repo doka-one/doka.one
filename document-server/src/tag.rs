@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-
+use std::str::FromStr;
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::Json;
@@ -15,11 +15,7 @@ use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{
-    AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TAG_TYPE_BOOL, TAG_TYPE_DATE,
-    TAG_TYPE_DATETIME, TAG_TYPE_DOUBLE, TAG_TYPE_INT, TAG_TYPE_LINK, TAG_TYPE_STRING, TagElement,
-    WebType, WebTypeBuilder,
-};
+use dkdto::{AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TagElement, TagType, WebType, WebTypeBuilder};
 use dkdto::error_codes::{
     INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE,
     INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
@@ -574,9 +570,17 @@ impl TagDelegate {
             return Err(&INCORRECT_LENGTH_TAG_NAME);
         }
 
+        let tag_type = match TagType::from_str(add_tag_request.tag_type.to_lowercase().as_str()) {
+            Ok(v) => {v}
+            Err(_) => {
+                return Err(&INCORRECT_TAG_TYPE);
+            }
+        };
+
+
         // Check the input values ( ie tag_type, length limit, default_value type, etc )
-        match add_tag_request.tag_type.to_lowercase().as_str() {
-            TAG_TYPE_STRING => {
+        match tag_type {
+            TagType::Text => {
                 // The string_length between 0 and 10_000_000
                 const MAX_STRING_LENGTH: usize = 2000;
                 if let Some(default_string) = &add_tag_request.default_value {
@@ -585,7 +589,7 @@ impl TagDelegate {
                     }
                 }
             }
-            TAG_TYPE_LINK => {
+            TagType::Link => {
                 // A Link is like a string
                 const MAX_LINK_LENGTH: usize = 400;
                 if let Some(default_string) = &add_tag_request.default_value {
@@ -594,28 +598,28 @@ impl TagDelegate {
                     }
                 }
             }
-            TAG_TYPE_BOOL => {
+            TagType::Bool => {
                 if let Some(v) = &add_tag_request.default_value {
                     if v != "true" && v != "false" {
                         return Err(&INCORRECT_DEFAULT_BOOLEAN_VALUE);
                     }
                 }
             }
-            TAG_TYPE_INT => {
+            TagType::Int => {
                 if let Some(v) = &add_tag_request.default_value {
                     if v.parse::<i64>().is_err() {
                         return Err(&INCORRECT_DEFAULT_INTEGER_VALUE);
                     }
                 }
             }
-            TAG_TYPE_DOUBLE => {
+            TagType::Double => {
                 if let Some(d) = &add_tag_request.default_value {
                     if d.parse::<f64>().is_err() {
                         return Err(&INCORRECT_DEFAULT_DOUBLE_VALUE);
                     }
                 }
             }
-            TAG_TYPE_DATE => {
+            TagType::Date => {
                 if let Some(d_str) = &add_tag_request.default_value {
                     // Check if the default is a valid date  ISO8601 1977-04-22
                     if iso_to_naivedate(d_str).is_err() {
@@ -623,16 +627,13 @@ impl TagDelegate {
                     }
                 }
             }
-            TAG_TYPE_DATETIME => {
+            TagType::DateTime => {
                 if let Some(dt_str) = &add_tag_request.default_value {
                     // Check if the default is a valid datetime ISO8601 "1977-04-22T06:00:00Z"
                     if iso_to_datetime(dt_str).is_err() {
                         return Err(&INCORRECT_DEFAULT_DATETIME_VALUE);
                     }
                 }
-            }
-            _ => {
-                return Err(&INCORRECT_TAG_TYPE);
             }
         };
 

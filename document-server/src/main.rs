@@ -28,14 +28,12 @@ use crate::item::ItemDelegate;
 use crate::tag::TagDelegate;
 
 mod char_lib;
-mod filter_ast;
-mod filter_lexer;
-mod filter_normalizer;
 mod ft_tokenizer;
 mod fulltext;
 mod item;
 mod language;
 mod tag;
+mod filter;
 
 #[derive(Serialize, Deserialize)]
 pub struct PageQuery {

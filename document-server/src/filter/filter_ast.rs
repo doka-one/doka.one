@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::fmt;
 
 use log::warn;
+use rs_uuid::uuid8;
 
-use crate::filter_ast::FilterValue::{ValueInt, ValueString};
-use crate::filter_lexer::lex3;
-use crate::filter_normalizer::normalize_lexeme;
+use crate::filter::filter_lexer::lex3;
+use crate::filter::filter_normalizer::normalize_lexeme;
+use crate::filter::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
 
 #[cfg(test)]
 const COND_OPEN: &str = "[";
@@ -17,69 +18,9 @@ const LOGICAL_OPEN: &str = "(";
 const LOGICAL_CLOSE: &str = ")";
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ComparisonOperator {
-    EQ,
-    NEQ,
-    GT,
-    GTE,
-    LT,
-    LTE,
-    LIKE,
-}
-
-#[derive(Debug)]
-pub(crate) enum FilterValue {
-    ValueInt(i32),
-    ValueString(String),
-}
-
-impl fmt::Display for FilterValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ValueInt(i) => {
-                write!(f, "{}", i)
-            }
-            ValueString(s) => {
-                write!(f, "\"{}\"", s.as_str())
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LogicalOperator {
     AND,
     OR,
-}
-
-impl LogicalOperator {
-    // pub fn from_str(lop: &str) -> Self {
-    //     match lop {
-    //         "AND" => LogicalOperator::AND,
-    //         "OR" => LogicalOperator::OR,
-    //         _ => panic!(),
-    //     }
-    // }
-
-    // pub fn to_string(&self) -> String {
-    //     match self {
-    //         LogicalOperator::AND => "AND".to_string(),
-    //         LogicalOperator::OR => "OR".to_string(),
-    //     }
-    // }
-}
-
-#[derive(Debug)]
-pub(crate) enum FilterExpressionAST {
-    Condition {
-        attribute: String,
-        operator: ComparisonOperator,
-        value: FilterValue,
-    },
-    Logical {
-        operator: LogicalOperator,
-        leaves: Vec<Box<FilterExpressionAST>>,
-    },
 }
 
 //// Parser structures
@@ -117,11 +58,7 @@ pub(crate) fn to_canonical_form(
 ) -> Result<String, TokenParseError> {
     let mut content: String = String::from("");
     match filter_expression {
-        FilterExpressionAST::Condition {
-            attribute,
-            operator,
-            value,
-        } => {
+        FilterExpressionAST::Condition(FilterCondition {key, attribute, operator, value}) => {
             let s = format!(
                 "{}{}<{:?}>{}{}",
                 COND_OPEN, attribute, operator, value, COND_CLOSE
@@ -144,65 +81,6 @@ pub(crate) fn to_canonical_form(
         }
     }
     Ok(content)
-}
-
-pub(crate) fn to_sql_form(
-    filter_expression: &FilterExpressionAST,
-) -> Result<String, TokenParseError> {
-    let mut content: String = String::from("");
-    match filter_expression {
-        FilterExpressionAST::Condition {
-            attribute,
-            operator,
-            value,
-        } => {
-            let sql_op = match operator {
-                ComparisonOperator::EQ => "=",
-                ComparisonOperator::NEQ => "<>",
-                ComparisonOperator::GT => ">",
-                ComparisonOperator::LT => "<",
-                ComparisonOperator::GTE => ">=",
-                ComparisonOperator::LTE => "<=",
-                ComparisonOperator::LIKE => "LIKE",
-            };
-
-            let s = format!("({} {} {})", attribute, sql_op, value);
-            content.push_str(&s);
-        }
-        FilterExpressionAST::Logical { operator, leaves } => {
-            content.push_str("(");
-
-            for (i, l) in leaves.iter().enumerate() {
-                let r_leaf_content = to_sql_form(l);
-                if let Ok(leaf) = r_leaf_content {
-                    content.push_str(&leaf);
-                }
-                if i < leaves.len() - 1 {
-                    content.push_str(&format!(" {:?} ", &operator));
-                }
-            }
-            content.push_str(")");
-        }
-    }
-    Ok(content)
-}
-
-pub(crate) fn analyse_expression(
-    expression: &str,
-) -> Result<Box<FilterExpressionAST>, TokenParseError> {
-    match lex3(expression) {
-        Ok(mut tokens) => {
-            normalize_lexeme(&mut tokens);
-            parse_tokens(&mut tokens)
-        }
-        Err(e) => {
-            // TODO convert the LexerError e in to a TokenParseError
-            Err(TokenParseError::ValueExpected((
-                e.char_position as usize,
-                None,
-            )))
-        }
-    }
 }
 
 /// Parse a list of tokens to create the FilterExpression (AST)
@@ -423,12 +301,13 @@ fn parse_condition(
                     *index.borrow(),
                     &op_value
                 );
-
-                Ok(Box::new(FilterExpressionAST::Condition {
+let key = uuid8();
+                Ok(Box::new(FilterExpressionAST::Condition( FilterCondition {
+                    key,
                     attribute,
                     operator,
                     value,
-                }))
+                })))
             }
             _ => {
                 return Err(TokenParseError::AttributeExpected((
@@ -451,19 +330,14 @@ mod tests {
     //cargo test --color=always --bin document-server filter_ast::tests   -- --show-output
 
     use std::cell::RefCell;
+    use crate::filter::{analyse_expression, ComparisonOperator, to_sql_form};
+    use crate::filter::ComparisonOperator::LIKE;
+    use crate::filter::filter_ast::{parse_tokens, parse_tokens_with_index, to_canonical_form, TokenParseError};
+    use crate::filter::filter_ast::LogicalOperator::{AND, OR};
+    use crate::filter::filter_ast::Token::{Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt, ValueString};
+    use crate::filter::filter_lexer::lex3;
+    use crate::filter::filter_normalizer::normalize_lexeme;
 
-    use crate::filter_ast::ComparisonOperator::LIKE;
-    use crate::filter_ast::LogicalOperator::{AND, OR};
-    use crate::filter_ast::Token::{
-        Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen,
-        Operator, ValueInt, ValueString,
-    };
-    use crate::filter_ast::{
-        analyse_expression, parse_tokens, parse_tokens_with_index, to_canonical_form, to_sql_form,
-        ComparisonOperator, TokenParseError,
-    };
-    use crate::filter_lexer::lex3;
-    use crate::filter_normalizer::normalize_lexeme;
 
     #[test]
     pub fn global_analyser_1() {

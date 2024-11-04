@@ -169,7 +169,7 @@ fn build_item_tag(param_value: &str) -> anyhow::Result<AddTagValue> {
             EnumTagValue::Boolean(Some(true))
         }
         (Some(v), None) => {
-            EnumTagValue::String(Some(v))
+            EnumTagValue::Text(Some(v))
         }
         (None, Some(_)) => {
             return Err(anyhow!("Missing value for property: {}", param_value));

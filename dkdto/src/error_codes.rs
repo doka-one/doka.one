@@ -3,6 +3,11 @@ use once_cell::sync::Lazy;
 
 use crate::ErrorSet;
 
+pub static URL_PARSING_ERROR: Lazy<ErrorSet> = Lazy::new(|| ErrorSet {
+    err_message: "Impossible to parse the Url",
+    http_error_code: StatusCode::BAD_REQUEST.as_u16(),
+});
+
 pub static SUCCESS: Lazy<ErrorSet> = Lazy::new(|| ErrorSet {
     err_message: "Success",
     http_error_code: StatusCode::OK.as_u16(),

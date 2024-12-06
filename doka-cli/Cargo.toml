@@ -23,6 +23,7 @@ bytes = { workspace = true }
 colored = "^2.0"
 regex = "^1.7"
 url = "^2.2"
+
 percent-encoding = "^2.3"
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}

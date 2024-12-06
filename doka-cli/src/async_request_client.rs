@@ -2,18 +2,21 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use commons_error::*;
+use log::*;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use reqwest::{Client, RequestBuilder};
+use reqwest::{multipart, Client, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde::{de, Serialize};
 use url::Url;
 
-use dkdto::error_codes::HTTP_CLIENT_ERROR;
+use dkdto::error_codes::{HTTP_CLIENT_ERROR, INTERNAL_TECHNICAL_ERROR, URL_PARSING_ERROR};
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
     AddTagReply, AddTagRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply,
-    FullTextRequest, GetItemReply, GetTagReply, OpenSessionReply, OpenSessionRequest, SessionReply,
-    SimpleMessage, TikaMeta, TikaParsing, WebResponse, WebTypeBuilder,
+    FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply,
+    ListOfFileInfoReply, ListOfUploadInfoReply, MediaBytes, OpenSessionReply, OpenSessionRequest,
+    SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
 };
 
 use crate::request_client::TokenType::{Sid, Token};
@@ -289,6 +292,95 @@ impl DocumentServerClientAsync {
     }
 }
 
+/// File Server
+
+pub struct FileServerClientAsync {
+    server: WebServerAsync,
+}
+
+impl FileServerClientAsync {
+    pub fn new(server_name: &str, port: u16) -> Self {
+        Self {
+            server: WebServerAsync::new(server_name, port, "file-server"),
+        }
+    }
+
+    pub async fn upload(
+        &self,
+        item_info: &str,
+        request: Vec<u8>,
+        sid: &str,
+    ) -> WebResponse<UploadReply> {
+        // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("upload2", item_info);
+
+        let r = self
+            .server
+            .post_bytes(&url, request, &Sid(sid.to_string()))
+            .await;
+
+        r.unwrap()
+    }
+
+    pub async fn download(&self, file_reference: &str, sid: &str) -> WebResponse<MediaBytes> /*WebResponse<( String, bytes::Bytes, StatusCode )>*/
+    {
+        // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
+        let url = self
+            .server
+            .build_url_with_refcode("download", file_reference);
+
+        dbg!(&url);
+
+        match self
+            .server
+            .get_binary_data(&url, &Sid(sid.to_string()))
+            .await
+        {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                println!("😎 Cannot download the binary content");
+                // log_error!("Cannot download the binary content");
+                return WebResponse::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            }
+        }
+    }
+
+    pub async fn info(&self, file_ref: &str, sid: &str) -> WebResponse<GetFileInfoReply> {
+        // let url = format!("http://{}:{}/file-server/info/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("info", &file_ref);
+        // let url = self.server.build_url("info/1ABH234");
+        self.server
+            .get_data_retry(&url, &Sid(sid.to_string()))
+            .await
+    }
+
+    pub async fn stats(&self, file_ref: &str, sid: &str) -> WebResponse<GetFileInfoShortReply> {
+        // let url = format!("http://{}:{}/file-server/stats/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("stats", &file_ref);
+        // let url = self.server.build_url("stats/1ABH234");
+        self.server
+            .get_data_retry(&url, &Sid(sid.to_string()))
+            .await
+    }
+
+    pub async fn loading(&self, sid: &str) -> WebResponse<ListOfUploadInfoReply> {
+        // let url = format!("http://{}:{}/file-server/loading/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url("loading");
+        self.server
+            .get_data_retry(&url, &Sid(sid.to_string()))
+            .await
+    }
+
+    pub async fn list(&self, pattern: &str, sid: &str) -> WebResponse<ListOfFileInfoReply> {
+        // let url = format!("http://{}:{}/file-server/stats/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("list", &pattern);
+        // let url = self.server.build_url("stats/1ABH234");
+        self.server
+            .get_data_retry(&url, &Sid(sid.to_string()))
+            .await
+    }
+}
+
 ///
 /// Tika Server
 ///
@@ -454,6 +546,69 @@ impl WebServerAsync {
 
         let request_builder = request_builder.json(request);
         Self::send_request_builder(request_builder).await
+    }
+
+    /// Generic routine to post a binary content
+    async fn post_bytes<V: de::DeserializeOwned>(
+        &self,
+        url: &str,
+        request: Vec<u8>,
+        token: &TokenType,
+    ) -> WebResponse<V> {
+        let client = Client::new();
+
+        let my_url = match Url::parse(url) {
+            Ok(parsed_url) => parsed_url, // Parsed URL is valid
+            Err(_) => {
+                return WebResponse::from_errorset(&URL_PARSING_ERROR); // Return an error response on failure
+            }
+        };
+
+        let request_builder = client.post(my_url).timeout(TIMEOUT);
+
+        let form = multipart::Form::new().part(
+            "data",
+            multipart::Part::bytes(request).file_name("111-Bright_Snow.jpg"),
+        );
+
+        // dbg!(&url);
+        dbg!(&token);
+        let request_builder_2 = Self::add_header(request_builder, &token);
+        Self::send_request_builder(request_builder_2.multipart(form)).await?
+    }
+
+    /// Returns the media type and the binary content and the status code
+    async fn get_binary_data(
+        &self,
+        url: &str,
+        token: &TokenType,
+    ) -> anyhow::Result<WebResponse<MediaBytes>> {
+        let client = Client::new();
+        let my_url = Url::parse(url).map_err(tr_fwd!())?;
+        let request_builder = client.get(my_url).timeout(TIMEOUT);
+
+        dbg!(&token);
+        let request_builder_2 = match token {
+            Token(token_value) => request_builder.header("token", token_value.clone()),
+            Sid(sid_value) => request_builder.header("sid", sid_value.clone()),
+            TokenType::None => request_builder,
+        };
+
+        println!("About to request the binary data");
+        dbg!(&request_builder_2);
+        let response = request_builder_2.send().await.map_err(tr_fwd!())?;
+        dbg!(&response);
+        let status_code = response.status();
+        let mime_type = response
+            .headers()
+            .get("content-type")
+            .ok_or(anyhow!("No content-type"))?
+            .to_str()?;
+        let mb = MediaBytes {
+            media_type: mime_type.to_string(),
+            data: response.bytes().await.map_err(tr_fwd!())?,
+        };
+        Ok(WebResponse::from_item(status_code.as_u16(), mb))
     }
 
     ///

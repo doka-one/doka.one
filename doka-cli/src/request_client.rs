@@ -4,13 +4,14 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use log::warn;
-use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest::blocking::{multipart, RequestBuilder};
 use reqwest::StatusCode;
 use serde::{de, Serialize};
 use url::Url;
 
 use commons_error::*;
+use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
     AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply,
@@ -19,9 +20,10 @@ use dkdto::{
     LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply,
     SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
 };
-use dkdto::error_codes::HTTP_CLIENT_ERROR;
 
 use crate::request_client::TokenType::{Sid, Token};
+
+/// TODO This file should be in Dkdto, so we could reuse it without the doka-cli module  
 
 const TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const MAX_HTTP_RETRY: u32 = 5;

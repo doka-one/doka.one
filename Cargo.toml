@@ -15,6 +15,7 @@ members = [
     "file-server",
     "doka-api-tests",
     "doka-one-installer",
+    "doka-harbor",
 ]
 
 [workspace.dependencies]
@@ -22,22 +23,15 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 serde_derive = "^1.0"
 
-#rocket = "^0.4"
-#rocket_cors = "0.5.2"
-#rocket_contrib = { version = "^0.4",  default-features = false, features = ["json","handlebars_templates", "tera_templates"] }
 base64 = "^0.21"
 rs-uuid = "^0.4"
 log = "^0.4"
 log4rs = "^1.2"
-#rocket_okapi = "^0.5"
 schemars = { version = "^0.7", features = ["chrono"] } #because of okapi
 okapi = { version = "^0.4", features = ["derive_json_schema"] }
 java-properties = "^1.2"
-#obfustring = "^0.5"
 anyhow = "^1.0"
 uuid = "^1.2"
-#Find another crypto crates
-# rust-crypto = "^0.2"
 rand = "^0.8"
 csv = "^1.1"
 
@@ -62,7 +56,6 @@ axum = { version = "^0.7", features = ["multipart"] }
 tower-http = { version = "^0.6", features = ["fs", "trace", "cors"] }
 sqlx = { version = "^0.8", features = ["postgres", "runtime-tokio-rustls", "chrono"]}
 chrono = { version = "^0.4", features = ["serde"] }
-#chrono = "^0.4"
 
 [profile.release]
 opt-level = 3

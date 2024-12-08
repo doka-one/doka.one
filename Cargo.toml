@@ -16,6 +16,7 @@ members = [
     "doka-api-tests",
     "doka-one-installer",
     "doka-harbor",
+    "imap-plugin",
 ]
 
 [workspace.dependencies]

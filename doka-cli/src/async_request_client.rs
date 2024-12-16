@@ -329,7 +329,7 @@ impl FileServerClientAsync {
             .server
             .build_url_with_refcode("download", file_reference);
 
-        dbg!(&url);
+        // dbg!(&url);
 
         match self
             .server
@@ -587,7 +587,7 @@ impl WebServerAsync {
         let my_url = Url::parse(url).map_err(tr_fwd!())?;
         let request_builder = client.get(my_url).timeout(TIMEOUT);
 
-        dbg!(&token);
+        //dbg!(&token);
         let request_builder_2 = match token {
             Token(token_value) => request_builder.header("token", token_value.clone()),
             Sid(sid_value) => request_builder.header("sid", sid_value.clone()),
@@ -595,9 +595,9 @@ impl WebServerAsync {
         };
 
         println!("About to request the binary data");
-        dbg!(&request_builder_2);
+        //dbg!(&request_builder_2);
         let response = request_builder_2.send().await.map_err(tr_fwd!())?;
-        dbg!(&response);
+        //dbg!(&response);
         let status_code = response.status();
         let mime_type = response
             .headers()

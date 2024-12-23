@@ -26,6 +26,7 @@ hyper = "1.4.1"
 bytes = { version = "1.5.0", features = [] }
 async-nats = "^0.38"
 image = { version = "0.24.9"}
+rayon = "^1.7"
 #fast_image_resize = "^5.0"
 
 commons-error= {path="../commons-error"}
@@ -33,5 +34,6 @@ dkdto = {path="../dkdto"}
 dkcrypto = {path="../dkcrypto"}
 doka-cli = {path="../doka-cli"} # TODO should not be imported, it's only here to get the API stubs
 dkconfig={path="../dkconfig"}
+
 
 

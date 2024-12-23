@@ -92,36 +92,6 @@ pub async fn download(session_token: SessionToken, Path(file_ref): Path<String>)
 #[derive(Debug)]
 pub struct CORS;
 
-// impl Fairing for CORS {
-//     fn info(&self) -> Info {
-//         Info {
-//             name: "Add CORS headers to responses",
-//             kind: Kind::Response,
-//         }
-//     }
-//
-//     fn on_response(&self, request: &Request, response: &mut Response) {
-//         info!("On Response [{}]", &request);
-//         info!("On Response [{}]", &response.status());
-//
-//         let _ = response.status();
-//         // dbg!(&s);
-//
-//         if request.method() == Method::Options {
-//             response.set_status(Status::Ok);
-//         }
-//
-//         response.adjoin_header(ContentType::JSON);
-//         response.adjoin_raw_header(
-//             "Access-Control-Allow-Methods",
-//             "POST, GET, OPTIONS, PATCH, DELETE",
-//         );
-//         response.adjoin_raw_header("Access-Control-Allow-Origin", "*");
-//         response.adjoin_raw_header("Access-Control-Allow-Credentials", "true");
-//         response.adjoin_raw_header("Access-Control-Allow-Headers", "*");
-//     }
-// }
-
 #[tokio::main]
 async fn main() {
     const PROGRAM_NAME: &str = "File Server";
@@ -185,11 +155,15 @@ async fn main() {
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::PATCH, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::OPTIONS,
+            Method::PATCH,
+            Method::DELETE,
+        ])
         .allow_origin(Any) // You can restrict origins instead of using Any
-        .allow_headers(Any)
-        //.allow_credentials(true)
-        ;
+        .allow_headers(Any);
 
     // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);

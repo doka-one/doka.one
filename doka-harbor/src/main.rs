@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::process::exit;
 
 use axum::body::Body;
 use axum::extract::Path;
@@ -9,11 +10,16 @@ use axum::{response::IntoResponse, routing::get, Router};
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, Timelike};
 use ciborium::ser;
+use commons_error::log_info;
+use dkconfig::conf_reader::{read_config, read_doka_env};
+use dkconfig::properties::{get_prop_value, set_prop_values};
+use dkcrypto::dk_crypto::CypherMode::AES;
 use hyper::header::CONTENT_TYPE;
 use hyper::StatusCode;
 use image::imageops::FilterType;
 use image::{ImageEncoder, ImageFormat};
 use log::*;
+use rayon::prelude::IntoParallelRefIterator;
 use serde::Serialize;
 use serde_derive::Deserialize;
 use tokio::io::AsyncWriteExt;
@@ -21,11 +27,15 @@ use tokio::{io, task};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::component1::{GetItemReplyForComponent1, SearchResultHarbor};
+use crate::kv_store::KvStore;
+use crate::search_result_component::SearchResultComponent;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::GetItemReply;
 use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
 
 mod component1;
+mod kv_store;
+mod search_result_component;
 
 /** REF TAG: DOKA_HARBOR */
 
@@ -70,80 +80,6 @@ struct SampleData {
 pub struct HarborContext {
     pub date_format_fn: fn(&str) -> String,
     pub datetime_format_fn: fn(&str, i32) -> String,
-}
-
-async fn read_from_nats(bucket: &str, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
-    // Connect to the NATS server
-    let client = async_nats::connect("localhost:4222").await?;
-    println!("Connected to NATS for reading, {} {}", bucket, key);
-
-    // Create a JetStream context
-    let jetstream = async_nats::jetstream::new(client);
-
-    // Create or access a Key-Value store
-
-    let kv = jetstream.get_key_value(bucket.to_string()).await?;
-    println!("Key-Value store '{}' ready", &bucket);
-
-    let hash_key = DkEncrypt::hash_word(key);
-    let mut data = Vec::new();
-    let mut i = 0;
-    loop {
-        let key_i = format!("{}-{}", &hash_key, i);
-
-        // Retrieve and print the stored data
-        if let Some(entry) = kv.entry(key_i).await? {
-            let chunk = entry.value.to_vec();
-
-            // let secret = "ag2ofBR68xqc48JJGRP_JDx52C1V52xWFjhkE2b7AcU";
-            // let chunk = DkEncrypt::decrypt_vec(&chunk, &secret).unwrap();
-
-            data.extend_from_slice(&chunk);
-        } else {
-            println!("No value found for key '{}'", key);
-            break;
-        }
-        i += 1;
-    }
-
-    if i == 0 {
-        Ok(None)
-    } else {
-        Ok(Some(data))
-    }
-}
-
-async fn store_to_nats(bucket: &str, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
-    // Connect to the NATS server
-    let client = async_nats::connect("localhost:4222").await?;
-    println!("Connected to NATS, {} {}", bucket, key);
-
-    // Create a JetStream context
-    let jetstream = async_nats::jetstream::new(client);
-
-    // Create or access a Key-Value store
-    let kv = jetstream.get_key_value(bucket.to_string()).await?;
-    println!("Key-Value store '{}' ready", &bucket);
-
-    // Define chunk size (1 MB)
-    const CHUNK_SIZE: usize = 1 * 1024 * 1024;
-
-    let hash_key = DkEncrypt::hash_word(key);
-
-    // let secret = "ag2ofBR68xqc48JJGRP_JDx52C1V52xWFjhkE2b7AcU";
-    // println!("new customer key {}", &new_customer_key);
-
-    // Loop over the data in chunks
-    for (i, chunk) in data.chunks(CHUNK_SIZE).enumerate() {
-        let key_i = format!("{}-{}", &hash_key, i);
-        let d = chunk.to_vec();
-        // let d = DkEncrypt::encrypt_vec(&d, &secret).unwrap();
-
-        kv.put(&key_i, d.into()).await?;
-        println!("Data stored with key '{}', size {}", &key_i, chunk.len());
-    }
-
-    Ok(())
 }
 
 fn format_date(iso_date: &str) -> String {
@@ -218,28 +154,28 @@ async fn smart_fetch_file(micro_trans: &str, file_ref: &str) -> anyhow::Result<B
     let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
     let file_key = format!("{}-{}-{}", &sid, &micro_trans, &file_ref);
 
-    let raw_data = match read_from_nats(&file_bucket, &file_key).await.unwrap() {
+    let kv_store = KvStore::new(file_bucket, "0123456789ABCDEF");
+
+    let raw_data = match kv_store.read_from_nats(&file_key).await.unwrap() {
         None => {
             let fs_client = FileServerClientAsync::new(server_host, 30080);
             let r = fs_client.download(&file_ref, &sid).await;
             let data = r.unwrap().data;
             println!("😎 File downloaded : {}", data.len());
-            let r = store_to_nats(&file_bucket, &file_key, data.to_vec().clone()).await;
-            // dbg!(&r);
+            let r = kv_store
+                .store_to_nats(&file_key, data.to_vec().clone())
+                .await;
             data.to_vec()
         }
         Some(data) => {
-            println!("File already in Nats. size {}", data.len());
+            println!("Big File already in Nats. size {}", data.len());
             data
         }
     };
 
     let file_reduced_key = format!("{}-{}-{}-REDUCED", &sid, &micro_trans, &file_ref);
 
-    let reduced_data = match read_from_nats(&file_bucket, &file_reduced_key)
-        .await
-        .unwrap()
-    {
+    let reduced_data = match kv_store.read_from_nats(&file_reduced_key).await.unwrap() {
         None => {
             println!("About to resize. Original size {}", raw_data.len());
             // Resizing can be CPU blocking so we run a separate task
@@ -249,13 +185,9 @@ async fn smart_fetch_file(micro_trans: &str, file_ref: &str) -> anyhow::Result<B
                     .expect("Task panicked");
             println!("Reduction done");
 
-            let r = store_to_nats(
-                &file_bucket,
-                &file_reduced_key,
-                reduced_data.to_vec().clone(),
-            )
-            .await;
-            //dbg!(&r);
+            let r = kv_store
+                .store_to_nats(&file_reduced_key, reduced_data.to_vec().clone())
+                .await;
             println!("--> Store resize to nats is done");
             reduced_data
         }
@@ -270,6 +202,7 @@ async fn smart_fetch_file(micro_trans: &str, file_ref: &str) -> anyhow::Result<B
 
 /// GET /get_file/:file_ref
 async fn get_file(Path(file_ref): Path<String>) -> impl IntoResponse {
+    println!("!!! Start the get_file API");
     let micro_trans = "7cf98e6a";
     // let file_ref = "5aa40f74-284b-43d5-6406-13f0b9bd67e9";
     let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
@@ -318,11 +251,14 @@ async fn search_result() -> impl IntoResponse {
     let search_key = format!("{}-{}-{}", &sid, &micro_trans, search_filters);
 
     let file_bucket = "files-60";
+    let file_store = KvStore::new(file_bucket, "0123456789ABCDEF");
 
     let server_host = "localhost"; // get_prop_value("server.host")?;
     let document_server_port: u16 = 30070; // get_prop_value("ds.port")?.parse()?;
 
-    let get_item_reply = match read_from_nats(&document_bucket, &search_key).await.unwrap() {
+    let document_store = KvStore::new(document_bucket, "0123456789ABCDEF");
+
+    let get_item_reply = match document_store.read_from_nats(&search_key).await.unwrap() {
         None => {
             // Call the first API
             let client = DocumentServerClientAsync::new(&server_host, document_server_port);
@@ -340,7 +276,7 @@ async fn search_result() -> impl IntoResponse {
             // Store the API data, in JSON format, in the storage
             // ....
             let binary_json = serde_json::to_string(&items).unwrap().into_bytes();
-            let r = store_to_nats(&document_bucket, &search_key, binary_json).await;
+            let r = document_store.store_to_nats(&search_key, binary_json).await;
             // dbg!(&r);
             items
         }
@@ -357,7 +293,7 @@ async fn search_result() -> impl IntoResponse {
         if let Some(file_ref) = my_item.file_ref.as_ref() {
             let file_ref_clone = file_ref.clone();
             let file_key = format!("{}-{}-{}", &sid, &micro_trans, &file_ref_clone);
-            match read_from_nats(&file_bucket, &file_key).await.unwrap() {
+            match file_store.read_from_nats(&file_key).await.unwrap() {
                 None => {
                     let _handle = tokio::spawn(async move {
                         println!("Smart fetch file for file ref : {}", &file_ref_clone);
@@ -405,181 +341,40 @@ async fn search_result() -> impl IntoResponse {
     ret
 }
 
+/// TODO manage the return value
 ///
 async fn get_item() -> impl IntoResponse {
-    // Call the doka API
-
-    let query_name = "MY_ITEM";
-    let micro_trans = "7cf98e6a";
-    let item_id: i64 = 9;
-    let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
-
-    let document_bucket = "docs-60";
-    let document_key = format!("{}-{}-{}", &sid, &micro_trans, item_id);
-
-    let file_bucket = "files-60";
-
-    let habor_bucket = "harbor-60";
-    let query_key = format!("{}-{}-{}-{}", &sid, &micro_trans, &query_name, item_id);
-
-    let server_host = "localhost"; // get_prop_value("server.host")?;
-    let document_server_port: u16 = 30070; // get_prop_value("ds.port")?.parse()?;
-
-    let get_item_reply = match read_from_nats(&document_bucket, &document_key)
-        .await
-        .unwrap()
-    {
-        None => {
-            // Call the first API
-            let client = DocumentServerClientAsync::new(&server_host, document_server_port);
-            let data = match client.get_item(item_id, &sid).await {
-                Ok(reply) => {
-                    println!(
-                        "😎 Item successfully fetch from API, count : {} ",
-                        reply.items.len()
-                    );
-                    reply
-                }
-                Err(e) => panic!(), /*Err(anyhow!("{} - {}", e.http_error_code, e.message))*/
-            };
-
-            // Store the API data in the SQLite database (could be in the API stub)
-            // ....
-            let s_item = serde_json::to_string(&data).unwrap().into_bytes();
-            let r = store_to_nats(&document_bucket, &document_key, s_item).await;
-            // dbg!(&r);
-            data
-        }
-        Some(d) => serde_json::from_str::<GetItemReply>(&(String::from_utf8(d).unwrap())).unwrap(),
-    };
-
-    // Call the second API
-
-    if get_item_reply.items.len() > 0 {
-        let my_item = get_item_reply.items.get(0).unwrap();
-        if let Some(file_ref) = my_item.file_ref.as_ref() {
-            let file_ref_clone = file_ref.clone();
-            let sid_clone = sid.to_string();
-
-            let file_key = format!("{}-{}-{}", &sid, &micro_trans, &file_ref_clone);
-            match read_from_nats(&file_bucket, &file_key).await.unwrap() {
-                None => {
-                    let _handle = tokio::spawn(async move {
-                        let _reduced_data = smart_fetch_file(&micro_trans, &file_ref_clone)
-                            .await
-                            .unwrap();
-                    });
-                }
-                Some(data) => {
-                    println!("Data already in Nats. size {}", data.len())
-                }
-            }
-        }
-    }
-
-    // Transform the API data into something "front"
-    let context = HarborContext {
-        date_format_fn: format_date,
-        datetime_format_fn: format_date_in_timezone,
-    };
-    let harbor_data: GetItemReplyForComponent1 = get_item_reply.map_to_harbor(&context);
-
-    //
-
-    // Serialize the data to CBOR format
-    let mut cbor_data = Vec::new();
-    if let Err(err) = ser::into_writer(&harbor_data, &mut cbor_data) {
-        eprintln!("Failed to serialize to CBOR: {}", err);
-        return axum::response::Response::builder()
-            .status(500)
-            .body(Body::from("Internal Server Error"))
-            .unwrap();
-    }
-
-    // Store the CBOR data in the SQLite database
-    // ....
-
-    let r = store_to_nats(&habor_bucket, &query_key, cbor_data.clone()).await;
-    // dbg!(&r);
-
-    // Return the CBOR data with content type
-    let ret = (
-        StatusCode::OK,
-        [(CONTENT_TYPE, "application/cbor")],
-        Bytes::from(cbor_data),
-    )
-        .into_response();
-
-    ret
-}
-
-/// The handler for the /cbor/get-data endpoint
-async fn get_cbor_data() -> impl IntoResponse {
-    // Construct the CBOR data
-    let response = Document {
-        fields: vec![
-            "document_id".to_string(),
-            "document_name".to_string(),
-            "update_datetime".to_string(),
-        ],
-        records: vec![
-            Record {
-                id: 9856,
-                file_ref: Some("45ef78a".to_string()),
-                document_metadata: vec![
-                    "gh789".to_string(),
-                    "planet.pdf".to_string(),
-                    "12 jan, 2024::2024-01-12".to_string(),
-                ],
-                binary_content: "asdkflakjhdlkjh...".as_bytes().to_owned(),
-                tags: vec![MyTag {
-                    tag_name: "Science".to_string(),
-                    value: "4.569:6.456".to_string(),
-                    formatted_value: "4.569:6.456".to_string(),
-                }],
-            },
-            Record {
-                id: 15_648,
-                file_ref: None,
-                document_metadata: vec![
-                    "gh790".to_string(),
-                    "forest.pdf".to_string(),
-                    "13 jan, 2024::2024-01-13".to_string(),
-                ],
-                binary_content: "troidilkjlsdél...".as_bytes().to_owned(),
-                tags: vec![MyTag {
-                    tag_name: "Nature".to_string(),
-                    value: "4.547:7.876".to_string(),
-                    formatted_value: "4.547:7.876".to_string(),
-                }],
-            },
-        ],
-    };
-
-    // Serialize the data to CBOR format
-    let mut cbor_data = Vec::new();
-    if let Err(err) = ser::into_writer(&response, &mut cbor_data) {
-        eprintln!("Failed to serialize to CBOR: {}", err);
-        return axum::response::Response::builder()
-            .status(500)
-            .body(Body::from("Internal Server Error"))
-            .unwrap();
-    }
-
-    // Return the CBOR data with content type
-    let ret = (
-        StatusCode::OK,
-        [(CONTENT_TYPE, "application/cbor")],
-        Bytes::from(cbor_data),
-    )
-        .into_response();
-
-    ret
+    let mut delegate = SearchResultComponent::new(/*session_token, XRequestID::from_value(None)*/);
+    delegate.get_item().await
 }
 
 /// Main async routine
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 6)]
 async fn main() {
+    const PROGRAM_NAME: &str = "Harbor";
+
+    println!("😎 Init {}", PROGRAM_NAME);
+
+    const PROJECT_CODE: &str = "harbor";
+    const VAR_NAME: &str = "DOKA_ENV";
+
+    // Read the application config's file
+    println!(
+        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
+        PROJECT_CODE, VAR_NAME
+    );
+
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
+    set_prop_values(props);
+
+    let Ok(port) = get_prop_value("server.port")
+        .unwrap_or("".to_string())
+        .parse::<u16>()
+    else {
+        eprintln!("💣 Cannot read the server port");
+        exit(056);
+    };
+
     let cors = CorsLayer::new()
         .allow_methods([
             Method::GET,
@@ -593,14 +388,15 @@ async fn main() {
 
     // Create the Axum application with the GET route.
     let app = Router::new()
-        .route("/cbor/get_data", get(get_cbor_data))
         .route("/cbor/get_item", get(get_item))
         .route("/cbor/get_file/:file_ref", get(get_file))
         .route("/cbor/search_result", get(search_result))
         .layer(cors);
 
     // Start the server.
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+
+    log_info!("🏁 End {}", PROGRAM_NAME);
 }

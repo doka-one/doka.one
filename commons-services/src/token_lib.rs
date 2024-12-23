@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 
 use crate::COMMON_EDIBLE_KEY_PROPERTY;
@@ -43,7 +44,7 @@ impl SecurityToken {
         let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(tr_fwd!()) else {
             return false;
         };
-        !self.0.is_empty() && DkEncrypt::decrypt_str(&self.0, &cek).is_ok()
+        !self.0.is_empty() && DkEncrypt::new(CC20).decrypt_str(&self.0, &cek).is_ok()
     }
 
     pub fn take_value(self) -> String {
@@ -81,7 +82,7 @@ impl SessionToken {
         let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(tr_fwd!()) else {
             return false;
         };
-        !self.0.is_empty() && DkEncrypt::decrypt_str(&self.0, &cek).is_ok()
+        !self.0.is_empty() && DkEncrypt::new(CC20).decrypt_str(&self.0, &cek).is_ok()
     }
 
     pub fn take_value(self) -> String {

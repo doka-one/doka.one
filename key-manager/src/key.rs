@@ -15,6 +15,7 @@ use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{
     CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK,
@@ -74,10 +75,13 @@ impl KeyDelegate {
 
         let new_customer_key = DkEncrypt::generate_random_key();
 
-        let Ok(enc_password) = DkEncrypt::encrypt_str(&new_customer_key, &cek).map_err(err_fwd!(
-            "💣 Cannot encrypt the new key, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(enc_password) = DkEncrypt::new(CC20)
+            .encrypt_str(&new_customer_key, &cek)
+            .map_err(err_fwd!(
+                "💣 Cannot encrypt the new key, follower=[{}]",
+                &self.follower
+            ))
+        else {
             return WebType::from_errorset(&&INTERNAL_TECHNICAL_ERROR);
         };
 

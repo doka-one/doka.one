@@ -32,6 +32,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use dkdto::{
@@ -454,8 +455,9 @@ impl FileDelegate {
                 .decode(part_data)
                 .map_err(tr_fwd!())?;
 
-            let encrypted_block =
-                DkEncrypt::encrypt_vec(&raw_value, &customer_key).map_err(err_fwd!(
+            let encrypted_block = DkEncrypt::new(CC20)
+                .encrypt_vec(&raw_value, &customer_key)
+                .map_err(err_fwd!(
                     "Cannot encrypt the data block, follower=[{}]",
                     &self.follower
                 ))?;
@@ -897,7 +899,7 @@ impl FileDelegate {
     //
     //         // Encrypt the block
     //         let encrypted_block =
-    //             DkEncrypt::encrypt_vec(&block, &customer_key).map_err(err_fwd!(
+    //             DkEncrypt::new(CC20).encrypt_vec(&block, &customer_key).map_err(err_fwd!(
     //                 "Cannot encrypt the data block, follower=[{}]",
     //                 &self.follower
     //             ))?;
@@ -2046,8 +2048,9 @@ impl FileDelegate {
         );
 
         for (index, enc_content) in enc_slides {
-            let clear_content =
-                DkEncrypt::decrypt_vec(&enc_content, &customer_key).map_err(err_fwd!(
+            let clear_content = DkEncrypt::new(CC20)
+                .decrypt_vec(&enc_content, &customer_key)
+                .map_err(err_fwd!(
                     "Cannot decrypt the part, pool_index=[{}], follower=[{}]",
                     pool_index,
                     &self.follower

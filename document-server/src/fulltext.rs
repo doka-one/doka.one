@@ -17,12 +17,13 @@ use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use dkdto::{
     DeleteFullTextRequest, ErrorSet, FullTextReply, FullTextRequest, SimpleMessage, WebType,
     WebTypeBuilder,
 };
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use doka_cli::async_request_client::TikaServerClientAsync;
 use doka_cli::request_client::TokenType;
 
@@ -349,9 +350,12 @@ impl FullTextDelegate {
             &self.follower
         );
 
-        let words_encrypted = DkEncrypt::encrypt_str(words_text, customer_key).map_err(
-            err_fwd!("Cannot encrypt the words, follower=[{}]", &self.follower),
-        )?;
+        let words_encrypted = DkEncrypt::new(CC20)
+            .encrypt_str(words_text, customer_key)
+            .map_err(err_fwd!(
+                "Cannot encrypt the words, follower=[{}]",
+                &self.follower
+            ))?;
 
         let tsv = self
             .select_tsvector(&mut trans, Some(lang), words_text)

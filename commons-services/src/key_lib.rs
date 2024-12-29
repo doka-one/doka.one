@@ -2,11 +2,11 @@ use log::error;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use doka_cli::async_request_client::KeyManagerClientAsync;
 
-use crate::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use crate::x_request_id::Follower;
 use crate::COMMON_EDIBLE_KEY_PROPERTY;
 

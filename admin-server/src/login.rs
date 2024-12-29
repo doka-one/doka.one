@@ -11,12 +11,11 @@ use commons_pg::sql_transaction::CellValue;
 use commons_pg::sql_transaction_async::{
     SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
 };
-use commons_services::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY,
-};
+
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{

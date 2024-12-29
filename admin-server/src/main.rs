@@ -10,14 +10,12 @@ use log::*;
 
 use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
 use commons_pg::sql_transaction_async::init_db_pool_async;
-use commons_services::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use dkdto::{
     CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType,
 };
@@ -107,6 +105,7 @@ async fn main() {
     );
 
     let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
+    // let props = read_config(PROJECT_CODE, None);
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)

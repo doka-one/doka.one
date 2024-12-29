@@ -2,12 +2,12 @@ use log::error;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
 use dkdto::{EntrySession, ErrorSet};
 use doka_cli::async_request_client::SessionManagerClientAsync;
 use doka_cli::request_client::TokenType;
 
-use crate::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use crate::token_lib::SessionToken;
 use crate::x_request_id::Follower;
 

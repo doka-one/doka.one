@@ -114,9 +114,9 @@ impl WebServer {
     ) -> anyhow::Result<WebResponse<V>> {
         let wt = match request_builder.send() {
             Ok(v) => {
-                dbg!(&v);
+                // dbg!(&v);
                 let status_code = v.status();
-                dbg!(&status_code);
+                // dbg!(&status_code);
                 let wt = if status_code.as_u16() >= 300 {
                     Err(ErrorMessage {
                         http_error_code: status_code.as_u16(),

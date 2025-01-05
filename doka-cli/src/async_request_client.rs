@@ -261,7 +261,7 @@ impl DocumentServerClientAsync {
             file_ref: file_ref.to_owned(),
             raw_text: raw_text.to_owned(),
         };
-        dbg!(&request);
+        // dbg!(&request);
         let url = self.server.build_url("fulltext_indexing");
         let headers = CustomHeaders {
             token_type: TokenType::Sid(sid.to_string()),
@@ -526,8 +526,8 @@ impl WebServerAsync {
         request: &U,
         headers: &CustomHeaders,
     ) -> anyhow::Result<WebResponse<V>> {
-        dbg!(&url);
-        dbg!(&headers);
+        // dbg!(&url);
+        // dbg!(&headers);
 
         let client = Client::new();
         let url = Url::parse(url)?;
@@ -572,7 +572,7 @@ impl WebServerAsync {
         );
 
         // dbg!(&url);
-        dbg!(&token);
+        // dbg!(&token);
         let request_builder_2 = Self::add_header(request_builder, &token);
         Self::send_request_builder(request_builder_2.multipart(form)).await?
     }

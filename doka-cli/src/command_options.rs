@@ -43,11 +43,13 @@ fn display_options(options: &Vec<ParamOption>) {
         } else {
             "".to_string()
         };
-        println!("  {}{}{}\t{}",
-                 flag_str.green(),
-                 has_value_str,
-                 required_str,
-                 option.description);
+        println!(
+            "  {}{}{}\t{}",
+            flag_str.green(),
+            has_value_str,
+            required_str,
+            option.description
+        );
     }
 }
 
@@ -66,32 +68,30 @@ pub(crate) fn display_commands(commands: &[Command]) {
     }
 }
 
-
 #[derive(Debug)]
 pub(crate) struct Params {
     pub(crate) object: String,
     pub(crate) action: String,
-    pub(crate) options : HashMap<String, Option<String>>,
+    pub(crate) options: HashMap<String, Option<String>>,
 }
 
 // fn parse(args : &Vec<String>) -> anyhow::Result<Params> {
 
 pub(crate) fn parse_args(args: &[String]) -> anyhow::Result<Params> {
-
     if args.len() == 2 && (args[1] == "-h" || args[1] == "--help") {
-        return   Ok(Params {
+        return Ok(Params {
             object: "help".to_string(),
-            action : "help".to_string(),
-            options : HashMap::from([("-h".to_string(), None)]),
-        })
+            action: "help".to_string(),
+            options: HashMap::from([("-h".to_string(), None)]),
+        });
     }
 
     if args.len() == 2 && (args[1] == "-v" || args[1] == "--version") {
-        return   Ok(Params {
+        return Ok(Params {
             object: "version".to_string(),
-            action : "version".to_string(),
-            options : HashMap::from([("-v".to_string(), None)]),
-        })
+            action: "version".to_string(),
+            options: HashMap::from([("-v".to_string(), None)]),
+        });
     }
 
     // Vérification du nombre d'arguments passés
@@ -103,8 +103,8 @@ pub(crate) fn parse_args(args: &[String]) -> anyhow::Result<Params> {
     let command = args[1].clone();
     let subcommand = args[2].clone();
 
-    dbg!(&command);
-    dbg!(&subcommand);
+    // dbg!(&command);
+    // dbg!(&subcommand);
 
     // Initialisation de la liste d'options
     let mut options = HashMap::new();
@@ -114,7 +114,7 @@ pub(crate) fn parse_args(args: &[String]) -> anyhow::Result<Params> {
     while i < args.len() {
         let arg = &args[i];
 
-        dbg!(arg);
+        // dbg!(arg);
 
         // Si l'argument commence par "-" ou "--", il s'agit d'une option
         if arg.starts_with("-") || arg.starts_with("--") {
@@ -122,7 +122,7 @@ pub(crate) fn parse_args(args: &[String]) -> anyhow::Result<Params> {
             let option_value: Option<String>;
 
             // Si l'option commence par "--", elle peut avoir une valeur
-            if arg.starts_with("--")  || arg.starts_with("-") {
+            if arg.starts_with("--") || arg.starts_with("-") {
                 option_name = arg.clone();
                 if i + 1 < args.len() {
                     if args[i + 1].starts_with("--") || args[i + 1].starts_with("-") {
@@ -146,34 +146,51 @@ pub(crate) fn parse_args(args: &[String]) -> anyhow::Result<Params> {
 
     Ok(Params {
         object: command,
-        action : subcommand,
+        action: subcommand,
         options,
     })
 }
 
-
 pub(crate) fn load_commands() -> Vec<Command> {
     let json_str = include_str!("../commands.json");
-    serde_json::from_str(json_str).map_err(eprint_fwd!("💣 Problem while loading the list of commands")).unwrap()
+    serde_json::from_str(json_str)
+        .map_err(eprint_fwd!("💣 Problem while loading the list of commands"))
+        .unwrap()
 }
 
-fn _find_option<'a> (commands: &'a[Command], command_name: &str, subcommand_name: &str, option_flag: &str) -> Result<&'a ParamOption, String> {
-    let command = commands.iter()
+fn _find_option<'a>(
+    commands: &'a [Command],
+    command_name: &str,
+    subcommand_name: &str,
+    option_flag: &str,
+) -> Result<&'a ParamOption, String> {
+    let command = commands
+        .iter()
         .find(|cmd| cmd.name == command_name)
         .ok_or(format!("Command {} not found", command_name))?;
 
-    let subcommand = command.sub.iter()
+    let subcommand = command
+        .sub
+        .iter()
         .find(|subcmd| subcmd.name == subcommand_name)
-        .ok_or(format!("Subcommand {} not found in command {}", subcommand_name, command_name))?;
+        .ok_or(format!(
+            "Subcommand {} not found in command {}",
+            subcommand_name, command_name
+        ))?;
 
-    let option = subcommand.options.iter()
+    let option = subcommand
+        .options
+        .iter()
         .find(|opt| opt.flags.contains(&option_flag.to_string()))
-        .ok_or(format!("Option with flag {} not found in subcommand {}", option_flag, subcommand_name))?;
+        .ok_or(format!(
+            "Option with flag {} not found in subcommand {}",
+            option_flag, subcommand_name
+        ))?;
 
     Ok(option)
 }
 
-fn _validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a ParamOption, String> {
+fn _validate_args<'a>(commands: &'a [Command], args: &[String]) -> Result<&'a ParamOption, String> {
     match parse_args(args) {
         Ok(split_command) => {
             // let (command, subcommand, param_options) = split_command;
@@ -182,15 +199,13 @@ fn _validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a Pa
             let param_options = split_command.options;
 
             for (option_name, option_value) in param_options {
-                match _find_option(commands, &command, &subcommand, &option_name ) {
+                match _find_option(commands, &command, &subcommand, &option_name) {
                     Ok(p_option) => {
                         if p_option.has_value && option_value.is_none() {
                             // Err
                         }
                     }
-                    Err(_) => {
-
-                    }
+                    Err(_) => {}
                 }
             }
         }
@@ -200,10 +215,9 @@ fn _validate_args<'a>(commands: &'a[Command], args : &[String]) -> Result<&'a Pa
     Err("".to_string())
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::command_options::{Command, parse_args};
+    use crate::command_options::{parse_args, Command};
 
     #[test]
     fn get_data() {
@@ -211,7 +225,6 @@ mod tests {
         let commands: Vec<Command> = serde_json::from_str(json_str).unwrap();
         println!("{:#?}", commands);
     }
-
 
     #[test]
     fn test_parse_args() {
@@ -243,6 +256,5 @@ mod tests {
         ];
         let result = parse_args(&my_args);
         println!("{:#?}", &result);
-
     }
 }

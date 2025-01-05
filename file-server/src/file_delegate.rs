@@ -23,15 +23,15 @@ use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
 use commons_pg::sql_transaction_async::{SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync};
 use commons_services::key_lib::fetch_customer_key;
-use commons_services::property_name::{
-    DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY,
-    TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY,
-};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{
+    DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY,
+    TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY,
+};
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
@@ -1167,7 +1167,7 @@ impl FileDelegate {
     }
 
     ///
-    /// ✨ Get the information about the composition of a file [file_ref]
+    /// 🌟 Get the information about the composition of a file [file_ref]
     ///
     pub async fn file_info(&mut self, file_ref: &str) -> WebType<Option<GetFileInfoReply>> {
         log_info!("🚀 Start file_info api, follower=[{}]", &self.follower);
@@ -1196,7 +1196,7 @@ impl FileDelegate {
         web_type
     }
 
-    /// ✨ Find the files in the system
+    /// 🌟 Find the files in the system
     pub async fn file_list(&mut self, match_expression: &str) -> WebType<ListOfFileInfoReply> {
         log_info!("🚀 Start file_list api, follower=[{}]", &self.follower);
 
@@ -1353,7 +1353,7 @@ impl FileDelegate {
         Ok(files)
     }
 
-    /// ✨ Get the information about the files being loaded
+    /// 🌟 Get the information about the files being loaded
     ///
     /// Get all the upload information. Only the session id is required to identify the (customer id/user id)
     ///
@@ -1499,7 +1499,7 @@ impl FileDelegate {
     }
 
     ///
-    /// ✨ Get the information about the loading status of the [file_ref]
+    /// 🌟 Get the information about the loading status of the [file_ref]
     ///
     pub async fn file_stats(&mut self, file_ref: &str) -> WebType<GetFileInfoShortReply> {
         log_info!(
@@ -1637,7 +1637,7 @@ impl FileDelegate {
         }
     }
 
-    /// ✨ Download the binary content of a file
+    /// 🌟 Download the binary content of a file
     pub async fn download(&mut self, file_ref: &str) -> DownloadReply {
         log_info!(
             "🚀 Start download api, file_ref = [{}], follower=[{}]",

@@ -25,7 +25,11 @@ use dkdto::error_codes::{
     BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, MISSING_ITEM,
     MISSING_TAG_FOR_ITEM,
 };
-use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, EnumTagValue, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TagType, TagValueElement, WebTypeBuilder};
+use dkdto::{
+    AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue,
+    EnumTagValue, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TagType, TagValueElement,
+    WebTypeBuilder,
+};
 use doka_cli::request_client::TokenType;
 
 use crate::filter::{analyse_expression, to_sql_form, FilterExpressionAST};
@@ -48,7 +52,7 @@ impl ItemDelegate {
     }
 
     ///
-    /// ✨ Find all the items at page [start_page]
+    /// 🌟 Find all the items at page [start_page]
     ///
     pub async fn search_item(
         mut self,
@@ -144,7 +148,7 @@ impl ItemDelegate {
     }
 
     /// Deprecated - replace it with search_item
-    /// ✨ Find all the items at page [start_page]
+    /// 🌟 Find all the items at page [start_page]
     ///
     pub async fn get_all_item(
         mut self,
@@ -407,11 +411,13 @@ impl ItemDelegate {
                 .get_int("item_id")
                 .ok_or(anyhow!("Wrong item id"))?;
 
-
             let tt = match TagType::from_str(tag_type.to_lowercase().as_str()) {
-                Ok(v) => {v}
+                Ok(v) => v,
                 Err(_) => {
-                    return Err(anyhow!(format!("Wrong tag type, [{}]", tag_type.to_lowercase().as_str())));
+                    return Err(anyhow!(format!(
+                        "Wrong tag type, [{}]",
+                        tag_type.to_lowercase().as_str()
+                    )));
                 }
             };
 
@@ -464,7 +470,7 @@ impl ItemDelegate {
     }
 
     ///
-    /// ✨ Find an item from its item id
+    /// 🌟 Find an item from its item id
     ///
     pub async fn get_item(mut self, item_id: i64) -> WebType<GetItemReply> {
         // Done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
@@ -568,7 +574,7 @@ impl ItemDelegate {
     }
 
     ///
-    /// ✨ Delegate for delete_item_tag
+    /// 🌟 Delegate for delete_item_tag
     ///
     pub async fn delete_item_tag(
         mut self,
@@ -717,7 +723,7 @@ impl ItemDelegate {
     // }
 
     ///
-    /// ✨ Delegate for add_item_tag
+    /// 🌟 Delegate for add_item_tag
     ///
     pub async fn update_item_tag(
         mut self,
@@ -797,34 +803,8 @@ impl ItemDelegate {
         )
     }
 
-    // // TODO deprecated
-    // #[deprecated]
-    // fn valid_sid_get_session(&mut self) -> Result<String, ErrorSet<'static>> {
-    //     // Check if the token is valid
-    //     if !self.session_token.is_valid() {
-    //         log_error!(
-    //             "💣 Invalid session token, token=[{:?}], follower=[{}]",
-    //             &self.session_token,
-    //             &self.follower
-    //         );
-    //         return Err(&INVALID_TOKEN);
-    //         // return Json(AddItemReply::invalid_token_error_reply());
-    //     }
-    //
-    //     self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-    //
-    //     // Read the session information
-    //     let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
-    //         err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
-    //     ) else {
-    //         return Err(&INTERNAL_TECHNICAL_ERROR);
-    //     };
-    //     let customer_code = entry_session.customer_code.as_str();
-    //     Ok(customer_code.to_owned())
-    // }
-
     ///
-    /// ✨ Create an item
+    /// 🌟 Create an item
     ///
     pub async fn add_item(
         mut self,

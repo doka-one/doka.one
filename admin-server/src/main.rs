@@ -15,7 +15,9 @@ use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
+use dkconfig::property_name::{
+    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
+};
 use dkdto::{
     CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType,
 };
@@ -89,6 +91,11 @@ pub async fn delete_customer(
     delegate.delete_customer(&customer_code).await
 }
 
+/// Accept parameters from the commande line
+/// * --doka-env [optional] : the path to the .doka-config.json file (or from the DOKA_ENV environment variable)
+/// * --cluster-profile : the name of the cluster profile
+///
+/// By default, the program will look for the .doka-config.json file in the user's base folder
 #[tokio::main]
 async fn main() {
     const PROGRAM_NAME: &str = "Admin Server";
@@ -104,8 +111,11 @@ async fn main() {
         PROJECT_CODE, VAR_NAME
     );
 
-    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
-    // let props = read_config(PROJECT_CODE, None);
+    let props = read_config(
+        PROJECT_CODE,
+        &read_doka_env(&VAR_NAME),
+        &Some("DOKA_CLUSTER_PROFILE".to_string()),
+    );
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)

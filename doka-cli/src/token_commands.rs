@@ -7,24 +7,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
-use dkcrypto::dk_crypto::CypherMode::CC20;
+use dkconfig::properties::get_prop_value;
 use serde::{Deserialize, Serialize};
 
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
-
-///
-///
-///
-// pub (crate) fn token_command(params: &Params) -> anyhow::Result<()> {
-//     match params.action.as_str() {
-//         "generate" => {
-//             token_generate(&params)
-//         }
-//         action => {
-//             Err(anyhow!("💣 Unknown action=[{}]", action))
-//         }
-//     }
-// }
 
 /// {"expiry_date":"2022-11-05T14:55:60Z"}
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,7 +56,7 @@ pub fn token_generate(cek_file: &str) -> anyhow::Result<()> {
 }
 
 fn write_security_token(security_token: &str) -> anyhow::Result<()> {
-    let mut file = File::create(get_target_file("config/token.id")?)?;
+    let mut file = File::create(get_target_file("token.id")?)?;
     // Write a byte string.
     file.write_all(&security_token.to_string().into_bytes()[..])?;
     println!("💾 Security token stored");
@@ -77,7 +64,7 @@ fn write_security_token(security_token: &str) -> anyhow::Result<()> {
 }
 
 pub fn read_security_token() -> anyhow::Result<String> {
-    let file = File::open(get_target_file("config/token.id")?)?;
+    let file = File::open(get_target_file("token.id")?)?;
     let mut buf_reader = BufReader::new(file);
     let mut content: String = "".to_string();
     let _ = buf_reader.read_to_string(&mut content)?;
@@ -86,18 +73,8 @@ pub fn read_security_token() -> anyhow::Result<String> {
 
 /// Get the location of a file into the working folder
 pub fn get_target_file(termnination_path: &str) -> anyhow::Result<PathBuf> {
-    let doka_cli_env = env::var("DOKA_CLI_ENV").unwrap_or("".to_string());
+    let working_folder = get_prop_value("working.folder")?;
 
-    if !doka_cli_env.is_empty() {
-        Ok(Path::new(&doka_cli_env)
-            .join("doka-cli")
-            .join(termnination_path)
-            .to_path_buf())
-    } else {
-        let path = current_exe()?; //
-        let parent_path = path
-            .parent()
-            .ok_or(anyhow!("Problem to identify parent's binary folder"))?;
-        Ok(parent_path.join(termnination_path))
-    }
+    // dbg!(&working_folder);
+    Ok(Path::new(&working_folder).join(termnination_path))
 }

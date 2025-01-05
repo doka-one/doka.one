@@ -20,10 +20,10 @@ axum = { workspace = true }
 tokio = { workspace = true }
 tower-http = { workspace = true }
 
-ciborium = "^0.2.2"
+ciborium = "^0.2"
 tower = "0.4.13"
 hyper = "1.4.1"
-bytes = { version = "1.5.0", features = [] }
+bytes = { version = "^1.5", features = [] }
 async-nats = "^0.38"
 image = { version = "0.24.9"}
 rayon = "^1.7"
@@ -34,6 +34,7 @@ dkdto = {path="../dkdto"}
 dkcrypto = {path="../dkcrypto"}
 doka-cli = {path="../doka-cli"} # TODO should not be imported, it's only here to get the API stubs
 dkconfig={path="../dkconfig"}
+commons-services = {path= "../commons-services" }
 
 
 

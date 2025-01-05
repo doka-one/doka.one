@@ -8,14 +8,14 @@ use log::*;
 
 use commons_error::*;
 use commons_pg::sql_transaction_async::init_db_pool_async;
-use commons_services::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkconfig::property_name::{
+    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
+};
 use dkdto::{OpenSessionReply, OpenSessionRequest, SessionReply, WebType};
 
 use crate::session::SessionDelegate;
@@ -65,7 +65,11 @@ async fn main() {
         PROJECT_CODE, VAR_NAME
     );
 
-    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
+    let props = read_config(
+        PROJECT_CODE,
+        &read_doka_env(&VAR_NAME),
+        &Some("DOKA_CLUSTER_PROFILE".to_string()),
+    );
 
     set_prop_values(props);
 

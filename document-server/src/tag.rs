@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use std::str::FromStr;
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::Json;
 use log::{debug, error, info};
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
+use std::str::FromStr;
 
 use commons_error::*;
-use commons_pg::sql_transaction::{CellValue, iso_to_datetime, iso_to_naivedate, SQLDataSet};
+use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate, CellValue, SQLDataSet};
 use commons_pg::sql_transaction_async::{
     SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
 };
@@ -15,12 +15,15 @@ use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkdto::{AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TagElement, TagType, WebType, WebTypeBuilder};
 use dkdto::error_codes::{
-    INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATE_VALUE,
-    INCORRECT_DEFAULT_DATETIME_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
+    INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE,
+    INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
     INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME,
     INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, STILL_IN_USE,
+};
+use dkdto::{
+    AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TagElement, TagType, WebType,
+    WebTypeBuilder,
 };
 use doka_cli::request_client::TokenType;
 
@@ -43,7 +46,7 @@ impl TagDelegate {
     }
 
     ///
-    /// ✨ Find all the existing tags by pages
+    /// 🌟 Find all the existing tags by pages
     ///
     pub async fn get_all_tag(
         mut self,
@@ -258,7 +261,7 @@ impl TagDelegate {
     }
 
     ///
-    /// ✨ Delete a tag
+    /// 🌟 Delete a tag
     ///
     pub async fn delete_tag(mut self, tag_id: i64) -> WebType<SimpleMessage> {
         log_info!("🚀 Start delete_tag api, follower={}", &self.follower);
@@ -415,7 +418,7 @@ impl TagDelegate {
     }
 
     ///
-    /// ✨ Create a new tag
+    /// 🌟 Create a new tag
     ///
     pub async fn add_tag(mut self, add_tag_request: Json<AddTagRequest>) -> WebType<AddTagReply> {
         log_info!("🚀 Start add_tag api, follower=[{}]", &self.follower);
@@ -571,12 +574,11 @@ impl TagDelegate {
         }
 
         let tag_type = match TagType::from_str(add_tag_request.tag_type.to_lowercase().as_str()) {
-            Ok(v) => {v}
+            Ok(v) => v,
             Err(_) => {
                 return Err(&INCORRECT_TAG_TYPE);
             }
         };
-
 
         // Check the input values ( ie tag_type, length limit, default_value type, etc )
         match tag_type {
@@ -653,7 +655,7 @@ impl TagDelegate {
 
 #[cfg(test)]
 mod test {
-    use chrono::{Datelike, DateTime, Timelike, Utc};
+    use chrono::{DateTime, Datelike, Timelike, Utc};
 
     use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate};
 

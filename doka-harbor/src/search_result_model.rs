@@ -1,6 +1,22 @@
-use crate::{HarborContext, MapToHarbor};
-use dkdto::{EnumTagValue, GetItemReply, ItemElement, TagValueElement};
+use bytes::Bytes;
 use serde_derive::{Deserialize, Serialize};
+
+use dkdto::{EnumTagValue, GetItemReply, ItemElement, TagValueElement};
+
+#[derive(Serialize)]
+struct CborFile {
+    file_data: Bytes,
+}
+
+#[derive(Clone, Debug)]
+pub struct HarborContext {
+    pub date_format_fn: fn(&str) -> String,
+    pub datetime_format_fn: fn(&str, i32) -> String,
+}
+
+pub trait MapToHarbor<T> {
+    fn map_to_harbor(&self, context: &HarborContext) -> T;
+}
 
 /// Model for the SearchResult component
 
@@ -101,7 +117,7 @@ impl MapToHarbor<Option<String>> for EnumTagValue {
 /// End Model for the SearchResult component
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct GetItemReplyForComponent1 {
+pub struct GetItemReplyForSearchResult {
     pub items: Vec<ItemElementForComponent1>,
 }
 
@@ -124,9 +140,9 @@ pub struct TagValueElementForComponent1 {
     pub formatted_value: String,
 }
 
-impl MapToHarbor<GetItemReplyForComponent1> for GetItemReply {
-    fn map_to_harbor(&self, context: &HarborContext) -> GetItemReplyForComponent1 {
-        GetItemReplyForComponent1 {
+impl MapToHarbor<GetItemReplyForSearchResult> for GetItemReply {
+    fn map_to_harbor(&self, context: &HarborContext) -> GetItemReplyForSearchResult {
+        GetItemReplyForSearchResult {
             items: self
                 .items
                 .iter()

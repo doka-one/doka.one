@@ -36,9 +36,7 @@ pub(crate) fn get_item(id: &str) -> anyhow::Result<()> {
             let _ = show_items(&reply, JSON);
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{} - {}", e.http_error_code, e.message))
-        }
+        Err(e) => Err(anyhow!("{} - {}", e.http_error_code, e.message)),
     }
 }
 
@@ -58,12 +56,9 @@ pub(crate) fn search_item() -> anyhow::Result<()> {
             let _r = show_items(&reply, INLINE); // TODO handle error and use eprint_fwd!
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
 }
-
 
 //
 fn show_items(items: &GetItemReply, display_format: DisplayFormat) -> anyhow::Result<()> {
@@ -71,9 +66,7 @@ fn show_items(items: &GetItemReply, display_format: DisplayFormat) -> anyhow::Re
         DisplayFormat::INLINE => {
             for item in &items.items {
                 let prop_str = match &item.properties {
-                    None => {
-                        "".to_string()
-                    }
+                    None => "".to_string(),
                     Some(p) => {
                         let mut p_str: String = "".to_string();
                         for prop in p {
@@ -87,7 +80,10 @@ fn show_items(items: &GetItemReply, display_format: DisplayFormat) -> anyhow::Re
                 };
                 let default_value = "none".to_string();
                 let file_ref = item.file_ref.as_ref().unwrap_or(&default_value);
-                println!("id:{}\tname:{}\tfile_ref:{}\t{}", item.item_id, item.name, file_ref, prop_str);
+                println!(
+                    "id:{}\tname:{}\tfile_ref:{}\t{}",
+                    item.item_id, item.name, file_ref, prop_str
+                );
             }
         }
         DisplayFormat::JSON => {
@@ -102,30 +98,18 @@ fn extract_parts(input: &str) -> Option<(Option<String>, Option<String>, Option<
     let re = Regex::new(r#"^([^:]+):(.+)?:([^:]+)?$"#).unwrap();
     if let Some(captures) = re.captures(input) {
         let part1 = match captures.get(1) {
-            None => {
-                None
-            }
-            Some(v) => {
-                Some(v.as_str().to_owned())
-            }
+            None => None,
+            Some(v) => Some(v.as_str().to_owned()),
         };
 
         let part2 = match captures.get(2) {
-            None => {
-                None
-            }
-            Some(v) => {
-                Some(v.as_str().trim_matches('\'').to_owned())
-            }
+            None => None,
+            Some(v) => Some(v.as_str().trim_matches('\'').to_owned()),
         };
 
         let part3 = match captures.get(3) {
-            None => {
-                None
-            }
-            Some(v) => {
-                Some(v.as_str().to_owned())
-            }
+            None => None,
+            Some(v) => Some(v.as_str().to_owned()),
         };
         Some((part1, part2, part3))
     } else {
@@ -133,17 +117,18 @@ fn extract_parts(input: &str) -> Option<(Option<String>, Option<String>, Option<
     }
 }
 
-
 fn parse_property(prop: &str) -> anyhow::Result<(String, Option<String>, Option<String>)> {
     let nb_sep = prop.chars().filter(|&c| c == ':').count();
     let (tag_name, opt_tag_value, opt_tag_type) = match nb_sep {
-        0 => {
-            (prop.to_owned(), None, None)
-        }
+        0 => (prop.to_owned(), None, None),
         1 => {
             let separator = prop.find(":").unwrap_or(prop.len());
             let (name, value) = prop.split_at(separator);
-            (name.to_owned(), Some(value.replace(":", "").trim_matches('\'').to_owned()), None)
+            (
+                name.to_owned(),
+                Some(value.replace(":", "").trim_matches('\'').to_owned()),
+                None,
+            )
         }
         _ => {
             let (opt_name, opt_value, opt_type) = extract_parts(prop).unwrap();
@@ -151,7 +136,7 @@ fn parse_property(prop: &str) -> anyhow::Result<(String, Option<String>, Option<
         }
     };
 
-    dbg!(&opt_tag_value);
+    // dbg!(&opt_tag_value);
 
     Ok((tag_name, opt_tag_value, opt_tag_type))
 }
@@ -160,43 +145,42 @@ fn parse_property(prop: &str) -> anyhow::Result<(String, Option<String>, Option<
 /// The input must be of "age:24:integer" "age:24"  or "flag1"
 ///
 fn build_item_tag(param_value: &str) -> anyhow::Result<AddTagValue> {
-
-    let (tag_name, tag_value, tag_type)  = parse_property(&param_value)
-        .map_err(tr_fwd!())?;
+    let (tag_name, tag_value, tag_type) = parse_property(&param_value).map_err(tr_fwd!())?;
 
     let enum_tag_value = match (tag_value, tag_type) {
-        (None, None) => {
-            EnumTagValue::Boolean(Some(true))
-        }
-        (Some(v), None) => {
-            EnumTagValue::Text(Some(v))
-        }
+        (None, None) => EnumTagValue::Boolean(Some(true)),
+        (Some(v), None) => EnumTagValue::Text(Some(v)),
         (None, Some(_)) => {
             return Err(anyhow!("Missing value for property: {}", param_value));
         }
         (Some(v), Some(t)) => {
-             let r = EnumTagValue::from_string(&v, &t);
-             match r {
-                 Ok(v) => {
-                     v
-                 }
-                 Err(_e) => {
-                     return Err(anyhow!("Property type and value does not match: {}", param_value));
-                 }
-             }
+            let r = EnumTagValue::from_string(&v, &t);
+            match r {
+                Ok(v) => v,
+                Err(_e) => {
+                    return Err(anyhow!(
+                        "Property type and value does not match: {}",
+                        param_value
+                    ));
+                }
+            }
         }
     };
 
     Ok(AddTagValue {
         tag_id: None,
         tag_name: Some(tag_name),
-        value: enum_tag_value
+        value: enum_tag_value,
     })
-
 }
 
 ///
-pub(crate) fn create_item(item_name: &str, o_file_ref: Option<&str>, o_path: Option<&str>, o_properties: Option<&str>) -> anyhow::Result<()> {
+pub(crate) fn create_item(
+    item_name: &str,
+    o_file_ref: Option<&str>,
+    o_path: Option<&str>,
+    o_properties: Option<&str>,
+) -> anyhow::Result<()> {
     println!("👶 Creating the item...");
 
     // Fill the properties vector from the "(tag[:value[:link|date|text|number]])()..."
@@ -210,12 +194,12 @@ pub(crate) fn create_item(item_name: &str, o_file_ref: Option<&str>, o_path: Opt
     let file_server_client = FileServerClient::new(&server_host, file_server_port);
 
     let new_file_ref = match o_path {
-        None => {None}
+        None => None,
         Some(path) => {
             println!("Uploading the file...");
             let file = File::open(Path::new(path))?;
             let mut buf_reader = BufReader::new(file);
-            let mut binary : Vec<u8> = vec![];
+            let mut binary: Vec<u8> = vec![];
             let _n = buf_reader.read_to_end(&mut binary)?;
             let fs_reply = file_server_client.upload(&item_name, &binary, &sid);
 
@@ -269,9 +253,7 @@ pub(crate) fn create_item(item_name: &str, o_file_ref: Option<&str>, o_path: Opt
             println!("😎 Item successfully created, id : {} ", reply.item_id);
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
 }
 
@@ -282,24 +264,25 @@ pub fn item_tag_update(id: &str, o_add_props: Option<&str>) -> anyhow::Result<()
 
     // Fill the properties vector from the "(tag[:value[:link|date|text|number]])()..."
     let properties = build_properties_from_string(o_add_props)?;
-    dbg!(&properties);
+    // dbg!(&properties);
 
     let sid = read_session_id()?;
     let server_host = get_prop_value("server.host")?;
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
 
     let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
-    let add_item_tag_request = AddItemTagRequest { /*item_id,*/ properties };
-    let r_add_item_tag = document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
+    let add_item_tag_request = AddItemTagRequest {
+        /*item_id,*/ properties,
+    };
+    let r_add_item_tag =
+        document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
 
     match r_add_item_tag {
         Ok(_reply) => {
             println!("😎 Tags successfully added, for item id : {} ", item_id);
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
 }
 
@@ -307,9 +290,10 @@ pub fn item_tag_delete(id: &str, o_delete_props: Option<&str>) -> anyhow::Result
     println!("👶 Delete the item tags...");
 
     let item_id: i64 = id.parse()?;
-    dbg!(&o_delete_props);
+    // dbg!(&o_delete_props);
 
-    let tag_names: Vec<String> = o_delete_props.unwrap_or("")
+    let tag_names: Vec<String> = o_delete_props
+        .unwrap_or("")
         .split(',')
         .map(|tag| tag.to_string())
         .collect();
@@ -329,9 +313,7 @@ pub fn item_tag_delete(id: &str, o_delete_props: Option<&str>) -> anyhow::Result
             println!("😎 Tags successfully deleted, for item id : {} ", item_id);
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
 }
 
@@ -382,7 +364,6 @@ mod tests {
         assert_eq!(2 + 2, 4);
     }
 
-
     #[test]
     fn test_prop_parsing() {
         let prop = "my_prop1:'value:value2':text";
@@ -403,10 +384,8 @@ mod tests {
         println!("-------------");
     }
 
-
     #[test]
     fn test_build_tag_value() {
-
         let prop = "my_double:3.14159:decimal";
         let x = build_item_tag(prop);
         dbg!(x);
@@ -433,4 +412,3 @@ mod tests {
         println!("-------------");
     }
 }
-

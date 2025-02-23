@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use bytes::Bytes;
 use commons_error::*;
 use hyper::StatusCode;
@@ -9,8 +7,16 @@ use log::*;
 use serde::de::DeserializeOwned;
 use serde::{de, Serialize};
 use serde_derive::Deserialize;
+use std::io::Cursor;
+use std::ops::Deref;
 use tokio::task;
 
+use crate::buckets::{DOC_BUCKET, FILE_BUCKET};
+use crate::date_tools::{format_date, format_date_in_timezone};
+use crate::kv_store::KvStore;
+use crate::search_result_model::{
+    GetItemReplyForSearchResult, HarborContext, MapToHarbor, SearchResultHarbor,
+};
 use commons_error::{err_fwd, log_info, log_warn};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
@@ -22,20 +28,15 @@ use dkdto::{ErrorSet, GetItemReply, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
 use doka_cli::request_client::TokenType;
 
-use crate::date_tools::{format_date, format_date_in_timezone};
-use crate::kv_store::KvStore;
-use crate::search_result_model::{
-    GetItemReplyForSearchResult, HarborContext, MapToHarbor, SearchResultHarbor,
-};
-
-pub(crate) struct SearchResultComponent {
-    pub session_token: SessionToken,
-    pub follower: Follower,
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct CborFile {
     pub file_data: Bytes,
+}
+
+#[derive(Clone)]
+pub(crate) struct SearchResultComponent {
+    pub session_token: SessionToken,
+    pub follower: Follower,
 }
 
 impl SearchResultComponent {
@@ -60,12 +61,44 @@ impl SearchResultComponent {
         }
     }
 
+    /// 🌟 Read the original file from the Doka API or the storage
+    pub async fn view_file(&mut self, file_ref: &str) -> CborType<CborFile> {
+        log_info!("🚀 Start the view_file API");
+
+        let entry_session = try_or_return!(
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
+            Self::cbor_type_error()
+        );
+
+        let micro_trans = "7cf98e6a";
+
+        let Ok(reduced_data) = self
+            .smart_fetch_original_file(&micro_trans, &file_ref)
+            .await
+            .map_err(err_fwd!(
+                "Cannot fetch file, file_ref=[{}], follower=[{}]",
+                &file_ref,
+                &self.follower
+            ))
+        else {
+            return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        };
+
+        let cbor_file = CborFile {
+            file_data: Bytes::from(reduced_data.to_vec()),
+        };
+
+        log_info!("🏁 End the view_file API");
+
+        CborType::from_item(StatusCode::OK.as_u16(), cbor_file)
+    }
+
     /// 🌟 Read a file from the Doka API
     pub async fn get_file(&mut self, file_ref: &str) -> CborType<CborFile> {
         log_info!("🚀 Start the get_file API");
 
         let entry_session = try_or_return!(
-            valid_sid_get_session(&self.session_token, &mut self.follower).await, /* => Result of an object or a static ErrorSet*/
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
             Self::cbor_type_error()
         );
 
@@ -76,8 +109,8 @@ impl SearchResultComponent {
         //     |_| CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
         // );
 
-        /* => anyhow::Result<Box<Vec<u8>>> */
-        let Ok(reduced_data) = Self::smart_fetch_file(&micro_trans, &file_ref)
+        let Ok(reduced_data) = self
+            .smart_fetch_reduced_file(&micro_trans, &file_ref)
             .await
             .map_err(err_fwd!("Cannot fetch file, follower=[{}]", &self.follower))
         else {
@@ -88,15 +121,15 @@ impl SearchResultComponent {
             file_data: Bytes::from(reduced_data.to_vec()),
         };
 
-        log_info!("🏁 End get_file");
+        log_info!("🏁 End the get_file API");
 
         CborType::from_item(StatusCode::OK.as_u16(), cbor_file)
     }
 
-    /// 🌟 Search for items from the Doka API
-    /// The search is based on a session token
+    /// 🌟 Search for the entities from the Doka API
+    /// - The search is based on a session token
     pub async fn search_result(&self) -> CborType<SearchResultHarbor> {
-        log_info!("🚀 Start the search result API");
+        log_info!("🚀 Start the search_result API");
 
         // Call the doka API
 
@@ -104,38 +137,53 @@ impl SearchResultComponent {
         let search_filters = "NONE";
         let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
 
-        let document_bucket = "docs-60";
         let search_key = format!("{}-{}-{}", &sid, &micro_trans, search_filters);
-
-        let file_bucket = "files-60";
-        let file_store = KvStore::new(file_bucket, "0123456789ABCDEF");
+        let file_store = KvStore::new(FILE_BUCKET, "0123456789ABCDEF");
 
         let server_host = "localhost"; // get_prop_value("server.host")?;
         let document_server_port: u16 = 30070; // get_prop_value("ds.port")?.parse()?;
 
-        let document_store = KvStore::new(document_bucket, "0123456789ABCDEF");
+        let document_store = KvStore::new(DOC_BUCKET, "0123456789ABCDEF");
 
-        let get_item_reply = match document_store.read_from_nats(&search_key).await.unwrap() {
+        let Ok(o_original_file) =
+            document_store
+                .read_from_nats(&search_key)
+                .await
+                .map_err(err_fwd!(
+                    "Cannot fetch the original file, follower=[{}]",
+                    &self.follower
+                ))
+        else {
+            return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        };
+
+        let get_item_reply = match o_original_file {
             None => {
                 // Call the first API
                 let client = DocumentServerClientAsync::new(&server_host, document_server_port);
-                let items = match client.search_item(&sid).await {
-                    Ok(reply) => {
-                        log_info!(
-                            "😎 Item successfully fetch from API, count : {} ",
-                            reply.items.len()
-                        );
-                        reply
-                    }
-                    Err(e) => panic!(), /*Err(anyhow!("{} - {}", e.http_error_code, e.message))*/
+
+                let Ok(get_item_reply) = client.search_item(&sid).await.map_err(err_fwd!(
+                    "💣 Cannot fetch the original file, follower=[{}]",
+                    &self.follower
+                )) else {
+                    return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
                 };
 
+                log_info!(
+                    "😎 Item successfully fetch from API, count : {} ",
+                    get_item_reply.items.len()
+                );
+
                 // Store the API data, in JSON format, in the storage
-                // ....
-                let binary_json = serde_json::to_string(&items).unwrap().into_bytes();
-                let r = document_store.store_to_nats(&search_key, binary_json).await;
-                // dbg!(&r);
-                items
+                let binary_json = serde_json::to_string(&get_item_reply).unwrap().into_bytes();
+                let _ = document_store
+                    .store_to_nats(&search_key, binary_json)
+                    .await
+                    .map_err(err_fwd!(
+                        "💣 Cannot store the original file, follower=[{}]",
+                        &self.follower
+                    ));
+                get_item_reply
             }
             Some(binary_json) => {
                 serde_json::from_str::<GetItemReply>(&(String::from_utf8(binary_json).unwrap()))
@@ -144,20 +192,21 @@ impl SearchResultComponent {
         };
 
         // Call the second API, for each items
-        log_info!("!!! Call the second API, for each items");
+        log_info!("Call the file API, for each items, in parallel");
 
-        for my_item in &get_item_reply.items {
-            if let Some(file_ref) = my_item.file_ref.as_ref() {
+        for my_entity in &get_item_reply.items {
+            if let Some(file_ref) = my_entity.file_ref.as_ref() {
                 let file_ref_clone = file_ref.clone();
                 let file_key = format!("{}-{}-{}", &sid, &micro_trans, &file_ref_clone);
                 match file_store.read_from_nats(&file_key).await.unwrap() {
                     None => {
+                        let self_clone = self.clone();
                         let _handle = tokio::spawn(async move {
                             log_info!("Smart fetch file for file ref : {}", &file_ref_clone);
-                            let _reduced_data =
-                                Self::smart_fetch_file(&micro_trans, &file_ref_clone)
-                                    .await
-                                    .unwrap();
+                            let _reduced_data = self_clone
+                                .smart_fetch_reduced_file(&micro_trans, &file_ref_clone)
+                                .await
+                                .unwrap();
                         });
                     }
                     Some(data) => {
@@ -168,7 +217,7 @@ impl SearchResultComponent {
         }
 
         // Transform the API data into something "front"
-        log_info!("!!! Transform the API data into something front");
+        log_info!("Transform the API data into something front");
         let context = HarborContext {
             date_format_fn: format_date,
             datetime_format_fn: format_date_in_timezone,
@@ -177,121 +226,41 @@ impl SearchResultComponent {
 
         let ret = CborType::from_item(StatusCode::OK.as_u16(), harbor_data);
 
-        log_info!("🏁 End search item ");
+        log_info!("🏁 End the search_result API");
 
         ret
     }
 
-    /// 🌟 Get an item from the Doka API
-    pub async fn get_item(
-        &self, /*, session_token: SessionToken, pattern: String*/
-    ) -> CborType<GetItemReplyForSearchResult> {
-        log_info!("🚀 Start the get_item API");
-
-        // let query_name = "MY_ITEM";
-        let micro_trans = "7cf98e6a";
-        let item_id: i64 = 9;
-        let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
-
-        let document_bucket = "docs-60";
-        let document_key = format!("{}-{}-{}", &sid, &micro_trans, item_id);
-
-        let file_bucket = "files-60";
-
-        // let habor_bucket = "harbor-60";
-        // let query_key = format!("{}-{}-{}-{}", &sid, &micro_trans, &query_name, item_id);
-
-        let server_host = "localhost"; // get_prop_value("server.host")?;
-        let document_server_port: u16 = 30070; // get_prop_value("ds.port")?.parse()?;
-
-        let document_store = KvStore::new(document_bucket, "0123456789ABCDEF");
-
-        let get_item_reply = match document_store.read_from_nats(&document_key).await.unwrap() {
-            None => {
-                // Call the first API
-                let client = DocumentServerClientAsync::new(&server_host, document_server_port);
-                let data = match client.get_item(item_id, &sid).await {
-                    Ok(reply) => {
-                        log_info!(
-                            "😎 Item successfully fetch from API, count : {} ",
-                            reply.items.len()
-                        );
-                        reply
-                    }
-                    Err(e) => panic!(), /*Err(anyhow!("{} - {}", e.http_error_code, e.message))*/
-                };
-
-                // Store the API data in the SQLite database (could be in the API stub)
-                // ....
-                let s_item = serde_json::to_string(&data).unwrap().into_bytes();
-                let r = document_store.store_to_nats(&document_key, s_item).await;
-                // dbg!(&r);
-                data
-            }
-            Some(d) => {
-                serde_json::from_str::<GetItemReply>(&(String::from_utf8(d).unwrap())).unwrap()
-            }
-        };
-
-        // Call the second API
-        let file_store = KvStore::new(file_bucket, "0123456789ABCDEF");
-
-        if get_item_reply.items.len() > 0 {
-            let my_item = get_item_reply.items.get(0).unwrap();
-            if let Some(file_ref) = my_item.file_ref.as_ref() {
-                let file_ref_clone = file_ref.clone();
-                let sid_clone = sid.to_string();
-
-                let file_key = format!("{}-{}-{}", &sid, &micro_trans, &file_ref_clone);
-                match file_store.read_from_nats(&file_key).await.unwrap() {
-                    None => {
-                        let _handle = tokio::spawn(async move {
-                            let _reduced_data =
-                                Self::smart_fetch_file(&micro_trans, &file_ref_clone)
-                                    .await
-                                    .unwrap();
-                        });
-                    }
-                    Some(data) => {
-                        log_info!("Data already in Nats. size {}", data.len())
-                    }
-                }
-            }
-        }
-
-        // Transform the API data into something "front"
-        let context = HarborContext {
-            date_format_fn: format_date,
-            datetime_format_fn: format_date_in_timezone,
-        };
-        let harbor_data: GetItemReplyForSearchResult = get_item_reply.map_to_harbor(&context);
-
-        let ret = CborType::from_item(StatusCode::OK.as_u16(), harbor_data);
-        log_info!("🏁 End get item ");
-
-        ret
-    }
-
-    /// Get a reduced binary content from either
-    /// * the Doka API after reducing the raw image
-    /// * the storage   
-    async fn smart_fetch_file(micro_trans: &str, file_ref: &str) -> anyhow::Result<Box<Vec<u8>>> {
-        let file_bucket = "files-60";
+    async fn smart_fetch_original_file(
+        &self,
+        micro_trans: &str,
+        file_ref: &str,
+    ) -> anyhow::Result<Box<Vec<u8>>> {
         let server_host = "localhost";
         let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
         let file_key = format!("{}-{}-{}", &sid, &micro_trans, &file_ref);
 
-        let kv_store = KvStore::new(file_bucket, "0123456789ABCDEF");
+        let kv_store = KvStore::new(FILE_BUCKET, "0123456789ABCDEF");
 
-        let raw_data = match kv_store.read_from_nats(&file_key).await.unwrap() {
+        let o_raw_data = kv_store
+            .read_from_nats(&file_key)
+            .await
+            .map_err(err_fwd!("Cannot fetch file"))?;
+
+        let raw_data = match o_raw_data {
             None => {
                 let fs_client = FileServerClientAsync::new(server_host, 30080);
                 let r = fs_client.download(&file_ref, &sid).await;
                 let data = r.unwrap().data;
                 log_info!("😎 File downloaded : {}", data.len());
-                let r = kv_store
+                let _ = kv_store
                     .store_to_nats(&file_key, data.to_vec().clone())
-                    .await;
+                    .await
+                    .map_err(err_fwd!(
+                        "Cannot store file, file_ref : [{}], follower=[{}]",
+                        &file_ref,
+                        &self.follower
+                    ))?;
                 data.to_vec()
             }
             Some(data) => {
@@ -300,29 +269,67 @@ impl SearchResultComponent {
             }
         };
 
+        Ok(Box::new(raw_data))
+    }
+
+    /// Get a reduced binary content from either
+    /// * the Doka API after reducing the raw image
+    /// * the storage   
+    async fn smart_fetch_reduced_file(
+        &self,
+        micro_trans: &str,
+        file_ref: &str,
+    ) -> anyhow::Result<Box<Vec<u8>>> {
+        let sid = "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
+
+        let kv_store = KvStore::new(FILE_BUCKET, "0123456789ABCDEF");
         let file_reduced_key = format!("{}-{}-{}-REDUCED", &sid, &micro_trans, &file_ref);
 
-        let reduced_data = match kv_store.read_from_nats(&file_reduced_key).await.unwrap() {
-            None => {
-                log_info!("About to resize. Original size {}", raw_data.len());
-                // Resizing can be CPU blocking so we run a separate task
-                let reduced_data =
-                    task::spawn_blocking(move || Self::resize_jpeg(raw_data, 800, 600).unwrap())
+        let reduced_data =
+            match kv_store
+                .read_from_nats(&file_reduced_key)
+                .await
+                .map_err(err_fwd!(
+                    "Cannot fetch file, file_ref=[{}], follower=[{}]",
+                    &file_ref,
+                    &self.follower
+                ))? {
+                None => {
+                    let raw_data = self
+                        .smart_fetch_original_file(micro_trans, file_ref)
+                        .await?
+                        .to_vec();
+
+                    log_info!("About to resize. Original size {}", raw_data.len());
+                    // Resizing can be CPU blocking so we run a separate task
+                    let follower_clone = self.follower.clone();
+                    let reduced_data =
+                        task::spawn_blocking(move || match Self::resize_jpeg(raw_data, 800, 600) {
+                            Ok(reduced_data) => reduced_data,
+                            Err(e) => {
+                                log_error!(
+                                    "Cannot resize, follower=[{}], error=[{}]",
+                                    &follower_clone,
+                                    e
+                                );
+                                vec![]
+                            }
+                        })
                         .await
                         .expect("Task panicked");
-                log_info!("Reduction done");
+                    log_info!("Reduction done");
 
-                let r = kv_store
-                    .store_to_nats(&file_reduced_key, reduced_data.to_vec().clone())
-                    .await;
-                log_info!("--> Store resize to nats is done");
-                reduced_data
-            }
-            Some(reduced_data) => {
-                log_warn!("Reduced file already in Nats. size {}", reduced_data.len());
-                reduced_data
-            }
-        };
+                    let r = kv_store
+                        .store_to_nats(&file_reduced_key, reduced_data.to_vec().clone())
+                        .await;
+                    log_info!("Store resize to nats is done");
+                    reduced_data
+                }
+                Some(reduced_data) => {
+                    log_warn!("Reduced file already in Nats. size {}", reduced_data.len());
+                    reduced_data
+                }
+            };
         log_info!("End of smart fetch");
         Ok(Box::new(reduced_data))
     }

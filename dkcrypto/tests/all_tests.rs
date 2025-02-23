@@ -7,6 +7,7 @@ mod tests {
     use log::*;
 
     use commons_error::*;
+    use dkcrypto::dk_crypto::CypherMode::CC20;
     use dkcrypto::dk_crypto::*;
 
     static INIT: Once = Once::new();

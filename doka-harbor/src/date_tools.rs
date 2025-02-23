@@ -11,7 +11,10 @@ pub(crate) fn format_date(iso_date: &str) -> String {
 
 pub(crate) fn format_date_in_timezone(iso_date_time: &str, timezone_offset: i32) -> String {
     // Parse the ISO 8601 date string into a DateTime object
-    let dt = DateTime::parse_from_rfc3339(iso_date_time).expect("Invalid ISO date");
+    let Ok(dt) = DateTime::parse_from_rfc3339(iso_date_time) else {
+        //expect("Invalid ISO date");
+        return "Invalid date".to_string();
+    };
 
     // Apply the desired timezone offset (in hours)
     let offset = FixedOffset::east(timezone_offset * 3600); // timezone_offset is in hours

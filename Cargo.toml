@@ -65,4 +65,6 @@ debug-assertions = false
 incremental = true
 
 [profile.dev]
+opt-level = 2  # Faster than debug, but compiles quickly
+debug = false   # Removes debug symbols
 incremental = true

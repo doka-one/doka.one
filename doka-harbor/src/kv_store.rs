@@ -67,15 +67,17 @@ impl KvStore {
                 .map(|chunk| {
                     // TODO we can switch to the self.secret16 as soon as we placed the IV
                     //      at the first 16 bytes of the data
-                    log_info!("x - Decrypted");
-                    DkEncrypt::new(AES).decrypt_vec(&chunk, &secret).unwrap()
+                    DkEncrypt::new(AES)
+                        .decrypt_vec(&chunk, &secret)
+                        .unwrap_or_else(|e| {
+                            log_error!("Cannot decrypt the chunk data: {:?}", e);
+                            vec![]
+                        })
                 })
                 .collect()
         })
         .await
-        .expect("Task panicked");
-
-        // TODO Place some standard logs
+        .map_err(err_fwd!("Cannot decrypt the data"))?;
 
         for decrypted_chunk in decrypted_chunks.iter() {
             data.extend_from_slice(decrypted_chunk);
@@ -106,7 +108,10 @@ impl KvStore {
         let jetstream = async_nats::jetstream::new(client);
 
         // Create or access a Key-Value store
-        let kv = jetstream.get_key_value(&self.bucket.to_string()).await?;
+        let kv = jetstream
+            .get_key_value(&self.bucket.to_string())
+            .await
+            .map_err(err_fwd!("Cannot access the keystore value"))?;
         log_info!("Key-Value store '{}' ready", &&self.bucket);
 
         // Define chunk size (1 MB) minus some bytes for the encryption overhead
@@ -132,7 +137,7 @@ impl KvStore {
                 .collect()
         })
         .await
-        .expect("Task panicked");
+        .map_err(err_fwd!("Cannot encrypt the data"))?;
 
         for (i, encrypted) in encrypted_chunks.into_iter().enumerate() {
             // Generate a unique key for the chunk
@@ -140,9 +145,9 @@ impl KvStore {
             let count = encrypted.len();
             // Store the encrypted chunk in the KV store
             if let Err(e) = kv.put(&key_i, encrypted.into()).await {
-                log_error!(">> Failed to store chunk {}: {:?}", key_i, e);
+                log_error!("Failed to store chunk {}: {:?}", key_i, e);
             } else {
-                log_info!(">> Data stored with key '{}', size {}", &key_i, &count);
+                log_info!("Data stored with key '{}', size {}", &key_i, &count);
             }
         }
 

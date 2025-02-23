@@ -10,17 +10,19 @@ echo "cluster profile: $CLUSTER_PROFILE"
 echo *************************
 echo ***** KEY MANAGER *******
 echo *************************
-#echo ">>>> gnome-terminal --title=\"key manager\" -- $ROOT_FOLDER/key-manager --cluster-profile $CLUSTER_PROFILE"
+echo ">>>> gnome-terminal --title=\"key manager\" -- $ROOT_FOLDER/key-manager --cluster-profile $CLUSTER_PROFILE"
 gnome-terminal --title="key manager" -- $ROOT_FOLDER/key-manager --cluster-profile $CLUSTER_PROFILE &
 
 echo **************************
 echo ***** SESSION MANAGER ****
 echo **************************
+echo ">>>> gnome-terminal --title=\"session manager\" -- $ROOT_FOLDER/session-manager --cluster-profile $CLUSTER_PROFILE"
 gnome-terminal --title="session manager" -- $ROOT_FOLDER/session-manager --cluster-profile $CLUSTER_PROFILE &
 
 echo **************************
 echo ***** ADMIN SERVER *******
 echo **************************
+
 gnome-terminal --title="admin manager" -- $ROOT_FOLDER/admin-server --cluster-profile $CLUSTER_PROFILE &
 
 echo *****************************

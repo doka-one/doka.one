@@ -3,11 +3,9 @@ use std::process::exit;
 
 use axum::extract::Path;
 use axum::http::Method;
+use axum::response::Html;
 use axum::{routing::get, Router};
 use chrono::Timelike;
-use log::*;
-use tower_http::cors::{Any, CorsLayer};
-
 use commons_error::log_info;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
@@ -16,6 +14,9 @@ use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_value, set_prop_values};
 use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY};
 use dkdto::cbor_type::CborBytes;
+use log::*;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 use crate::search_result_component::SearchResultComponent;
 
@@ -52,6 +53,26 @@ async fn search_result() -> CborBytes {
     let session_token = SessionToken { 0: "".to_string() };
     let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
     delegate.search_result().await.into()
+}
+
+/// Handler to serve HTML
+async fn serve_html() -> Html<&'static str> {
+    Html(
+        r#"
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Rust Axum HTML</title>
+    </head>
+    <body>
+        <h1>Welcome to Axum!</h1>
+        <script src="/harbor/static/script.js"></script>
+    </body>
+    </html>
+    "#,
+    )
 }
 
 /// Main async routine
@@ -129,13 +150,18 @@ async fn main() {
         .allow_headers(Any);
 
     // Create the Axum application with the GET route.
-    let app = Router::new()
+    let key_routes = Router::new()
         .route("/cbor/get_file/:file_ref", get(get_file))
         .route("/cbor/view_file/:file_ref", get(view_file))
         .route("/cbor/search_result", get(search_result))
+        // TODO below is a test page to serve a static content
+        .route("/index2", get(serve_html))
+        .nest_service("/static", ServeDir::new("static"))
         .layer(cors);
 
-    // Start the server.
+    let base_url = format!("/{}", PROJECT_CODE);
+    let app = Router::new().nest(&base_url, key_routes);
+
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

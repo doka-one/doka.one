@@ -39,3 +39,8 @@ echo *****************************
 echo ***** TIKA SERVER *******
 echo *****************************
 gnome-terminal --title="tika server" -- java -jar $DOKA_PRJ_FOLDER/tika/tika-server-standard-2.2.0.jar --port 40010 &
+
+echo *****************************
+echo ***** HARBOR ****************
+echo *****************************
+gnome-terminal --title="harbor" -- $ROOT_FOLDER/doka-harbor --cluster-profile $CLUSTER_PROFILE &

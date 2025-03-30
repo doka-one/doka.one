@@ -24,19 +24,89 @@ pub(crate) enum LogicalOperator {
 }
 
 //// Parser structures
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PositionalToken<T> {
+    pub token: T,
+    pub position: usize,
+}
+
+impl<T> PositionalToken<T> {
+    pub fn new(token: T, position: usize) -> Self {
+        Self { token, position }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Token {
-    Attribute(String),
-    Operator(ComparisonOperator),
-    ValueInt(i32),
-    ValueString(String),
-    BinaryLogicalOperator(LogicalOperator),
-    ConditionOpen,  // (
-    ConditionClose, // )
-    LogicalOpen,    // {
-    LogicalClose,   // }
-                    // Ignore,
+    Attribute(PositionalToken<String>),
+    Operator(PositionalToken<ComparisonOperator>),
+    ValueInt(PositionalToken<i32>),
+    ValueString(PositionalToken<String>),
+    ValueBool(PositionalToken<bool>),
+    BinaryLogicalOperator(PositionalToken<LogicalOperator>),
+    ConditionOpen(PositionalToken<()>),  // (
+    ConditionClose(PositionalToken<()>), // )
+    LogicalOpen(PositionalToken<()>),    // {
+    LogicalClose(PositionalToken<()>),   // }
+}
+
+impl Token {
+    /// Test if the token is LogicalOpen
+    pub fn is_logical_open(&self) -> bool {
+        matches!(self, Token::LogicalOpen(_))
+    }
+
+    /// Test if the token is LogicalClose
+    pub fn is_logical_close(&self) -> bool {
+        matches!(self, Token::LogicalClose(_))
+    }
+
+    /// Test if the token is ConditionOpen
+    pub fn is_condition_open(&self) -> bool {
+        matches!(self, Token::ConditionOpen(_))
+    }
+
+    /// Test if the token is ConditionClose
+    pub fn is_condition_close(&self) -> bool {
+        matches!(self, Token::ConditionClose(_))
+    }
+}
+
+// for debug only
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Token::Attribute(pt) => write!(f, "{}", pt.token),
+            Token::Operator(pt) => write!(
+                f,
+                "{}",
+                match pt.token {
+                    ComparisonOperator::EQ => "=",
+                    ComparisonOperator::NEQ => "!=",
+                    ComparisonOperator::GT => ">",
+                    ComparisonOperator::GTE => ">=",
+                    ComparisonOperator::LT => "<",
+                    ComparisonOperator::LTE => "<=",
+                    ComparisonOperator::LIKE => "LIKE",
+                }
+            ),
+            Token::ValueInt(pt) => write!(f, "{}", pt.token),
+            Token::ValueString(pt) => write!(f, "\"{}\"", pt.token),
+            Token::ValueBool(pt) => write!(f, "{}", pt.token),
+            Token::BinaryLogicalOperator(pt) => write!(
+                f,
+                "{}",
+                match pt.token {
+                    LogicalOperator::AND => "AND",
+                    LogicalOperator::OR => "OR",
+                }
+            ),
+            Token::ConditionOpen(_) => write!(f, "("),
+            Token::ConditionClose(_) => write!(f, ")"),
+            Token::LogicalOpen(_) => write!(f, "("),
+            Token::LogicalClose(_) => write!(f, ")"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -58,7 +128,12 @@ pub(crate) fn to_canonical_form(
 ) -> Result<String, TokenParseError> {
     let mut content: String = String::from("");
     match filter_expression {
-        FilterExpressionAST::Condition(FilterCondition {key, attribute, operator, value}) => {
+        FilterExpressionAST::Condition(FilterCondition {
+            key,
+            attribute,
+            operator,
+            value,
+        }) => {
             let s = format!(
                 "{}{}<{:?}>{}{}",
                 COND_OPEN, attribute, operator, value, COND_CLOSE
@@ -99,7 +174,7 @@ fn parse_tokens_with_index(
 
     if let Some(token) = t {
         match token {
-            Token::LogicalOpen => {
+            Token::LogicalOpen(pt) => {
                 // The expression starts with a bracket, it's a logical
                 println!("found a logical at index {}", *index.borrow());
                 let logical_expression = parse_logical(tokens, &index)?;
@@ -110,7 +185,7 @@ fn parse_tokens_with_index(
                 );
                 Ok(logical_expression)
             }
-            Token::ConditionOpen => {
+            Token::ConditionOpen(pt) => {
                 println!("found a condition at index {}", *index.borrow());
                 let c = parse_condition(&tokens, &index)?;
                 println!(
@@ -149,7 +224,7 @@ fn parse_logical(
 
     if let Some(token) = t {
         match token {
-            Token::ConditionOpen | Token::LogicalOpen => {
+            Token::ConditionOpen(pt) | Token::LogicalOpen(pt) => {
                 // Read the Left member of the Logical Expression
                 println!("found a new expression at index {}", *index.borrow());
                 let left = parse_tokens_with_index(&tokens, &index)?;
@@ -183,10 +258,19 @@ fn parse_logical(
                 }
                 .clone();
 
+                println!(
+                    "Found the logical operator [{:?}], index is [{}]",
+                    &operator,
+                    *index.borrow()
+                );
+
                 // and then the right expression
 
                 *index.borrow_mut() += 1;
-                println!("expect the right expression at index {}", *index.borrow());
+                println!(
+                    "looking for the right expression at index {}",
+                    *index.borrow()
+                );
                 let right = parse_tokens_with_index(&tokens, &index)?;
                 println!(
                     "logical expression_right was [{:?}], now index is [{}]",
@@ -199,32 +283,29 @@ fn parse_logical(
                 let t = tokens.get(*index.borrow());
 
                 println!(
-                    "Expect the logical close at index {}, token=[{:?}]",
+                    "Looking for the logical close at index {}, token=[{:?}]",
                     *index.borrow(),
                     &t
                 );
 
-                if let Some(Token::LogicalClose) = t {
+                if let Some(Token::LogicalClose(_)) = t {
                     Ok(Box::new(FilterExpressionAST::Logical {
-                        //left,
-                        operator,
-                        //right,
-                        leaves: vec![left, right],
+                        // FIXME : should keep the position
+                        operator: operator.token,  //left,
+                        leaves: vec![left, right], //right,
                     }))
                 } else {
                     warn!("Expected logical closing");
-                    return Err(TokenParseError::ClosingExpected((
+                    Err(TokenParseError::ClosingExpected((
                         *index.borrow(),
                         t.map(|x| x.clone()),
-                    )));
+                    )))
                 }
             }
-            _ => {
-                return Err(TokenParseError::OpeningExpected((
-                    *index.borrow(),
-                    Some(token.clone()),
-                )))
-            }
+            _ => Err(TokenParseError::OpeningExpected((
+                *index.borrow(),
+                Some(token.clone()),
+            ))),
         }
     } else {
         return Err(TokenParseError::OpeningExpected((*index.borrow(), None)));
@@ -270,15 +351,23 @@ fn parse_condition(
                 }
                 .clone();
 
+                println!(
+                    "comparison operator [{:?}] at [{}]",
+                    &operator,
+                    *index.borrow()
+                );
+
                 *index.borrow_mut() += 1;
                 let op_value = tokens.get(*index.borrow());
 
                 let value = if let Some(t_value) = op_value {
                     match t_value {
-                        Token::ValueInt(op) => FilterValue::ValueInt(*op),
-                        Token::ValueString(op) => FilterValue::ValueString(op.clone()),
+                        // FIXEME : should keep the position
+                        Token::ValueInt(op) => FilterValue::ValueInt(op.clone().token),
+                        Token::ValueString(op) => FilterValue::ValueString(op.clone().token),
+                        Token::ValueBool(op) => FilterValue::ValueBool(op.clone().token),
                         _ => {
-                            warn!("Must be a value"); // TODO NORM
+                            warn!("Must be a token value"); // TODO NORM
                             return Err(TokenParseError::ValueExpected((
                                 *index.borrow(),
                                 Some(t_value.clone()),
@@ -301,19 +390,20 @@ fn parse_condition(
                     *index.borrow(),
                     &op_value
                 );
-let key = uuid8();
-                Ok(Box::new(FilterExpressionAST::Condition( FilterCondition {
+                let key = uuid8();
+                Ok(Box::new(FilterExpressionAST::Condition(FilterCondition {
                     key,
-                    attribute,
-                    operator,
+                    attribute: attribute.token,
+                    operator: operator.token,
                     value,
                 })))
             }
-            _ => {
+            t => {
+                warn!("Mysterious Token [{:?}]", t); // TODO NORM
                 return Err(TokenParseError::AttributeExpected((
                     *index.borrow(),
                     Some(token.clone()),
-                )))
+                )));
             }
         }
     } else {
@@ -329,15 +419,20 @@ mod tests {
 
     //cargo test --color=always --bin document-server filter_ast::tests   -- --show-output
 
-    use std::cell::RefCell;
-    use crate::filter::{analyse_expression, ComparisonOperator, to_sql_form};
-    use crate::filter::ComparisonOperator::LIKE;
-    use crate::filter::filter_ast::{parse_tokens, parse_tokens_with_index, to_canonical_form, TokenParseError};
     use crate::filter::filter_ast::LogicalOperator::{AND, OR};
-    use crate::filter::filter_ast::Token::{Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt, ValueString};
+    use crate::filter::filter_ast::Token::{
+        Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen,
+        Operator, ValueInt, ValueString,
+    };
+    use crate::filter::filter_ast::{
+        parse_tokens, parse_tokens_with_index, to_canonical_form, PositionalToken, Token,
+        TokenParseError,
+    };
     use crate::filter::filter_lexer::lex3;
     use crate::filter::filter_normalizer::normalize_lexeme;
-
+    use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
+    use crate::filter::{analyse_expression, to_sql_form, ComparisonOperator};
+    use std::cell::RefCell;
 
     #[test]
     pub fn global_analyser_1() {
@@ -380,6 +475,22 @@ mod tests {
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
+        assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn global_test_1_1() {
+        let input = "(age < 40) OR (question == TRUE)";
+        println!("Lexer...");
+        let mut tokens = lex3(input).unwrap();
+
+        println!("Normalizing...");
+        normalize_lexeme(&mut tokens);
+
+        println!("Parsing...");
+        let r = parse_tokens(&mut tokens);
+        let s = to_canonical_form(r.unwrap().as_ref());
+        let expected = "([age<LT>40]OR[question<EQ>TRUE])";
         assert_eq!(expected, s.unwrap());
     }
 
@@ -517,27 +628,27 @@ mod tests {
     pub fn parse_token_test() {
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen,                              // {
-            LogicalOpen,                              // {{
-            ConditionOpen,                            // {{(
-            Attribute(String::from("attribut1")),     // {{( attribut1
-            Operator(ComparisonOperator::GT),         // {{( attribut1 GT
-            ValueInt(10),                             // {{( attribut1 GT 10
-            ConditionClose,                           // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(AND),               // {{( attribut1 GT 10 ) AND
-            ConditionOpen,                            // {{( attribut1 GT 10 ) AND (
-            Attribute(String::from("attribut2")),     // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(ComparisonOperator::EQ),         // {{( attribut1 GT 10 ) AND ( attribut2 EQ
-            ValueString(String::from("\nbonjour\n")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose,   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
-            BinaryLogicalOperator(OR), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
-            ConditionOpen,  // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
-            Attribute(String::from("attribut3")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
-            Operator(ComparisonOperator::LIKE), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
-            ValueString(String::from("den%")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
-            LogicalClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
+            LogicalOpen(PositionalToken::new((), 0)),   // {
+            LogicalOpen(PositionalToken::new((), 0)),   // {{
+            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            Operator(PositionalToken::new(ComparisonOperator::EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
+            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
+            Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
+            Operator(PositionalToken::new(ComparisonOperator::LIKE, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
+            ValueString(PositionalToken::new(String::from("den%"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
+            LogicalClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         ];
         let index = RefCell::new(0usize);
         let canonical = match parse_tokens_with_index(&tokens, &index) {
@@ -547,7 +658,13 @@ mod tests {
                 panic!()
             }
         };
-
+        let tokens = vec![
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("A"), 0)),
+            Operator(PositionalToken::new(LIKE, 0)),
+            ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+        ];
         const EXPECTED: &str =
             "(([attribut1<GT>10]AND[attribut2<EQ>\"\nbonjour\n\"])OR[attribut3<LIKE>\"den%\"])";
         assert_eq!(EXPECTED, canonical);
@@ -557,11 +674,11 @@ mod tests {
     pub fn parse_token_test_2() {
         // (A LIKE 10 )
         let tokens = vec![
-            ConditionOpen,
-            Attribute(String::from("A")),
-            Operator(ComparisonOperator::LIKE),
-            ValueInt(10),
-            ConditionClose,
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("A"), 0)),
+            Operator(PositionalToken::new(LIKE, 0)),
+            ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
         ];
         let index = RefCell::new(0usize);
 
@@ -581,19 +698,19 @@ mod tests {
     pub fn parse_token_test_22() {
         // ([A LIKE 10] OR [B LIKE 10])
         let tokens = vec![
-            LogicalOpen,
-            ConditionOpen,
-            Attribute(String::from("A")),
-            Operator(ComparisonOperator::LIKE),
-            ValueInt(10),
-            ConditionClose,
-            BinaryLogicalOperator(OR),
-            ConditionOpen,
-            Attribute(String::from("B")),
-            Operator(ComparisonOperator::LIKE),
-            ValueInt(10),
-            ConditionClose,
-            LogicalClose,
+            LogicalOpen(PositionalToken::new((), 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("A"), 0)),
+            Operator(PositionalToken::new(LIKE, 0)),
+            ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("B"), 0)),
+            Operator(PositionalToken::new(LIKE, 0)),
+            ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
         ];
         let index = RefCell::new(0usize);
 
@@ -612,35 +729,35 @@ mod tests {
     pub fn parse_token_test_3() {
         // { { (A LIKE 10 ) OR (BB EQ 45) } AND { (K EQ "victory") OR (K LT 12) } }
         let tokens = vec![
-            LogicalOpen,
-            LogicalOpen,
-            ConditionOpen,
-            Attribute(String::from("A")),
-            Operator(ComparisonOperator::LIKE),
-            ValueInt(10),
-            ConditionClose,
-            BinaryLogicalOperator(OR),
-            ConditionOpen,
-            Attribute(String::from("B")),
-            Operator(ComparisonOperator::EQ),
-            ValueInt(45),
-            ConditionClose,
-            LogicalClose,
-            BinaryLogicalOperator(AND),
-            LogicalOpen,
-            ConditionOpen,
-            Attribute(String::from("K")),
-            Operator(ComparisonOperator::EQ),
-            ValueString("victory".to_owned()),
-            ConditionClose,
-            BinaryLogicalOperator(OR),
-            ConditionOpen,
-            Attribute(String::from("K")),
-            Operator(ComparisonOperator::LT),
-            ValueInt(12),
-            ConditionClose,
-            LogicalClose,
-            LogicalClose,
+            LogicalOpen(PositionalToken::new((), 0)),
+            LogicalOpen(PositionalToken::new((), 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("A"), 0)),
+            Operator(PositionalToken::new(LIKE, 0)),
+            ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("B"), 0)),
+            Operator(PositionalToken::new(EQ, 0)),
+            ValueInt(PositionalToken::new(45, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)),
+            LogicalOpen(PositionalToken::new((), 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("K"), 0)),
+            Operator(PositionalToken::new(EQ, 0)),
+            ValueString(PositionalToken::new("victory".to_owned(), 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("K"), 0)),
+            Operator(PositionalToken::new(LT, 0)),
+            ValueInt(PositionalToken::new(12, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
         ];
         let index = RefCell::new(0usize);
 
@@ -670,35 +787,35 @@ mod tests {
         //      )
         //  )"
         let tokens = vec![
-            LogicalOpen,
-            ConditionOpen,
-            Attribute(String::from("AA")),
-            Operator(ComparisonOperator::GTE),
-            ValueInt(10),
-            ConditionClose,
-            BinaryLogicalOperator(AND),
-            LogicalOpen,
-            LogicalOpen,
-            ConditionOpen,
-            Attribute(String::from("DD")),
-            Operator(ComparisonOperator::EQ),
-            ValueInt(6),
-            ConditionClose,
-            BinaryLogicalOperator(OR),
-            ConditionOpen,
-            Attribute(String::from("BB")),
-            Operator(ComparisonOperator::EQ),
-            ValueInt(5),
-            ConditionClose,
-            LogicalClose,
-            BinaryLogicalOperator(OR),
-            ConditionOpen,
-            Attribute(String::from("CC")),
-            Operator(ComparisonOperator::EQ),
-            ValueInt(4),
-            ConditionClose,
-            LogicalClose,
-            LogicalClose,
+            LogicalOpen(PositionalToken::new((), 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("AA"), 0)),
+            Operator(PositionalToken::new(GTE, 0)),
+            ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)),
+            LogicalOpen(PositionalToken::new((), 0)),
+            LogicalOpen(PositionalToken::new((), 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("DD"), 0)),
+            Operator(PositionalToken::new(EQ, 0)),
+            ValueInt(PositionalToken::new(6, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("BB"), 0)),
+            Operator(PositionalToken::new(EQ, 0)),
+            ValueInt(PositionalToken::new(5, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)),
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("CC"), 0)),
+            Operator(PositionalToken::new(EQ, 0)),
+            ValueInt(PositionalToken::new(4, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
+            LogicalClose(PositionalToken::new((), 0)),
         ];
         let index = RefCell::new(0usize);
 
@@ -721,11 +838,11 @@ mod tests {
     pub fn parse_token_fail_test_1() {
         // (A LIKE )
         let tokens = vec![
-            ConditionOpen,
-            Attribute(String::from("A")),
-            Operator(ComparisonOperator::LIKE),
-            // Introduce a mistake here:  ValueInt(10),
-            ConditionClose,
+            ConditionOpen(PositionalToken::new((), 0)),
+            Attribute(PositionalToken::new(String::from("A"), 0)),
+            Operator(PositionalToken::new(LIKE, 0)),
+            // Introduce a mistake here:  ValueInt(PositionalToken::new(10, 0)),
+            ConditionClose(PositionalToken::new((), 0)),
         ];
         let index = RefCell::new(0usize);
 
@@ -737,7 +854,7 @@ mod tests {
             Err(e) => match e {
                 TokenParseError::ValueExpected((index, token)) => {
                     assert_eq!(3, index);
-                    assert_eq!(ConditionClose, token.unwrap());
+                    assert_eq!(true, token.unwrap().is_condition_close());
                 }
                 _ => {
                     assert!(false);
@@ -750,27 +867,27 @@ mod tests {
     pub fn parse_token_fail_test_2() {
         // {{( attribut1 GT 10 )  ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen,                          // {
-            LogicalOpen,                          // {{
-            ConditionOpen,                        // {{(
-            Attribute(String::from("attribut1")), // {{( attribut1
-            Operator(ComparisonOperator::GT),     // {{( attribut1 GT
-            ValueInt(10),                         // {{( attribut1 GT 10
-            ConditionClose,                       // {{( attribut1 GT 10 )
-            // Introduce a mistake here :  BinaryLogicalOperator(AND), // {{( attribut1 GT 10 ) AND
-            ConditionOpen,                            // {{( attribut1 GT 10 ) AND (
-            Attribute(String::from("attribut2")),     // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(ComparisonOperator::EQ),         // {{( attribut1 GT 10 ) AND ( attribut2 EQ
-            ValueString(String::from("\nbonjour\n")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose,   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
-            BinaryLogicalOperator(OR), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
-            ConditionOpen,  // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
-            Attribute(String::from("attribut3")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
-            Operator(ComparisonOperator::LIKE), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
-            ValueString(String::from("\"den%\"")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
-            LogicalClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
+            LogicalOpen(PositionalToken::new((), 0)),   // {
+            LogicalOpen(PositionalToken::new((), 0)),   // {{
+            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
+            // Introduce a mistake here :  BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            Operator(PositionalToken::new(EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
+            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
+            Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
+            Operator(PositionalToken::new(LIKE, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
+            ValueString(PositionalToken::new(String::from("\"den%\""), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
+            LogicalClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         ];
         let index = RefCell::new(0usize);
 
@@ -782,7 +899,7 @@ mod tests {
             Err(e) => match e {
                 TokenParseError::LogicalOperatorExpected((index, token)) => {
                     assert_eq!(7, index);
-                    assert_eq!(ConditionOpen, token.unwrap());
+                    assert_eq!(true, token.unwrap().is_condition_open());
                 }
                 _ => {
                     assert!(false);
@@ -795,27 +912,27 @@ mod tests {
     pub fn parse_token_fail_test_3() {
         // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" ) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen, // {
-            // LogicalOpen, // {{
-            ConditionOpen,                            // {{(
-            Attribute(String::from("attribut1")),     // {{( attribut1
-            Operator(ComparisonOperator::GT),         // {{( attribut1 GT
-            ValueInt(10),                             // {{( attribut1 GT 10
-            ConditionClose,                           // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(AND),               // {{( attribut1 GT 10 ) AND
-            ConditionOpen,                            // {{( attribut1 GT 10 ) AND (
-            Attribute(String::from("attribut2")),     // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(ComparisonOperator::EQ),         // {{( attribut1 GT 10 ) AND ( attribut2 EQ
-            ValueString(String::from("\nbonjour\n")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            // LogicalClose, // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
-            BinaryLogicalOperator(OR), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
-            ConditionOpen,             // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
-            Attribute(String::from("attribut3")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
-            Operator(ComparisonOperator::LIKE), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
-            ValueString(String::from("\"den%\"")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
-            LogicalClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
+            LogicalOpen(PositionalToken::new((), 0)), // {
+            // LogicalOpen(PositionalToken::new((), 0)), // {{
+            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            Operator(PositionalToken::new(ComparisonOperator::EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
+            // LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
+            Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
+            Operator(PositionalToken::new(ComparisonOperator::LIKE, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
+            ValueString(PositionalToken::new(String::from("\"den%\""), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
+            LogicalClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         ];
         let index = RefCell::new(0usize);
         let r_exp = parse_tokens_with_index(&tokens, &index);
@@ -826,7 +943,10 @@ mod tests {
             Err(e) => match e {
                 TokenParseError::ClosingExpected((index, token)) => {
                     assert_eq!(12, index);
-                    assert_eq!(BinaryLogicalOperator(OR), token.unwrap());
+                    assert_eq!(
+                        BinaryLogicalOperator(PositionalToken::new(OR, 0)),
+                        token.unwrap()
+                    );
                 }
                 _ => {
                     assert!(false);
@@ -839,27 +959,27 @@ mod tests {
     pub fn parse_token_fail_test_4() {
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )} OR ( LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen,                              // {
-            LogicalOpen,                              // {{
-            ConditionOpen,                            // {{(
-            Attribute(String::from("attribut1")),     // {{( attribut1
-            Operator(ComparisonOperator::GT),         // {{( attribut1 GT
-            ValueInt(10),                             // {{( attribut1 GT 10
-            ConditionClose,                           // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(AND),               // {{( attribut1 GT 10 ) AND
-            ConditionOpen,                            // {{( attribut1 GT 10 ) AND (
-            Attribute(String::from("attribut2")),     // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(ComparisonOperator::EQ),         // {{( attribut1 GT 10 ) AND ( attribut2 EQ
-            ValueString(String::from("\nbonjour\n")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose,   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
-            BinaryLogicalOperator(OR), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
-            ConditionOpen,  // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
-            // Introduce an error: Attribute(String::from("attribut3")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
-            Operator(ComparisonOperator::LIKE), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
-            ValueString(String::from("\"den%\"")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
-            LogicalClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
+            LogicalOpen(PositionalToken::new((), 0)),   // {
+            LogicalOpen(PositionalToken::new((), 0)),   // {{
+            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            Operator(PositionalToken::new(ComparisonOperator::EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
+            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
+            // Introduce an error: Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
+            Operator(PositionalToken::new(LIKE, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
+            ValueString(PositionalToken::new(String::from("\"den%\""), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
+            LogicalClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         ];
 
         let index = RefCell::new(0usize);
@@ -872,7 +992,7 @@ mod tests {
             Err(e) => match e {
                 TokenParseError::AttributeExpected((index, token)) => {
                     assert_eq!(16, index);
-                    assert_eq!(Operator(LIKE), token.unwrap());
+                    assert_eq!(Operator(PositionalToken::new(LIKE, 0)), token.unwrap());
                 }
                 _ => {
                     assert!(false);
@@ -885,27 +1005,27 @@ mod tests {
     pub fn to_sql_test() {
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen,                          // {
-            LogicalOpen,                          // {{
-            ConditionOpen,                        // {{(
-            Attribute(String::from("attribut1")), // {{( attribut1
-            Operator(ComparisonOperator::GT),     // {{( attribut1 GT
-            ValueInt(10),                         // {{( attribut1 GT 10
-            ConditionClose,                       // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(AND),           // {{( attribut1 GT 10 ) AND
-            ConditionOpen,                        // {{( attribut1 GT 10 ) AND (
-            Attribute(String::from("attribut2")), // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(ComparisonOperator::EQ),     // {{( attribut1 GT 10 ) AND ( attribut2 EQ
-            ValueString(String::from("bonjour")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose,   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
-            BinaryLogicalOperator(OR), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
-            ConditionOpen,  // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
-            Attribute(String::from("attribut3")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
-            Operator(ComparisonOperator::LIKE), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
-            ValueString(String::from("den%")), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
-            ConditionClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
-            LogicalClose, // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
+            LogicalOpen(PositionalToken::new((), 0)),   // {
+            LogicalOpen(PositionalToken::new((), 0)),   // {{
+            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
+            Operator(PositionalToken::new(GT, 0)),      // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            Operator(PositionalToken::new(EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            ValueString(PositionalToken::new(String::from("bonjour"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
+            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
+            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
+            Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
+            Operator(PositionalToken::new(LIKE, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE
+            ValueString(PositionalToken::new(String::from("den%"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIkE "den%"
+            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )
+            LogicalClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         ];
         let index = RefCell::new(0usize);
         let sql = match parse_tokens_with_index(&tokens, &index) {

@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::fmt;
 
-use log::warn;
-use rs_uuid::uuid8;
-
 use crate::filter::filter_lexer::lex3;
 use crate::filter::filter_normalizer::normalize_lexeme;
 use crate::filter::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
+use crate::parser_log;
+use commons_error::*;
+use log::*;
+use rs_uuid::uuid8;
 
 #[cfg(test)]
 const COND_OPEN: &str = "[";
@@ -44,10 +45,10 @@ pub(crate) enum Token {
     ValueString(PositionalToken<String>),
     ValueBool(PositionalToken<bool>),
     BinaryLogicalOperator(PositionalToken<LogicalOperator>),
-    ConditionOpen(PositionalToken<()>),  // (
-    ConditionClose(PositionalToken<()>), // )
-    LogicalOpen(PositionalToken<()>),    // {
-    LogicalClose(PositionalToken<()>),   // }
+    ConditionOpen(PositionalToken<()>),  // [
+    ConditionClose(PositionalToken<()>), // ]
+    LogicalOpen(PositionalToken<()>),    // (
+    LogicalClose(PositionalToken<()>),   // ]
 }
 
 impl Token {
@@ -69,6 +70,48 @@ impl Token {
     /// Test if the token is ConditionClose
     pub fn is_condition_close(&self) -> bool {
         matches!(self, Token::ConditionClose(_))
+    }
+
+    /// Extracts the position from the PositionalToken, regardless of the variant.
+    pub fn position(&self) -> usize {
+        match self {
+            Token::Attribute(p) => p.position,
+            Token::Operator(p) => p.position,
+            Token::ValueInt(p) => p.position,
+            Token::ValueString(p) => p.position,
+            Token::ValueBool(p) => p.position,
+            Token::BinaryLogicalOperator(p) => p.position,
+            Token::ConditionOpen(p) => p.position,
+            Token::ConditionClose(p) => p.position,
+            Token::LogicalOpen(p) => p.position,
+            Token::LogicalClose(p) => p.position,
+        }
+    }
+
+    pub fn move_position(&mut self, nb: i32) {
+        match self {
+            Token::Attribute(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::Operator(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValueInt(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValueString(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValueBool(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::BinaryLogicalOperator(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ConditionOpen(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ConditionClose(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::LogicalOpen(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::LogicalClose(p) => p.position = (p.position as i32 + nb) as usize,
+        }
+    }
+}
+
+pub struct TokenSlice<'a>(pub &'a [Token]);
+
+impl<'a> fmt::Display for TokenSlice<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for token in self.0 {
+            write!(f, "{} ", token)?;
+        }
+        Ok(())
     }
 }
 
@@ -101,8 +144,8 @@ impl fmt::Display for Token {
                     LogicalOperator::OR => "OR",
                 }
             ),
-            Token::ConditionOpen(_) => write!(f, "("),
-            Token::ConditionClose(_) => write!(f, ")"),
+            Token::ConditionOpen(_) => write!(f, "["),
+            Token::ConditionClose(_) => write!(f, "]"),
             Token::LogicalOpen(_) => write!(f, "("),
             Token::LogicalClose(_) => write!(f, ")"),
         }
@@ -159,6 +202,7 @@ pub(crate) fn to_canonical_form(
 }
 
 /// Parse a list of tokens to create the FilterExpression (AST)
+/// The list of Tokens must be N3-normalized first.
 pub(crate) fn parse_tokens(tokens: &[Token]) -> Result<Box<FilterExpressionAST>, TokenParseError> {
     let index = RefCell::new(0usize);
     parse_tokens_with_index(&tokens, &index)
@@ -176,9 +220,9 @@ fn parse_tokens_with_index(
         match token {
             Token::LogicalOpen(pt) => {
                 // The expression starts with a bracket, it's a logical
-                println!("found a logical at index {}", *index.borrow());
+                log_debug!("found a logical at index {}", *index.borrow());
                 let logical_expression = parse_logical(tokens, &index)?;
-                println!(
+                log_debug!(
                     "logical expression was [{:?}], now index is [{}]",
                     &logical_expression,
                     *index.borrow()
@@ -186,9 +230,9 @@ fn parse_tokens_with_index(
                 Ok(logical_expression)
             }
             Token::ConditionOpen(pt) => {
-                println!("found a condition at index {}", *index.borrow());
+                log_debug!("found a condition at index {}", *index.borrow());
                 let c = parse_condition(&tokens, &index)?;
-                println!(
+                log_debug!(
                     "condition expression was [{:?}], now index is [{}]",
                     &c,
                     *index.borrow()
@@ -196,7 +240,7 @@ fn parse_tokens_with_index(
                 Ok(c)
             }
             _ => {
-                warn!("Wrong opening");
+                log_error!("Logical opening expected");
                 return Err(TokenParseError::OpeningExpected((
                     *index.borrow(),
                     Some(token.clone()),
@@ -204,6 +248,7 @@ fn parse_tokens_with_index(
             }
         }
     } else {
+        log_error!("Logical opening expected");
         return Err(TokenParseError::OpeningExpected((*index.borrow(), None)));
     }
 }
@@ -214,21 +259,20 @@ fn parse_logical(
     tokens: &[Token],
     index: &RefCell<usize>,
 ) -> Result<Box<FilterExpressionAST>, TokenParseError> {
-    // TODO get rid of all the println!
-    println!("parse_logical at [{}]", *index.borrow());
+    log_debug!("parse_logical at [{}]", *index.borrow());
 
     *index.borrow_mut() += 1;
     let t = tokens.get(*index.borrow());
 
-    println!("next token is [{:?}]", &t);
+    log_debug!("next token is [{:?}]", &t);
 
     if let Some(token) = t {
         match token {
             Token::ConditionOpen(pt) | Token::LogicalOpen(pt) => {
                 // Read the Left member of the Logical Expression
-                println!("found a new expression at index {}", *index.borrow());
+                log_debug!("found a new expression at index {}", *index.borrow());
                 let left = parse_tokens_with_index(&tokens, &index)?;
-                println!(
+                log_debug!(
                     "logical expression_left was [{:?}], now index is [{}]",
                     &left,
                     *index.borrow()
@@ -258,7 +302,7 @@ fn parse_logical(
                 }
                 .clone();
 
-                println!(
+                log_debug!(
                     "Found the logical operator [{:?}], index is [{}]",
                     &operator,
                     *index.borrow()
@@ -267,12 +311,12 @@ fn parse_logical(
                 // and then the right expression
 
                 *index.borrow_mut() += 1;
-                println!(
+                log_debug!(
                     "looking for the right expression at index {}",
                     *index.borrow()
                 );
                 let right = parse_tokens_with_index(&tokens, &index)?;
-                println!(
+                log_debug!(
                     "logical expression_right was [{:?}], now index is [{}]",
                     &left,
                     *index.borrow()
@@ -282,7 +326,7 @@ fn parse_logical(
                 *index.borrow_mut() += 1;
                 let t = tokens.get(*index.borrow());
 
-                println!(
+                log_debug!(
                     "Looking for the logical close at index {}, token=[{:?}]",
                     *index.borrow(),
                     &t
@@ -308,6 +352,7 @@ fn parse_logical(
             ))),
         }
     } else {
+        log_error!("Logical opening expected");
         return Err(TokenParseError::OpeningExpected((*index.borrow(), None)));
     }
 }
@@ -320,12 +365,12 @@ fn parse_condition(
 ) -> Result<Box<FilterExpressionAST>, TokenParseError> {
     // Here we know that the form is C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
 
-    println!("parse_condition at [{}]", *index.borrow());
+    log_debug!("parse_condition at [{}]", *index.borrow());
 
     *index.borrow_mut() += 1;
     let t = tokens.get(*index.borrow());
 
-    println!("next condition token is [{:?}]", &t);
+    log_debug!("next condition token is [{:?}]", &t);
 
     if let Some(token) = t {
         match token {
@@ -351,7 +396,7 @@ fn parse_condition(
                 }
                 .clone();
 
-                println!(
+                log_debug!(
                     "comparison operator [{:?}] at [{}]",
                     &operator,
                     *index.borrow()
@@ -385,7 +430,7 @@ fn parse_condition(
                 *index.borrow_mut() += 1;
                 let op_value = tokens.get(*index.borrow());
 
-                println!(
+                log_debug!(
                     "CLOSE parse_condition at [{}], token=[{:?}]",
                     *index.borrow(),
                     &op_value
@@ -426,23 +471,36 @@ mod tests {
     };
     use crate::filter::filter_ast::{
         parse_tokens, parse_tokens_with_index, to_canonical_form, PositionalToken, Token,
-        TokenParseError,
+        TokenParseError, TokenSlice,
     };
-    use crate::filter::filter_lexer::lex3;
+    use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode};
     use crate::filter::filter_normalizer::normalize_lexeme;
+    use crate::filter::tests::init_logger;
     use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
-    use crate::filter::{analyse_expression, to_sql_form, ComparisonOperator};
+    use crate::filter::{analyse_expression, to_sql_form, ComparisonOperator, FilterExpressionAST};
+    use commons_error::*;
+    use log::*;
     use std::cell::RefCell;
 
     #[test]
+    pub fn test_logs() {
+        init_logger();
+        log_info!("**** test_logs");
+    }
+
+    #[test]
     pub fn global_analyser_1() {
+        init_logger();
+        log_info!("**************************************");
+        log_info!("**** global_analyser_1");
+        log_info!("**************************************");
         // let input = " age < 40 AND (( limit == 5 OR birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\") ";
         let input1 = " (country == \"FR\"  AND  (science >= 40) OR (lost_in_hell == \"TRUE\") )";
         let input2 = "((country==\"FR\" AND (science>=40)) OR (lost_in_hell==\"TRUE\") )";
         let input3 = "country == \"FR\"  AND  (science => 40) OR (lost_in_hell == \"TRUE\")";
         let input4 = "country == \"FR\"  AND  science >= 40 OR lost_in_hell == \"TRUE\"";
 
-        println!("Analyse...");
+        log_debug!("Analyse...");
         let tree1 = analyse_expression(input1).unwrap();
         let tree2 = analyse_expression(input2).unwrap();
         let tree3 = analyse_expression(input3).unwrap();
@@ -453,7 +511,7 @@ mod tests {
         let canonical3 = to_canonical_form(tree3.as_ref()).unwrap();
         let canonical4 = to_canonical_form(tree4.as_ref()).unwrap();
 
-        println!("canonical...{canonical1}");
+        log_debug!("canonical...{canonical1}");
 
         let expected = "(([country<EQ>\"FR\"]AND[science<GTE>40])OR[lost_in_hell<EQ>\"TRUE\"])";
         assert_eq!(expected, &canonical1);
@@ -464,14 +522,15 @@ mod tests {
 
     #[test]
     pub fn global_test_1() {
+        init_logger();
         let input = "(age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
 
-        println!("Parsing...");
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
@@ -480,14 +539,15 @@ mod tests {
 
     #[test]
     pub fn global_test_1_1() {
+        init_logger();
         let input = "(age < 40) OR (question == TRUE)";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
 
-        println!("Parsing...");
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([age<LT>40]OR[question<EQ>TRUE])";
@@ -496,14 +556,15 @@ mod tests {
 
     #[test]
     pub fn global_test_2() {
+        init_logger();
         let input = "(A < 40) OR (B > 21) AND (C == 6)";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
 
-        println!("Parsing...");
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([A<LT>40]OR([B<GT>21]AND[C<EQ>6]))";
@@ -512,14 +573,15 @@ mod tests {
 
     #[test]
     pub fn global_test_2_2() {
+        init_logger();
         let input = "(A < 40) AND (B > 21) AND (C == 6)";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
 
-        println!("Parsing...");
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "(([A<LT>40]AND[B<GT>21])AND[C<EQ>6])";
@@ -528,14 +590,15 @@ mod tests {
 
     #[test]
     pub fn global_test_3() {
+        init_logger();
         let input = "((age < 40) OR (age > 21)) AND (detail == 6)";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
-        println!("norm {:?}", &tokens);
-        println!("Parsing...");
+        log_debug!("norm {:?}", &tokens);
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "(([age<LT>40]OR[age<GT>21])AND[detail<EQ>6])";
@@ -544,14 +607,15 @@ mod tests {
 
     #[test]
     pub fn global_test_4() {
+        init_logger();
         let input = "(A < 40) OR (B > 21) OR (C == 6)";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
 
-        println!("Parsing...");
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "(([A<LT>40]OR[B<GT>21])OR[C<EQ>6])";
@@ -560,14 +624,15 @@ mod tests {
 
     #[test]
     pub fn global_test_5() {
+        init_logger();
         let input = "(age < 40 OR (   age > 21 AND detail == \"bonjour\"  )   )";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
-        println!("norm {:?}", &tokens);
-        println!("Parsing...");
+        log_debug!("Norm {}", &TokenSlice(&tokens));
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([age<LT>40]OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
@@ -576,15 +641,16 @@ mod tests {
 
     #[test]
     pub fn global_test_6() {
+        init_logger();
         let input =
             "age < 40 OR  birthdate >= \"2001-01-01\"  OR  age > 21 AND detail == \"bonjour\"  ";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
-        println!("norm {:?}", &tokens);
-        println!("Parsing...");
+        log_debug!("norm {:?}", &tokens);
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "(([age<LT>40]OR[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
@@ -593,15 +659,16 @@ mod tests {
 
     #[test]
     pub fn global_test_7() {
+        init_logger();
         let input =
             "age < 40 AND ( birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\"";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
-        println!("norm {:?}", &tokens);
-        println!("Parsing...");
+        log_debug!("norm {:?}", &tokens);
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "(([age<LT>40]AND[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
@@ -610,14 +677,15 @@ mod tests {
 
     #[test]
     pub fn global_test_8() {
+        init_logger();
         let input = " age < 40 AND (( limit == 5 OR birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\") ";
-        println!("Lexer...");
+        log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
-        println!("Normalizing...");
+        log_debug!("Normalizing...");
         normalize_lexeme(&mut tokens);
-        println!("norm {:?}", &tokens);
-        println!("Parsing...");
+        log_debug!("norm {:?}", &tokens);
+        log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
         let expected = "([age<LT>40]AND(([limit<EQ>5]OR[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"])))";
@@ -626,6 +694,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_test() {
+        init_logger();
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)),   // {
@@ -654,7 +723,7 @@ mod tests {
         let canonical = match parse_tokens_with_index(&tokens, &index) {
             Ok(expression) => to_canonical_form(&expression).unwrap(),
             Err(err) => {
-                println!("Error: {:?}", err);
+                log_debug!("Error: {:?}", err);
                 panic!()
             }
         };
@@ -672,6 +741,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_test_2() {
+        init_logger();
         // (A LIKE 10 )
         let tokens = vec![
             ConditionOpen(PositionalToken::new((), 0)),
@@ -685,7 +755,7 @@ mod tests {
         let canonical = match parse_tokens_with_index(&tokens, &index) {
             Ok(expression) => to_canonical_form(&expression).unwrap(),
             Err(err) => {
-                println!("Error: {:?}", err);
+                log_debug!("Error: {:?}", err);
                 panic!()
             }
         };
@@ -696,6 +766,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_test_22() {
+        init_logger();
         // ([A LIKE 10] OR [B LIKE 10])
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)),
@@ -717,7 +788,7 @@ mod tests {
         let canonical = match parse_tokens_with_index(&tokens, &index) {
             Ok(expression) => to_canonical_form(&expression).unwrap(),
             Err(err) => {
-                println!("Error: {:?}", err);
+                log_debug!("Error: {:?}", err);
                 panic!()
             }
         };
@@ -727,6 +798,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_test_3() {
+        init_logger();
         // { { (A LIKE 10 ) OR (BB EQ 45) } AND { (K EQ "victory") OR (K LT 12) } }
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)),
@@ -763,11 +835,11 @@ mod tests {
 
         let canonical = match parse_tokens_with_index(&tokens, &index) {
             Ok(expression) => {
-                // println!("Result = {:?}", expression);
+                // log_debug!("Result = {:?}", expression);
                 to_canonical_form(&expression).unwrap()
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                log_debug!("Error: {:?}", err);
                 panic!()
             }
         };
@@ -778,6 +850,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_test_4() {
+        init_logger();
         // "(   [AA => 10]
         //          AND
         //      (
@@ -821,11 +894,11 @@ mod tests {
 
         let canonical = match parse_tokens_with_index(&tokens, &index) {
             Ok(expression) => {
-                // println!("Result = {:?}", expression);
+                // log_debug!("Result = {:?}", expression);
                 to_canonical_form(&expression).unwrap()
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                log_debug!("Error: {:?}", err);
                 panic!()
             }
         };
@@ -835,37 +908,42 @@ mod tests {
     }
 
     #[test]
-    pub fn parse_token_fail_test_1() {
+    pub fn parse_token_fail_1() {
+        init_logger();
         // (A LIKE )
-        let tokens = vec![
-            ConditionOpen(PositionalToken::new((), 0)),
-            Attribute(PositionalToken::new(String::from("A"), 0)),
-            Operator(PositionalToken::new(LIKE, 0)),
-            // Introduce a mistake here:  ValueInt(PositionalToken::new(10, 0)),
-            ConditionClose(PositionalToken::new((), 0)),
-        ];
-        let index = RefCell::new(0usize);
-
-        let r_exp = parse_tokens_with_index(&tokens, &index);
-        match r_exp {
-            Ok(_) => {
-                assert!(false);
-            }
-            Err(e) => match e {
-                TokenParseError::ValueExpected((index, token)) => {
-                    assert_eq!(3, index);
-                    assert_eq!(true, token.unwrap().is_condition_close());
+        let input = "(A LIKE )";
+        match lex3(input) {
+            Ok(_) => {}
+            Err(e) => match e.error_code {
+                FilterErrorCode::WrongNumericValue => {
+                    assert_eq!(9, e.char_position);
                 }
                 _ => {
-                    assert!(false);
+                    panic!("Error: {:?}", e);
                 }
             },
         }
+        // let r = normalize_lexeme(&mut tokens);
+        // let r_ast = parse_tokens(&mut tokens);
+        // let s = to_canonical_form(r.unwrap().as_ref());
+        // let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
     }
 
     #[test]
     pub fn parse_token_fail_test_2() {
-        // {{( attribut1 GT 10 )  ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
+        init_logger();
+        // (([ attribut1 GT 10 ]  [ attribut2 EQ "bonjour" ]) OR [ attribut3 LIKE "den%" ])
+
+        let input =
+            r#"((( attribut1 > 10 )  ( attribut2 == "bonjour" )) OR ( attribut3 LIKE "den%" ))"#;
+        let mut lexemes = lex3(input).unwrap();
+
+        log_debug!("Lex3 : {}", TokenSlice(&lexemes));
+
+        normalize_lexeme(&mut lexemes);
+
+        log_debug!("Normalized : {}", TokenSlice(&lexemes));
+
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)),   // {
             LogicalOpen(PositionalToken::new((), 0)),   // {{
@@ -893,7 +971,7 @@ mod tests {
 
         let r_exp = parse_tokens_with_index(&tokens, &index);
         match r_exp {
-            Ok(_) => {
+            Ok(v) => {
                 assert!(false);
             }
             Err(e) => match e {
@@ -910,6 +988,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_fail_test_3() {
+        init_logger();
         // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" ) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)), // {
@@ -957,6 +1036,7 @@ mod tests {
 
     #[test]
     pub fn parse_token_fail_test_4() {
+        init_logger();
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )} OR ( LIKE "den%" )}
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)),   // {
@@ -1003,6 +1083,7 @@ mod tests {
 
     #[test]
     pub fn to_sql_test() {
+        init_logger();
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
             LogicalOpen(PositionalToken::new((), 0)),   // {
@@ -1031,12 +1112,12 @@ mod tests {
         let sql = match parse_tokens_with_index(&tokens, &index) {
             Ok(expression) => to_sql_form(&expression).unwrap(),
             Err(err) => {
-                println!("Error: {:?}", err);
+                log_debug!("Error: {:?}", err);
                 panic!()
             }
         };
 
-        println!(">>>> SQL {}", sql);
+        log_debug!("sql form : {}", sql);
         // const EXPECTED : &str = r#"{{("attribut1"<GT>ValueInt(10))AND("attribut2"<EQ>ValueString("\nbonjour\n"))}OR("attribut3"<LIKE>ValueString("\"den%\""))}"#;
         // assert_eq!(EXPECTED, sql);
     }

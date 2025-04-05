@@ -23,15 +23,13 @@ use log::*;
 //
 //
 
-
 //
 //Encapsulation for the logger routines
 //
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {
-        info!("«{}:{}» {}",  file!(), line!(), format!($($arg)*))
-        //info!($($arg)*)
+        info!("[{}:{}] {}",  file!(), line!(), format!($($arg)*))
     };
 }
 
@@ -39,15 +37,13 @@ macro_rules! log_info {
 macro_rules! log_debug {
     ($($arg:tt)*) => {
         debug!("[{}:{}] {}",  file!(), line!(), format!($($arg)*))
-        //debug!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! log_error {
     ($($arg:tt)*) => {
-        error!("«{}:{}» {}",  file!(), line!(), format!($($arg)*));
-        // error!($($arg)*)
+        error!("[{}:{}] {}",  file!(), line!(), format!($($arg)*));
     };
 }
 
@@ -61,8 +57,7 @@ macro_rules! log_error_simple {
 #[macro_export]
 macro_rules! log_warn {
     ($($arg:tt)*) => {
-        warn!("«{}:{}» {}",  file!(), line!(), format!($($arg)*));
-        //warn!($($arg)*)
+        warn!("[{}:{}] {}",  file!(), line!(), format!($($arg)*));
     };
 }
 
@@ -80,9 +75,8 @@ macro_rules! err_fwd {
     };
 }
 
-pub fn err_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn(T) -> T + 'a>
-{
-    let lambda = move |e : T | {
+pub fn err_closure_fwd<'a, T: std::fmt::Display>(msg: &'a str) -> Box<dyn Fn(T) -> T + 'a> {
+    let lambda = move |e: T| {
         log_error_simple!("[{}] - {}", e, msg);
         e
     };
@@ -96,9 +90,8 @@ macro_rules! eprint_fwd {
     };
 }
 
-pub fn eprint_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn(T) -> T + 'a>
-{
-    let lambda = move |e : T | {
+pub fn eprint_closure_fwd<'a, T: std::fmt::Display>(msg: &'a str) -> Box<dyn Fn(T) -> T + 'a> {
+    let lambda = move |e: T| {
         eprintln!("[{}] - {}", e, msg);
         e
     };
@@ -110,13 +103,13 @@ pub fn eprint_closure_fwd<'a, T: std::fmt::Display>(msg : &'a str) -> Box<dyn Fn
 ///
 #[cfg(test)]
 mod tests {
+    use crate::*;
     use std::collections::HashMap;
     use std::env;
     use std::fs::File;
     use std::path::Path;
     use std::process::exit;
     use std::sync::Once;
-    use crate::*;
 
     static INIT: Once = Once::new();
 
@@ -129,7 +122,7 @@ mod tests {
                 Err(e) => {
                     eprintln!("💣 Cannot find the DOKA_ENV system variable, {}", e);
                     exit(-99);
-                },
+                }
             };
 
             println!("Found doka_env=[{}]", &doka_env);
@@ -150,9 +143,10 @@ mod tests {
 
     fn open_file_with_err() -> anyhow::Result<()> {
         let filename = "bar.txt";
-        let _f = File::open(filename).map_err(
-            err_fwd!("First level error managed by anyhow, filename=[{}]", filename)
-        )?;
+        let _f = File::open(filename).map_err(err_fwd!(
+            "First level error managed by anyhow, filename=[{}]",
+            filename
+        ))?;
         Ok(())
     }
 
@@ -163,13 +157,17 @@ mod tests {
         let var = 125;
         let txt = "sample text";
         let session_number = 123456;
-        let _res = open_file_with_err().map_err(err_fwd!("Session number : {} - Second level of error by anyhow [{}] [{}]",
-                            session_number, &var, &txt) );
+        let _res = open_file_with_err().map_err(err_fwd!(
+            "Session number : {} - Second level of error by anyhow [{}] [{}]",
+            session_number,
+            &var,
+            &txt
+        ));
         println!("----------- End test test_two_level_of_error ----------");
     }
 
     fn meant_to_crash() -> anyhow::Result<i32> {
-        let mut m : HashMap<i32,i32> = HashMap::new();
+        let mut m: HashMap<i32, i32> = HashMap::new();
         m.insert(0, 6);
         let r = m.get(&0).ok_or(anyhow::anyhow!("Error : Missing item 0"))?;
         let _ = m.get(&1).ok_or(anyhow::anyhow!("Error : Missing item 1"))?;
@@ -188,9 +186,11 @@ mod tests {
         init();
         println!("----------- Start crash_error ----------");
         let session_number = 123456;
-        let r = middle_level_routine().map_err(err_fwd!("Session : {} - Cannot read the internal map", session_number));
+        let r = middle_level_routine().map_err(err_fwd!(
+            "Session : {} - Cannot read the internal map",
+            session_number
+        ));
         log_error!("Last return = [{:?}]", r);
         println!("----------- End crash_error ----------");
     }
-
 }

@@ -1,12 +1,11 @@
-use log::error;
-
 use crate::filter::filter_ast::{parse_tokens, LogicalOperator, TokenParseError};
 use crate::filter::filter_lexer::lex3;
 use crate::filter::filter_normalizer::normalize_lexeme;
+use crate::parser_log;
 use chrono::format::Numeric::Second;
-use commons_error::tr_fwd;
 use commons_error::*;
 use dkdto::{ClearTextReply, TagElement, TagType};
+use log::*;
 use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -71,6 +70,8 @@ pub(crate) enum FilterExpressionAST {
 pub(crate) fn analyse_expression(
     expression: &str,
 ) -> Result<Box<FilterExpressionAST>, TokenParseError> {
+    parser_log!("Analysing the expression : {:?}", expression; 5);
+
     match lex3(expression) {
         Ok(mut tokens) => {
             normalize_lexeme(&mut tokens);
@@ -327,19 +328,37 @@ mod tests {
 
     // cargo test --color=always --bin document-server filter  [ -- --show-output]
 
-    use crate::filter::filter_ast::{to_canonical_form, TokenParseError};
+    use crate::filter::filter_ast::{parse_tokens, to_canonical_form, TokenParseError};
     use crate::filter::{
         analyse_expression, extract_all_conditions, extract_boolean_filter, to_sql_form,
-        ComparisonOperator,
+        ComparisonOperator, FilterExpressionAST,
     };
+    use crate::parser_log;
+    use commons_error::*;
+    use log::*;
+    use std::sync::Once;
+
+    static INIT_LOGGER: Once = Once::new();
+
+    pub(crate) fn init_logger() {
+        INIT_LOGGER.call_once(|| {
+            if let Err(e) = log4rs::init_file(
+                "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
+                Default::default(),
+            ) {
+                panic!("{:?}", e);
+            }
+        });
+    }
 
     #[test]
     pub fn extract_conditions_1() {
+        init_logger();
         let input1 = " (country == \"FR\"  AND  (science >= 50) OR (lost_in_hell == \"TRUE\" OR (country == \"LU\" AND science >=50) ) )";
         let tree1 = analyse_expression(input1).unwrap();
         let canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
         let all_conditions = extract_all_conditions(tree1.as_ref()).unwrap();
-        println!("all_conditions...{:?}", all_conditions);
+        parser_log!("all_conditions...{:?}", all_conditions; 0);
         assert_eq!(5, all_conditions.values().len());
         let count_country = all_conditions
             .iter()
@@ -360,14 +379,54 @@ mod tests {
 
     #[test]
     pub fn extract_boolean_filter_1() {
+        init_logger();
         let input1 = " (country == \"FR\"  AND  (science >= 50) OR (lost_in_hell == \"TRUE\" OR (country == \"LU\" AND science >=50) ) )";
         let tree1 = analyse_expression(input1).unwrap();
         let canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
         let all_conditions = extract_all_conditions(tree1.as_ref()).unwrap();
         let boolean_filter = extract_boolean_filter(tree1.as_ref(), &all_conditions).unwrap();
-        println!("boolean filter: {}", &boolean_filter);
+        log_debug!("boolean filter: {}", &boolean_filter);
 
         const EXPECTED : &str = "(( ot_country_0.value is not null  AND  ot_science_0.value is not null ) OR ( ot_lost_in_hell_0.value is not null  OR ( ot_country_1.value is not null  AND  ot_science_1.value is not null )))";
         assert_eq!(EXPECTED, &boolean_filter);
+    }
+
+    // Failure case
+
+    #[test]
+    pub fn analyse_fail() {
+        init_logger();
+        let input = "(A LIKE )";
+        match analyse_expression(input) {
+            Ok(ast) => {
+                let canonical1 = to_canonical_form(ast.as_ref()).unwrap();
+                parser_log!("Result : {}", canonical1; 0);
+            }
+            Err(e) => {
+                panic!("Error : {:?}", e);
+            }
+        }
+
+        let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
+        // assert_eq!(expected, s.unwrap());
+    }
+
+    #[test]
+    pub fn analyse_fail_1() {
+        init_logger();
+        log_debug!("Start analyse fail 1");
+        let input = "()(A == 12)";
+        match analyse_expression(input) {
+            Ok(ast) => {
+                let canonical1 = to_canonical_form(ast.as_ref()).unwrap();
+                parser_log!("Result : {}", canonical1; 0);
+            }
+            Err(e) => {
+                panic!("Error : {:?}", e);
+            }
+        }
+
+        let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
+        // assert_eq!(expected, s.unwrap());
     }
 }

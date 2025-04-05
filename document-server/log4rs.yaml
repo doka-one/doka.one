@@ -4,26 +4,20 @@ appenders:
   console:
     kind: console
     encoder:
-      pattern: "{d(%+)(local)} {l} [{t}] {h({l})} [{M}] {m} [EOL] {n}"
+      pattern: "{d(%H:%M:%S)} {l} {m}{n}"  # Time only, message only
     #     https://docs.rs/log4rs/0.11.0/log4rs/encode/pattern/index.html
     filters:
       - kind: threshold
         level: debug
-  file:
-    kind: file
-    path: {{DOKA_ENV}}/{{PROJECT_CODE}}/logs/{{PROJECT_CODE}}.log
-    encoder:
-      pattern: "{d(%+)(local)} [{t}] {h({l})} [{M}] {m} [EOL] {n}"
 
 root:
   level: debug
   appenders:
     - console
-    - file
 
 loggers:
   test::a:
     level: debug
     appenders:
-      - file
+      - console
     additive: true

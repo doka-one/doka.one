@@ -1,15 +1,19 @@
-use crate::filter::filter_ast::{LogicalOperator, PositionalToken, Token};
+use crate::filter::filter_ast::{LogicalOperator, PositionalToken, Token, TokenSlice};
 use crate::filter::filter_lexer::{FilterError, FilterErrorCode};
+use commons_error::*;
+use log::*;
 
 ///
 ///
 ///
 pub fn normalize_lexeme(tokens: &mut Vec<Token>) {
+    log_info!("😇 Normalize lexeme : {}", &TokenSlice(&tokens));
     n1_remove_successive_logical_open_close(tokens);
-    println!("N1 {:?}", &tokens);
+    log_debug!("After Norm 1 : {}", &TokenSlice(&tokens));
     n2_mark_condition_open_close(tokens);
-    println!("N2 {:?}", &tokens);
+    log_debug!("After Norm 2 :  {}", &TokenSlice(&tokens));
     n3_binary_logical_operator(tokens);
+    log_info!("😎 Final normalisation :  {}", &TokenSlice(&tokens));
 }
 
 /// Normalization N3
@@ -18,6 +22,7 @@ pub fn normalize_lexeme(tokens: &mut Vec<Token>) {
 ///
 /// This step of normalization suppose that the N2 is fulfilled
 fn n3_binary_logical_operator(tokens: &mut Vec<Token>) {
+    log_info!("Normalize level 3");
     n3_binary_logical_operator_for_op(tokens, LogicalOperator::AND);
     n3_binary_logical_operator_for_op(tokens, LogicalOperator::OR);
 }
@@ -25,7 +30,6 @@ fn n3_binary_logical_operator(tokens: &mut Vec<Token>) {
 fn n3_binary_logical_operator_for_op(tokens: &mut Vec<Token>, for_lop: LogicalOperator) {
     loop {
         let inserting = find_next_ajustable(tokens, &for_lop);
-        dbg!(&inserting);
         match inserting {
             None => {
                 break;
@@ -55,7 +59,7 @@ fn find_next_ajustable(tokens: &Vec<Token>, for_lop: &LogicalOperator) -> Option
                 LogicalOperator::AND => {
                     if *for_lop == LogicalOperator::AND {
                         inserting = check_binary_logical_operator(&tokens, position_counter as u32);
-                        println!("Found a position for AND : {:?}", inserting);
+                        log_debug!("Found a position for AND : {:?}", inserting);
                         if inserting.is_some() {
                             break;
                         }
@@ -98,7 +102,7 @@ fn check_binary_logical_operator(tokens: &Vec<Token>, position_counter: u32) -> 
         (_, _) => {
             // In case either direction has no logical operator
             Some((left.position, right.position))
-        } //_ => {panic!("We must have a pair of LO/LC")}
+        }
     }
 }
 
@@ -264,13 +268,17 @@ fn check_logical_one_direction(
 /// (A == 12) will be [A == 12]  <br/>
 /// ( A== 12 AND (B == 5) ) will be ( [A == 12] AND [B == 5] )
 fn n2_mark_condition_open_close(tokens: &mut Vec<Token>) {
+    log_info!("Normalize level 2");
     let mut position_counter: u32 = 0;
     let mut list_of_replacement: Vec<(Option<u32>, Option<u32>)> = vec![];
     let mut list_of_inserting: Vec<(Option<u32>, Option<u32>)> = vec![]; // The place where to insert the CO/CC
 
+    tokens.insert(0, Token::LogicalOpen(PositionalToken::new((), 0)));
+    tokens.push(Token::LogicalClose(PositionalToken::new((), 0)));
+
     for token in tokens.iter() {
         match token {
-            Token::Attribute(_) => {
+            Token::Attribute(_pt) => {
                 let mut replacement: (Option<u32>, Option<u32>) = (None, None);
                 let mut inserting: (Option<u32>, Option<u32>) = (None, None);
 
@@ -279,23 +287,6 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>) {
 
                 let is_logical_opening =
                     check_logical_open_delimiter(&tokens, pre_position as usize);
-                let op_t: Option<&Token> = tokens.get((position_counter + 1) as usize);
-                let _is_operator = match op_t {
-                    None => {
-                        // TODO send error
-                        false
-                    }
-                    Some(_t) => true,
-                };
-
-                let op_t: Option<&Token> = tokens.get((position_counter + 2) as usize);
-                let _ = match op_t {
-                    None => false,
-                    Some(t) => match *t {
-                        Token::ValueInt(_) | Token::ValueString(_) => true,
-                        _ => false,
-                    },
-                };
 
                 let is_logical_closing =
                     check_logical_close_delimiter(&tokens, post_position as usize);
@@ -329,7 +320,7 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>) {
         }
     }
 
-    // prepare the list of element to insert in the tokens list
+    // Prepare the list of element to insert in the tokens list
     let raw_list_of_inserting: Vec<(u32, Token)> = transform_and_sort(
         &list_of_inserting,
         Token::ConditionOpen(PositionalToken::new((), 0)),
@@ -338,8 +329,11 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>) {
 
     for pos in raw_list_of_inserting {
         tokens.insert(pos.0 as usize, pos.1.clone());
-        println!(">>> {:?}", &pos);
     }
+
+    // Delete the first and last item of the tokens vec, to remove the Lo/Lc we added
+    tokens.remove(0);
+    tokens.pop();
 }
 
 /// Transform the list of positions we computed into a list of element ready to be inserted in the tokens list
@@ -369,29 +363,12 @@ fn transform_and_sort(
     raw_list_of_inserting
 }
 
-// fn check_logical_delimiter(tokens: &Vec<Token>, position: usize, logical_delimiter: Token) -> bool {
-//     let op_t = tokens.get(position);
-//     match op_t {
-//         Some(&Token::LogicalOpen) => logical_delimiter == Token::LogicalOpen,
-//         Some(&Token::LogicalClose) => logical_delimiter == Token::LogicalClose,
-//         _ => false,
-//     }
-// }
-
-fn check_logical_open_delimiter(tokens: &Vec<Token>, position: usize) -> bool {
-    let op_t = tokens.get(position);
-    match op_t {
-        Some(t) => t.is_logical_open(),
-        _ => false,
-    }
+fn check_logical_open_delimiter(tokens: &[Token], position: usize) -> bool {
+    tokens.get(position).map_or(false, |t| t.is_logical_open())
 }
 
-fn check_logical_close_delimiter(tokens: &Vec<Token>, position: usize) -> bool {
-    let op_t = tokens.get(position);
-    match op_t {
-        Some(t) => t.is_logical_close(),
-        _ => false,
-    }
+fn check_logical_close_delimiter(tokens: &[Token], position: usize) -> bool {
+    tokens.get(position).map_or(false, |t| t.is_logical_close())
 }
 
 /// N1  Normalization N1 by removing the duplicated parentheses. <br/>
@@ -407,6 +384,7 @@ fn check_logical_close_delimiter(tokens: &Vec<Token>, position: usize) -> bool {
 ///  in the array of pair openings. If it exists, it means that there are useless couple of parenthesis
 ///  so we mark then to be removed.
 fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
+    log_info!("Normalize level 1");
     #[derive(Debug)]
     struct PairPosition {
         position: u32, // token position of x opening
@@ -437,7 +415,7 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
                     }
                 }
                 last_open_info = Some((depth, position_counter));
-                println!("Open Delta Zero {:?}", &open_delta_zero);
+                log_debug!("Open Delta Zero {:?}", &open_delta_zero);
             }
             Token::LogicalClose(pt) => {
                 depth -= 1;
@@ -457,7 +435,7 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
                             matching_pair.x = -1;
                             matching_pair.y = -1;
                         }
-                        println!("Open Delta Zero After Use {:?}", &open_delta_zero);
+                        log_debug!("Open Delta Zero After Use {:?}", &open_delta_zero);
                     }
                 }
 
@@ -494,98 +472,24 @@ fn extract_position_info(token: &Token) -> usize {
     }
 }
 
-// N0 Check the coherence of the logical opening / closing
-fn n0_check_logical_open_close(tokens: &Vec<Token>) -> Result<(), FilterError> {
-    let lx_positions = extract_logical_open_close(tokens);
-    println!("LxPositions {:?}", lx_positions);
-
-    // Check if the lx_positions never fall in negative depth, with a lambda over the vec
-    // return the guilty token
-    let guilty_token = lx_positions.iter().find(|&x| x.depth < 0);
-
-    if let Some(gt) = guilty_token {
-        let position_info = extract_position_info(&gt.token);
-
-        println!("Guilty token {:?}", gt);
-        return Err(FilterError {
-            char_position: position_info,
-            error_code: FilterErrorCode::InvalidLogicalDepth,
-            message: "Too many close parenthesis".to_string(),
-        });
-    }
-
-    // Check if the lx_positions ends with a depth of 0
-    let last = lx_positions.last();
-    if let Some(l) = last {
-        let position_info = extract_position_info(&l.token);
-
-        if l.depth != 0 {
-            return Err(FilterError {
-                char_position: position_info,
-                error_code: FilterErrorCode::InvalidLogicalDepth,
-                message: "Too many open parenthesis".to_string(),
-            });
-        }
-    } else {
-        return Err(FilterError {
-            char_position: 0,
-            error_code: FilterErrorCode::IncompleteExpression,
-            message: "".to_string(),
-        });
-    }
-
-    Ok(())
-}
-
-/// List of the LogicalOpen and LogicalClose with their depth
-#[derive(Debug)]
-struct LxPosition {
-    position: u32, // token position of x opening
-    token: Token,  // LogicalOpen or LogicalClose
-    depth: i32,    // depth after the element
-}
-
-fn extract_logical_open_close(tokens: &Vec<Token>) -> Vec<LxPosition> {
-    let mut lx_positions: Vec<LxPosition> = vec![];
-    let mut depth: i32 = 0;
-    for (index, token) in tokens.iter().enumerate() {
-        match token {
-            Token::LogicalOpen(pt) => {
-                depth += 1;
-                lx_positions.push(LxPosition {
-                    position: index as u32,
-                    token: token.clone(),
-                    depth,
-                });
-            }
-            Token::LogicalClose(pt) => {
-                depth -= 1;
-                lx_positions.push(LxPosition {
-                    position: index as u32,
-                    token: token.clone(),
-                    depth,
-                });
-            }
-            _ => {}
-        }
-    }
-    lx_positions
-}
-
 #[cfg(test)]
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter::filter_ast::{PositionalToken, Token};
-    use crate::filter::filter_lexer::lex3;
+    use crate::filter::filter_ast::{PositionalToken, Token, TokenSlice};
+    use crate::filter::filter_lexer::{lex3, FilterError};
     use crate::filter::filter_normalizer::{
-        n0_check_logical_open_close, n1_remove_successive_logical_open_close,
-        n2_mark_condition_open_close, n3_binary_logical_operator,
+        n1_remove_successive_logical_open_close, n2_mark_condition_open_close,
+        n3_binary_logical_operator,
     };
+    use crate::filter::tests::init_logger;
     use crate::filter::{ComparisonOperator, LogicalOperator};
+    use commons_error::*;
+    use log::*;
 
     #[test]
     pub fn normalize_n3() {
+        init_logger();
         // ([age]) AND [height == 174]
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -624,6 +528,7 @@ mod tests {
 
     #[test]
     pub fn normalize_n3_test_2() {
+        init_logger();
         // ([age]) AND [height == 174] AND [weight == 25]
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -676,6 +581,7 @@ mod tests {
 
     #[test]
     pub fn normalize_n3_test_3() {
+        init_logger();
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
             Token::ConditionOpen(PositionalToken::new((), 0)), // N2
@@ -728,6 +634,7 @@ mod tests {
     // "[age < 40] OR ([denis < 5] AND [age > 21]) AND [detail == 6]";
     // will give ([age < 40] OR (([denis < 5] AND [age > 21]) AND [detail == 6]))
     pub fn normalize_n3_test_4() {
+        init_logger();
         let mut tokens = vec![
             Token::ConditionOpen(PositionalToken::new((), 0)),
             Token::Attribute(PositionalToken::new("age".to_string(), 0)),
@@ -796,6 +703,7 @@ mod tests {
     // "([age < 40] OR [denis < 5] AND [age > 21])";
     // will give ([age < 40] OR ([denis < 5] AND [age > 21]))
     pub fn normalize_n3_test_5() {
+        init_logger();
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
             Token::ConditionOpen(PositionalToken::new((), 0)),
@@ -848,6 +756,7 @@ mod tests {
 
     #[test]
     pub fn normalize_n3_test_6() {
+        init_logger();
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
             Token::ConditionOpen(PositionalToken::new((), 0)),
@@ -900,6 +809,7 @@ mod tests {
 
     #[test]
     pub fn normalize_n2() {
+        init_logger();
         // "((age >= 20) AND height == 174)";
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -933,11 +843,51 @@ mod tests {
             Token::ConditionClose(PositionalToken::new((), 0)),
             Token::LogicalClose(PositionalToken::new((), 0)),
         ];
+        log_debug!("Expected : {}", TokenSlice(&expected));
+        log_debug!("Result : {}", TokenSlice(&tokens));
+        assert_eq!(expected, tokens);
+    }
+
+    #[test]
+    pub fn normalize_n2_1() {
+        init_logger();
+        // "age >= 20 AND height == 174";
+        let mut tokens = vec![
+            Token::Attribute(PositionalToken::new("age".to_string(), 0)),
+            Token::Operator(PositionalToken::new(ComparisonOperator::GTE, 0)),
+            Token::ValueInt(PositionalToken::new(20, 0)),
+            Token::BinaryLogicalOperator(PositionalToken::new(LogicalOperator::AND, 0)),
+            Token::Attribute(PositionalToken::new("height".to_string(), 0)),
+            Token::Operator(PositionalToken::new(ComparisonOperator::EQ, 0)),
+            Token::ValueInt(PositionalToken::new(174, 0)),
+        ];
+
+        n2_mark_condition_open_close(&mut tokens);
+
+        // "[age >= 20] AND [height == 174]";
+        let expected = vec![
+            //Token::LogicalOpen(PositionalToken::new((), 0)),
+            Token::ConditionOpen(PositionalToken::new((), 0)),
+            Token::Attribute(PositionalToken::new("age".to_string(), 0)),
+            Token::Operator(PositionalToken::new(ComparisonOperator::GTE, 0)),
+            Token::ValueInt(PositionalToken::new(20, 0)),
+            Token::ConditionClose(PositionalToken::new((), 0)),
+            Token::BinaryLogicalOperator(PositionalToken::new(LogicalOperator::AND, 0)),
+            Token::ConditionOpen(PositionalToken::new((), 0)),
+            Token::Attribute(PositionalToken::new("height".to_string(), 0)),
+            Token::Operator(PositionalToken::new(ComparisonOperator::EQ, 0)),
+            Token::ValueInt(PositionalToken::new(174, 0)),
+            Token::ConditionClose(PositionalToken::new((), 0)),
+            // Token::LogicalClose(PositionalToken::new((), 0)),
+        ];
+        log_debug!("Expected : {}", TokenSlice(&expected));
+        log_debug!("Result : {}", TokenSlice(&tokens));
         assert_eq!(expected, tokens);
     }
 
     #[test]
     pub fn normalize_n2_test_2() {
+        init_logger();
         // "((age >= 20)) AND height == 174";
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -979,6 +929,7 @@ mod tests {
 
     #[test]
     pub fn normalize_n2_test_3() {
+        init_logger();
         // (age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -1040,6 +991,7 @@ mod tests {
     ////
     #[test]
     pub fn normalize_n1() {
+        init_logger();
         // (( 2 3 4 )) 7 ( 9 ((( 13 )) 16 ))
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -1088,6 +1040,8 @@ mod tests {
 
     #[test]
     pub fn normalize_n1_test_2() {
+        init_logger();
+        log_debug!("*** normalize_n1_test_2");
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -1129,6 +1083,7 @@ mod tests {
     #[test]
     // "(age < 40) OR (denis < 5 AND age > 21) AND (detail == 6)";
     pub fn normalize_n1_test_3() {
+        init_logger();
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
             Token::Attribute(PositionalToken::new("age".to_string(), 0)),
@@ -1184,6 +1139,7 @@ mod tests {
     #[test]
     // "((age < 40) OR  (age > 21)) AND (detail == 6)";
     pub fn normalize_n1_test_4() {
+        init_logger();
         let mut tokens = vec![
             Token::LogicalOpen(PositionalToken::new((), 0)),
             Token::LogicalOpen(PositionalToken::new((), 0)),
@@ -1230,28 +1186,5 @@ mod tests {
             Token::LogicalClose(PositionalToken::new((), 0)),
         ];
         assert_eq!(expected, tokens);
-    }
-
-    // Broken cases
-
-    /// Missing parenthesis (see lexer)
-    #[test]
-    pub fn missing_parenthesis_n0() {
-        let pos = vec![0; 5];
-        let input = "(A == 1) AND ((B == 2)";
-
-        let tokens = lex3(&input).unwrap();
-
-        // now Token as a display trait, please loop over the  list of  tokens and print then
-
-        tokens
-            .into_iter()
-            .for_each(|token| print!("{}", token.to_string()));
-
-        // println!("TOKENS : {:#?}", tokens);
-
-        // let r = n0_check_logical_open_close(&tokens);
-        // println!("Response : {:?}", r);
-        // assert_eq!(true, r.is_err());
     }
 }

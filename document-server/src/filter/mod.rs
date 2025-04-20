@@ -1,5 +1,6 @@
-use crate::filter::filter_ast::{parse_tokens, LogicalOperator, TokenParseError};
-use crate::filter::filter_lexer::lex3;
+use crate::filter::filter_ast::{parse_tokens, LogicalOperator};
+use crate::filter::filter_lexer::FilterErrorCode::EmptyCondition;
+use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode};
 use crate::filter::filter_normalizer::normalize_lexeme;
 use crate::parser_log;
 use chrono::format::Numeric::Second;
@@ -69,7 +70,7 @@ pub(crate) enum FilterExpressionAST {
 
 pub(crate) fn analyse_expression(
     expression: &str,
-) -> Result<Box<FilterExpressionAST>, TokenParseError> {
+) -> Result<Box<FilterExpressionAST>, FilterError> {
     parser_log!("Analysing the expression : {:?}", expression; 5);
 
     match lex3(expression) {
@@ -78,18 +79,13 @@ pub(crate) fn analyse_expression(
             parse_tokens(&mut tokens)
         }
         Err(e) => {
-            // TODO convert the LexerError e in to a TokenParseError
-            Err(TokenParseError::ValueExpected((
-                e.char_position as usize,
-                None,
-            )))
+            log_error!("Lexer error : {:?}", e);
+            Err(e)
         }
     }
 }
 
-pub(crate) fn to_sql_form(
-    filter_expression: &FilterExpressionAST,
-) -> Result<String, TokenParseError> {
+pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<String, FilterError> {
     let mut content: String = String::from("");
     match filter_expression {
         FilterExpressionAST::Condition(FilterCondition {
@@ -328,7 +324,7 @@ mod tests {
 
     // cargo test --color=always --bin document-server filter  [ -- --show-output]
 
-    use crate::filter::filter_ast::{parse_tokens, to_canonical_form, TokenParseError};
+    use crate::filter::filter_ast::{parse_tokens, to_canonical_form};
     use crate::filter::{
         analyse_expression, extract_all_conditions, extract_boolean_filter, to_sql_form,
         ComparisonOperator, FilterExpressionAST,
@@ -399,16 +395,17 @@ mod tests {
         let input = "(A LIKE )";
         match analyse_expression(input) {
             Ok(ast) => {
-                let canonical1 = to_canonical_form(ast.as_ref()).unwrap();
-                parser_log!("Result : {}", canonical1; 0);
+                assert_eq!(false, true)
             }
             Err(e) => {
-                panic!("Error : {:?}", e);
+                let e_msg = e.human_error_message();
+                log_debug!("Error : {}", &e_msg);
+                assert_eq!(
+                    "The value in the condition is not a valid number at position 9",
+                    e_msg
+                );
             }
         }
-
-        let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
-        // assert_eq!(expected, s.unwrap());
     }
 
     #[test]
@@ -422,11 +419,64 @@ mod tests {
                 parser_log!("Result : {}", canonical1; 0);
             }
             Err(e) => {
-                panic!("Error : {:?}", e);
+                let e_msg = e.human_error_message();
+                log_debug!("Error : {}", &e_msg);
+                assert_eq!("An opening parenthesis was expected at position 1", e_msg);
             }
         }
+    }
 
-        let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
-        // assert_eq!(expected, s.unwrap());
+    #[test]
+    pub fn analyse_fail_2() {
+        init_logger();
+        let input = "A ==() 12";
+        match analyse_expression(input) {
+            Ok(ast) => {
+                let canonical1 = to_canonical_form(ast.as_ref()).unwrap();
+                parser_log!("Result : {}", canonical1; 0);
+            }
+            Err(e) => {
+                let e_msg = e.human_error_message();
+                log_debug!("Error : {}", &e_msg);
+                assert_eq!(
+                    "The value in the condition is not a valid number at position 5",
+                    e_msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    pub fn analyse_fail_3() {
+        init_logger();
+        let input = "A 12";
+        match analyse_expression(input) {
+            Ok(ast) => {
+                let canonical1 = to_canonical_form(ast.as_ref()).unwrap();
+                parser_log!("Result : {}", canonical1; 0);
+            }
+            Err(e) => {
+                let e_msg = e.human_error_message();
+                log_debug!("Error : {}", &e_msg);
+                assert_eq!("Unknown filter operator at position 3", e_msg);
+            }
+        }
+    }
+
+    #[test]
+    pub fn analyse_fail_4() {
+        init_logger();
+        let input = "A == 12)";
+        match analyse_expression(input) {
+            Ok(ast) => {
+                let canonical1 = to_canonical_form(ast.as_ref()).unwrap();
+                parser_log!("Result : {}", canonical1; 0);
+            }
+            Err(e) => {
+                let e_msg = e.human_error_message();
+                log_debug!("Error : {}", &e_msg);
+                assert_eq!("Too many parenthesis at position 8", e_msg);
+            }
+        }
     }
 }

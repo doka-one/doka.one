@@ -35,13 +35,83 @@ pub(crate) enum FilterErrorCode {
     IncorrectAttributeChar, // "Wrong char in attribute"
     IncompleteExpression,
     InvalidLogicalDepth,
+    // parser
+    ValueExpected,
+    LogicalOperatorExpected,
+    OperatorExpected,
+    AttributeExpected,
+    OpeningExpected,
+    ClosingExpected,
 }
 
 #[derive(Debug)]
 pub(crate) struct FilterError {
     pub(crate) char_position: usize,
     pub(crate) error_code: FilterErrorCode,
-    pub(crate) message: String,
+}
+
+impl FilterError {
+    pub(crate) fn human_error_message(&self) -> String {
+        match self.error_code {
+            FilterErrorCode::EmptyCondition => format!(
+                "Nothing to read inside a condition at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::EmptyLogicalOperation => format!(
+                "Nothing to read inside a logical operation at position  {}",
+                self.char_position
+            ),
+            FilterErrorCode::WrongLogicalOperator => {
+                format!(
+                    "Unknown logical operator at position {}",
+                    self.char_position
+                )
+            }
+            FilterErrorCode::UnknownFilterOperator => {
+                format!("Unknown filter operator at position {}", self.char_position)
+            }
+            FilterErrorCode::WrongNumericValue => format!(
+                "The value in the condition is not a valid number at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::UnclosedQuote => {
+                format!("Missing closing quote  at position {}", self.char_position)
+            }
+            FilterErrorCode::IncorrectAttributeChar => {
+                format!("Wrong char in attribute at position {}", self.char_position)
+            }
+            FilterErrorCode::IncompleteExpression => format!(
+                "Looks like your filter is not complete at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::InvalidLogicalDepth => {
+                format!("Too many parenthesis at position {}", self.char_position)
+            }
+            FilterErrorCode::ValueExpected => {
+                format!("A value was expected at position {}", self.char_position)
+            }
+            FilterErrorCode::LogicalOperatorExpected => format!(
+                "A logical operator was expected at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::OperatorExpected => format!(
+                "An operator was expected at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::AttributeExpected => format!(
+                "An attribute was expected at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::OpeningExpected => format!(
+                "An opening parenthesis was expected at position {}",
+                self.char_position
+            ),
+            FilterErrorCode::ClosingExpected => format!(
+                "A closing parenthesis was expected at position {}",
+                self.char_position
+            ),
+        }
+    }
 }
 
 const TRUE: &str = "TRUE";
@@ -186,7 +256,6 @@ fn exp_lexer_index(
                     return Err(FilterError {
                         char_position: *index.borrow(),
                         error_code: FilterErrorCode::InvalidLogicalDepth,
-                        message: "Too many parenthesis".to_string(),
                     });
                 }
                 break; // Out of the routine
@@ -216,8 +285,6 @@ fn exp_lexer_index(
                                     return Err(FilterError {
                                         char_position: *index.borrow(),
                                         error_code: FilterErrorCode::IncompleteExpression,
-                                        message: "Looks like your filter is not complete 1"
-                                            .to_string(),
                                     });
                                 }
                             }
@@ -254,7 +321,6 @@ fn exp_lexer_index(
         return Err(FilterError {
             char_position: *index.borrow(),
             error_code: FilterErrorCode::InvalidLogicalDepth,
-            message: "Too many parenthesis".to_string(),
         });
     }
     Ok(tokens)
@@ -292,7 +358,6 @@ fn condition_lexer_index(
                     return Err(FilterError {
                         char_position: *index.borrow(),
                         error_code: FilterErrorCode::InvalidLogicalDepth,
-                        message: "Nothing to read inside the condition".to_string(),
                     });
                 } else {
                     append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
@@ -349,7 +414,6 @@ fn condition_lexer_index(
                     return Err(FilterError {
                         char_position: *index.borrow() - value.chars().count(),
                         error_code: FilterErrorCode::UnclosedQuote,
-                        message: "Missing closing quote".to_string(),
                     });
                 }
                 append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
@@ -371,7 +435,6 @@ fn condition_lexer_index(
                                 return Err(FilterError {
                                     char_position: *index.borrow(),
                                     error_code: FilterErrorCode::IncorrectAttributeChar,
-                                    message: "Wrong character in attribute".to_string(),
                                 });
                             } else {
                                 // Because the char is the first symbol of one of the filter operator, we mark the end of the attribute section and allow to continue
@@ -449,7 +512,6 @@ fn lopexp_lexer_index(
                 return Err(FilterError {
                     char_position: *index.borrow(),
                     error_code: FilterErrorCode::EmptyLogicalOperation,
-                    message: "Nothing to read inside the logical operation".to_string(),
                 });
             }
             Some(value) => value,
@@ -473,7 +535,6 @@ fn lopexp_lexer_index(
                                     return Err(FilterError {
                                         char_position: *index.borrow() - value.len() - 1,
                                         error_code: FilterErrorCode::WrongLogicalOperator,
-                                        message: "Unknown logical operator".to_string(),
                                     });
                                 }
                             };
@@ -505,7 +566,6 @@ fn lopexp_lexer_index(
                         return Err(FilterError {
                             char_position: *index.borrow(),
                             error_code: FilterErrorCode::IncompleteExpression,
-                            message: "Your filter condition is not complete".to_string(),
                         });
                     }
                     Some(c) => {
@@ -543,8 +603,6 @@ fn lopexp_lexer_index(
                                     return Err(FilterError {
                                         char_position: *index.borrow(),
                                         error_code: FilterErrorCode::IncompleteExpression,
-                                        message: "Looks like your filter is not complete 3"
-                                            .to_string(),
                                     });
                                 }
                             }
@@ -636,14 +694,12 @@ fn create_fop(fop: &str, index: usize, offset: usize) -> Result<Token, FilterErr
             _ => Err(FilterError {
                 char_position: char_pos + offset,
                 error_code: FilterErrorCode::UnknownFilterOperator,
-                message: "Unknown filter operator".to_string(),
             }),
         }
     } else {
         Err(FilterError {
             char_position: char_pos + offset,
             error_code: FilterErrorCode::UnknownFilterOperator,
-            message: "Empty filter operator".to_string(),
         })
     }
 }
@@ -680,7 +736,6 @@ fn append_attribute(
         return Err(FilterError {
             char_position: index + offset,
             error_code: FilterErrorCode::WrongNumericValue,
-            message: "Empty attribute".to_string(),
         });
     }
     Ok(())
@@ -710,7 +765,6 @@ fn append_value(
                 return Err(FilterError {
                     char_position: index + offset - value.len(),
                     error_code: FilterErrorCode::WrongNumericValue,
-                    message: "The value in the condition is not a valid number".to_string(),
                 });
             }
         }

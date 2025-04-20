@@ -1,7 +1,11 @@
 use std::cell::RefCell;
 use std::fmt;
 
-use crate::filter::filter_lexer::lex3;
+use crate::filter::filter_lexer::FilterErrorCode::{
+    AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected,
+    ValueExpected,
+};
+use crate::filter::filter_lexer::{lex3, FilterError};
 use crate::filter::filter_normalizer::normalize_lexeme;
 use crate::filter::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
 use crate::parser_log;
@@ -152,23 +156,13 @@ impl fmt::Display for Token {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum TokenParseError {
-    ValueExpected((usize, Option<Token>)),
-    LogicalOperatorExpected((usize, Option<Token>)),
-    OperatorExpected((usize, Option<Token>)),
-    AttributeExpected((usize, Option<Token>)),
-    OpeningExpected((usize, Option<Token>)),
-    ClosingExpected((usize, Option<Token>)),
-}
-
 /**
 REF_TAG : Parsing doka search expressions.md
  */
 #[cfg(test)]
 pub(crate) fn to_canonical_form(
     filter_expression: &FilterExpressionAST,
-) -> Result<String, TokenParseError> {
+) -> Result<String, FilterError> {
     let mut content: String = String::from("");
     match filter_expression {
         FilterExpressionAST::Condition(FilterCondition {
@@ -203,7 +197,7 @@ pub(crate) fn to_canonical_form(
 
 /// Parse a list of tokens to create the FilterExpression (AST)
 /// The list of Tokens must be N3-normalized first.
-pub(crate) fn parse_tokens(tokens: &[Token]) -> Result<Box<FilterExpressionAST>, TokenParseError> {
+pub(crate) fn parse_tokens(tokens: &[Token]) -> Result<Box<FilterExpressionAST>, FilterError> {
     let index = RefCell::new(0usize);
     parse_tokens_with_index(&tokens, &index)
 }
@@ -211,7 +205,7 @@ pub(crate) fn parse_tokens(tokens: &[Token]) -> Result<Box<FilterExpressionAST>,
 fn parse_tokens_with_index(
     tokens: &[Token],
     index: &RefCell<usize>,
-) -> Result<Box<FilterExpressionAST>, TokenParseError> {
+) -> Result<Box<FilterExpressionAST>, FilterError> {
     // Read the fist token
     // we start at 0
     let t = tokens.get(*index.borrow());
@@ -241,15 +235,18 @@ fn parse_tokens_with_index(
             }
             _ => {
                 log_error!("Logical opening expected");
-                return Err(TokenParseError::OpeningExpected((
-                    *index.borrow(),
-                    Some(token.clone()),
-                )));
+                Err(FilterError {
+                    char_position: *index.borrow(),
+                    error_code: OpeningExpected,
+                })
             }
         }
     } else {
         log_error!("Logical opening expected");
-        return Err(TokenParseError::OpeningExpected((*index.borrow(), None)));
+        Err(FilterError {
+            char_position: *index.borrow(),
+            error_code: OpeningExpected,
+        })
     }
 }
 
@@ -258,7 +255,7 @@ fn parse_tokens_with_index(
 fn parse_logical(
     tokens: &[Token],
     index: &RefCell<usize>,
-) -> Result<Box<FilterExpressionAST>, TokenParseError> {
+) -> Result<Box<FilterExpressionAST>, FilterError> {
     log_debug!("parse_logical at [{}]", *index.borrow());
 
     *index.borrow_mut() += 1;
@@ -287,18 +284,18 @@ fn parse_logical(
                         Token::BinaryLogicalOperator(op) => op,
                         _ => {
                             warn!("Must be an operator");
-                            return Err(TokenParseError::LogicalOperatorExpected((
-                                *index.borrow(),
-                                Some(t_op.clone()),
-                            )));
+                            return Err(FilterError {
+                                char_position: *index.borrow(),
+                                error_code: LogicalOperatorExpected,
+                            });
                         }
                     }
                 } else {
                     warn!("Must be an operator");
-                    return Err(TokenParseError::LogicalOperatorExpected((
-                        *index.borrow(),
-                        None,
-                    )));
+                    return Err(FilterError {
+                        char_position: *index.borrow(),
+                        error_code: LogicalOperatorExpected,
+                    });
                 }
                 .clone();
 
@@ -340,20 +337,23 @@ fn parse_logical(
                     }))
                 } else {
                     warn!("Expected logical closing");
-                    Err(TokenParseError::ClosingExpected((
-                        *index.borrow(),
-                        t.map(|x| x.clone()),
-                    )))
+                    Err(FilterError {
+                        char_position: *index.borrow(),
+                        error_code: ClosingExpected,
+                    })
                 }
             }
-            _ => Err(TokenParseError::OpeningExpected((
-                *index.borrow(),
-                Some(token.clone()),
-            ))),
+            _ => Err(FilterError {
+                char_position: *index.borrow(),
+                error_code: OpeningExpected,
+            }),
         }
     } else {
         log_error!("Logical opening expected");
-        return Err(TokenParseError::OpeningExpected((*index.borrow(), None)));
+        Err(FilterError {
+            char_position: *index.borrow(),
+            error_code: OpeningExpected,
+        })
     }
 }
 
@@ -362,7 +362,7 @@ fn parse_logical(
 fn parse_condition(
     tokens: &[Token],
     index: &RefCell<usize>,
-) -> Result<Box<FilterExpressionAST>, TokenParseError> {
+) -> Result<Box<FilterExpressionAST>, FilterError> {
     // Here we know that the form is C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
 
     log_debug!("parse_condition at [{}]", *index.borrow());
@@ -384,15 +384,18 @@ fn parse_condition(
                         Token::Operator(op) => op,
                         _ => {
                             warn!("Must be an comparison operator"); // TODO NORM
-                            return Err(TokenParseError::OperatorExpected((
-                                *index.borrow(),
-                                Some(t_op.clone()),
-                            )));
+                            return Err(FilterError {
+                                char_position: *index.borrow(),
+                                error_code: OperatorExpected,
+                            });
                         }
                     }
                 } else {
                     warn!("Must be a comparison operator"); // TODO NORM
-                    return Err(TokenParseError::OperatorExpected((*index.borrow(), None)));
+                    return Err(FilterError {
+                        char_position: *index.borrow(),
+                        error_code: OperatorExpected,
+                    });
                 }
                 .clone();
 
@@ -413,18 +416,18 @@ fn parse_condition(
                         Token::ValueBool(op) => FilterValue::ValueBool(op.clone().token),
                         _ => {
                             warn!("Must be a token value"); // TODO NORM
-                            return Err(TokenParseError::ValueExpected((
-                                *index.borrow(),
-                                Some(t_value.clone()),
-                            )));
+                            return Err(FilterError {
+                                char_position: *index.borrow(),
+                                error_code: ValueExpected,
+                            });
                         }
                     }
                 } else {
                     warn!("Must be a value"); // TODO NORM
-                    return Err(TokenParseError::ValueExpected((
-                        *index.borrow(),
-                        t.map(|x| x.clone()),
-                    )));
+                    return Err(FilterError {
+                        char_position: *index.borrow(),
+                        error_code: ValueExpected,
+                    });
                 };
 
                 *index.borrow_mut() += 1;
@@ -445,17 +448,17 @@ fn parse_condition(
             }
             t => {
                 warn!("Mysterious Token [{:?}]", t); // TODO NORM
-                return Err(TokenParseError::AttributeExpected((
-                    *index.borrow(),
-                    Some(token.clone()),
-                )));
+                Err(FilterError {
+                    char_position: *index.borrow(),
+                    error_code: AttributeExpected,
+                })
             }
         }
     } else {
-        return Err(TokenParseError::AttributeExpected((
-            *index.borrow(),
-            t.map(|x| x.clone()),
-        )));
+        Err(FilterError {
+            char_position: *index.borrow(),
+            error_code: AttributeExpected,
+        })
     }
 }
 
@@ -470,10 +473,10 @@ mod tests {
         Operator, ValueInt, ValueString,
     };
     use crate::filter::filter_ast::{
-        parse_tokens, parse_tokens_with_index, to_canonical_form, PositionalToken, Token,
-        TokenParseError, TokenSlice,
+        parse_tokens, parse_tokens_with_index, to_canonical_form, FilterError, PositionalToken,
+        Token, TokenSlice,
     };
-    use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode};
+    use crate::filter::filter_lexer::{lex3, FilterErrorCode};
     use crate::filter::filter_normalizer::normalize_lexeme;
     use crate::filter::tests::init_logger;
     use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
@@ -908,7 +911,7 @@ mod tests {
     }
 
     #[test]
-    pub fn parse_token_fail_1() {
+    pub fn global_fail_1() {
         init_logger();
         // (A LIKE )
         let input = "(A LIKE )";
@@ -923,10 +926,6 @@ mod tests {
                 }
             },
         }
-        // let r = normalize_lexeme(&mut tokens);
-        // let r_ast = parse_tokens(&mut tokens);
-        // let s = to_canonical_form(r.unwrap().as_ref());
-        // let expected = "([age<LT>40]OR(([denis<LT>5]AND[age<GT>21])AND[detail<EQ>6]))";
     }
 
     #[test]
@@ -974,10 +973,9 @@ mod tests {
             Ok(v) => {
                 assert!(false);
             }
-            Err(e) => match e {
-                TokenParseError::LogicalOperatorExpected((index, token)) => {
-                    assert_eq!(7, index);
-                    assert_eq!(true, token.unwrap().is_condition_open());
+            Err(e) => match e.error_code {
+                FilterErrorCode::LogicalOperatorExpected => {
+                    assert_eq!(7, e.char_position);
                 }
                 _ => {
                     assert!(false);
@@ -1019,13 +1017,9 @@ mod tests {
             Ok(_) => {
                 assert!(false);
             }
-            Err(e) => match e {
-                TokenParseError::ClosingExpected((index, token)) => {
-                    assert_eq!(12, index);
-                    assert_eq!(
-                        BinaryLogicalOperator(PositionalToken::new(OR, 0)),
-                        token.unwrap()
-                    );
+            Err(e) => match e.error_code {
+                FilterErrorCode::ClosingExpected => {
+                    assert_eq!(12, e.char_position);
                 }
                 _ => {
                     assert!(false);
@@ -1069,10 +1063,9 @@ mod tests {
             Ok(_) => {
                 assert!(false);
             }
-            Err(e) => match e {
-                TokenParseError::AttributeExpected((index, token)) => {
-                    assert_eq!(16, index);
-                    assert_eq!(Operator(PositionalToken::new(LIKE, 0)), token.unwrap());
+            Err(e) => match e.error_code {
+                FilterErrorCode::AttributeExpected => {
+                    assert_eq!(16, e.char_position as usize);
                 }
                 _ => {
                     assert!(false);

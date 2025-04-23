@@ -364,7 +364,7 @@ fn parse_condition(
     index: &RefCell<usize>,
 ) -> Result<Box<FilterExpressionAST>, FilterError> {
     // Here we know that the form is C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
-
+//
     log_debug!("parse_condition at [{}]", *index.borrow());
 
     *index.borrow_mut() += 1;

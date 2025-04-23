@@ -50,6 +50,7 @@ pub async fn get_all_item(
     Query(page): Query<PageQuery>,
     session_token: SessionToken,
 ) -> WebType<GetItemReply> {
+    //
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_item(page.start_page, page.page_size).await
 }

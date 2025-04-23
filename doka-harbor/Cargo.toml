@@ -27,6 +27,7 @@ bytes = { version = "^1.5", features = [] }
 async-nats = "^0.38"
 image = { version = "0.24.9"}
 rayon = "^1.7"
+handlebars = "^5"
 #fast_image_resize = "^5.0"
 
 commons-error= {path="../commons-error"}

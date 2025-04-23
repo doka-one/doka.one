@@ -1,3 +1,4 @@
+use std::env;
 use std::net::SocketAddr;
 use std::process::exit;
 
@@ -6,6 +7,7 @@ use axum::http::Method;
 use axum::response::Html;
 use axum::{routing::get, Router};
 use chrono::Timelike;
+use handlebars::Handlebars;
 use commons_error::log_info;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
@@ -15,6 +17,7 @@ use dkconfig::properties::{get_prop_value, set_prop_values};
 use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY};
 use dkdto::cbor_type::CborBytes;
 use log::*;
+use serde_derive::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
@@ -55,25 +58,29 @@ async fn search_result() -> CborBytes {
     delegate.search_result().await.into()
 }
 
-/// Handler to serve HTML
-async fn serve_html() -> Html<&'static str> {
-    Html(
-        r#"
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Rust Axum HTML</title>
-    </head>
-    <body>
-        <h1>Welcome to Axum!</h1>
-        <script src="/harbor/static/script.js"></script>
-    </body>
-    </html>
-    "#,
-    )
+#[derive(Serialize)]
+struct TemplateData {
+    message: String,
 }
+/// Handler to serve HTML
+
+async fn serve_html() -> Html<String> {
+    // Build the data
+    let path = env::current_dir().unwrap();
+    let data = TemplateData {
+        message: format!("Current path is: {}", path.display()),
+    };
+
+    // Register and render the template
+    let mut hb = Handlebars::new();
+    hb.register_template_file("index", "./templates/index.hbs")
+        .expect("Failed to load template");
+
+    let rendered = hb.render("index", &data).expect("Failed to render template");
+
+    Html(rendered)
+}
+
 
 /// Main async routine
 #[tokio::main(flavor = "multi_thread", worker_threads = 6)]

@@ -23,7 +23,7 @@ use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::cbor_type::CborType;
-use dkdto::error_codes::INTERNAL_TECHNICAL_ERROR;
+use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
 use dkdto::{ErrorSet, GetItemReply, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
 use doka_cli::request_client::TokenType;
@@ -94,41 +94,70 @@ impl SearchResultComponent {
     }
 
     /// 🌟 Read a file from the Doka API
-    pub async fn get_file(&mut self, file_ref: &str) -> CborType<CborFile> {
+    pub async fn get_file(&mut self, file_ref: &str) -> Result<Bytes, &ErrorSet> {
         log_info!("🚀 Start the get_file API");
 
-        let entry_session = try_or_return!(
-            valid_sid_get_session(&self.session_token, &mut self.follower).await,
-            Self::cbor_type_error()
-        );
+        // TODO check the session token
+        fn my_type_error<T: de::DeserializeOwned + Serialize>(
+        ) -> impl Fn(&ErrorSet<'static>) -> Result<T, &'static ErrorSet<'static>>
+        where
+            T: DeserializeOwned,
+        {
+            |e| {
+                log_error!("💣 Error after try {:?}", e);
+                Err(&INVALID_TOKEN)
+            }
+        }
+
+        // let entry_session = try_or_return!(
+        //     valid_sid_get_session(&self.session_token, &mut self.follower).await,
+        //     my_type_error()
+        // );
 
         let micro_trans = "7cf98e6a";
-
-        // let reduced_data = try_or_return!(
-        //     Self::smart_fetch_file(&micro_trans, &file_ref).await,
-        //     |_| CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
-        // );
 
         let Ok(reduced_data) = self
             .smart_fetch_reduced_file(&micro_trans, &file_ref)
             .await
             .map_err(err_fwd!("Cannot fetch file, follower=[{}]", &self.follower))
         else {
-            return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return Err(&INTERNAL_TECHNICAL_ERROR);
         };
 
-        let cbor_file = CborFile {
-            file_data: Bytes::from(reduced_data.to_vec()),
-        };
+        let file_data = Bytes::from(reduced_data.to_vec());
 
         log_info!("🏁 End the get_file API");
 
-        CborType::from_item(StatusCode::OK.as_u16(), cbor_file)
+        Ok(file_data)
+    }
+
+    /// 🌟 Read a file from the Doka API
+    pub async fn get_file_cbor(&mut self, file_ref: &str) -> CborType<CborFile> {
+        log_info!("🚀 Start the get_file API");
+
+        let r_file_data = self.get_file(file_ref).await;
+
+        match r_file_data {
+            Ok(file_data) => {
+                let cbor_file = CborFile { file_data };
+                log_info!("🏁 End the get_file API");
+                CborType::from_item(StatusCode::OK.as_u16(), cbor_file)
+            }
+            Err(error_set) => {
+                log_error!("💣 Error in get_file_cbor, error_set=[{:?}]", error_set);
+                // CborType::from_errorset(error_set.clone())
+                // TODO find a way to convert the error_set to a CborType
+                panic!()
+            }
+        }
+
+        // log_info!("🏁 End the get_file API");
+
+        // CborType::from_item(StatusCode::OK.as_u16(), cbor_file)
     }
 
     /// 🌟 Search for the entities from the Doka API
-    /// - The search is based on a session token
-    pub async fn search_result(&self) -> CborType<SearchResultHarbor> {
+    pub async fn search_result(&self) -> Result<SearchResultHarbor, &ErrorSet> {
         log_info!("🚀 Start the search_result API");
 
         // Call the doka API
@@ -154,7 +183,7 @@ impl SearchResultComponent {
                     &self.follower
                 ))
         else {
-            return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return Err(&INTERNAL_TECHNICAL_ERROR);
         };
 
         let get_item_reply = match o_original_file {
@@ -166,7 +195,7 @@ impl SearchResultComponent {
                     "💣 Cannot fetch the original file, follower=[{}]",
                     &self.follower
                 )) else {
-                    return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+                    return Err(&INTERNAL_TECHNICAL_ERROR);
                 };
 
                 log_info!(
@@ -224,11 +253,27 @@ impl SearchResultComponent {
         };
         let harbor_data: SearchResultHarbor = get_item_reply.map_to_harbor(&context);
 
-        let ret = CborType::from_item(StatusCode::OK.as_u16(), harbor_data);
-
         log_info!("🏁 End the search_result API");
 
-        ret
+        Ok(harbor_data)
+    }
+
+    /// 🌟 Search for the entities from the Doka API
+    /// - The search is based on a session token
+    pub async fn search_result_cbor(&self) -> CborType<SearchResultHarbor> {
+        let r = self.search_result().await;
+        match r {
+            Ok(harbor_data) => CborType::from_item(StatusCode::OK.as_u16(), harbor_data),
+            Err(error_set) => {
+                log_error!(
+                    "💣 Error in search_result_cbor, error_set=[{:?}]",
+                    error_set
+                );
+                // CborType::from_errorset(error_set.clone())
+                // TODO find a way to convert the error_set to a CborType
+                panic!()
+            }
+        }
     }
 
     async fn smart_fetch_original_file(

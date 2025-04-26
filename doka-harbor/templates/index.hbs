@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doka (Rust rendering)</title>
+</head>
+<body>
+<h1>Welcome to DOKA ONE!</h1>
+<p>{{message}}</p>
+<script src="/harbor/static/script.js"></script>
+
+<div>
+    <div data-component="/harbor/item_update/1234"/>
+</div>
+
+<ul>
+    {{#each items.items}}
+        <li>
+            <h2>{{name}} (ID: {{item_id}})</h2>
+            {{#if file_ref}}
+                <p>File Reference: {{file_ref}}</p>
+
+                <div data-component="/harbor/image/{{file_ref}}"/>
+
+            {{else}}
+                <p>No file reference</p>
+            {{/if}}
+
+
+
+            <ul>
+                {{#each properties}}
+                    <li><strong>{{key}}:</strong> {{value}}</li>
+                {{/each}}
+            </ul>
+        </li>
+    {{/each}}
+</ul>
+
+{{> footer}}
+
+</body>
+</html>
+

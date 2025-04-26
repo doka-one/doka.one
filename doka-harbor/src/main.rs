@@ -6,8 +6,8 @@ use axum::extract::Path;
 use axum::http::Method;
 use axum::response::Html;
 use axum::{routing::get, Router};
+use bytes::Bytes;
 use chrono::Timelike;
-use handlebars::Handlebars;
 use commons_error::log_info;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
@@ -16,12 +16,14 @@ use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_value, set_prop_values};
 use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY};
 use dkdto::cbor_type::CborBytes;
+use handlebars::Handlebars;
 use log::*;
 use serde_derive::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::search_result_component::SearchResultComponent;
+use crate::search_result_model::SearchResultHarbor;
 
 mod buckets;
 mod date_tools;
@@ -36,7 +38,7 @@ async fn get_file(Path(file_ref): Path<String>) -> CborBytes {
     // let session_token = SessionToken { 0: "".to_string() };
     let session_token = SessionToken { 0: "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g".to_string() };
     let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
-    delegate.get_file(&file_ref).await.into()
+    delegate.get_file_cbor(&file_ref).await.into()
 }
 
 /// 🌟 View the original file
@@ -55,20 +57,42 @@ async fn view_file(Path(file_ref): Path<String>) -> CborBytes {
 async fn search_result() -> CborBytes {
     let session_token = SessionToken { 0: "".to_string() };
     let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
-    delegate.search_result().await.into()
+    delegate.search_result_cbor().await.into()
 }
 
 #[derive(Serialize)]
 struct TemplateData {
     message: String,
+    year: u16,
+    items: SearchResultHarbor,
 }
+
+#[derive(Serialize, Debug)]
+struct ImageData {
+    image_base64: String,
+}
+
 /// Handler to serve HTML
 
-async fn serve_html() -> Html<String> {
+async fn index_html() -> Html<String> {
+    // The web server will serve the HTML files located in all the subdirectories of the "root" directory
+    // If you run the harbor program from the "doka-harbor" directory, it will be the root directory
+
     // Build the data
     let path = env::current_dir().unwrap();
+
+    //dbg!(&path);
+
+    let session_token = SessionToken { 0: "".to_string() };
+    let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
+    let items = delegate.search_result().await.unwrap();
+
+    //dbg!(&items);
+
     let data = TemplateData {
         message: format!("Current path is: {}", path.display()),
+        year: 2023,
+        items,
     };
 
     // Register and render the template
@@ -76,11 +100,72 @@ async fn serve_html() -> Html<String> {
     hb.register_template_file("index", "./templates/index.hbs")
         .expect("Failed to load template");
 
-    let rendered = hb.render("index", &data).expect("Failed to render template");
+    hb.register_template_file("footer", "./templates/footer.hbs")
+        .unwrap();
+
+    hb.register_template_file("image_partial", "./templates/image.hbs")
+        .unwrap();
+
+    let rendered = hb
+        .render("index", &data)
+        .expect("Failed to render template");
 
     Html(rendered)
 }
 
+async fn image_html(Path(file_ref): Path<String>) -> Html<String> {
+    // The web server will serve the HTML files located in all the subdirectories of the "root" directory
+    // If you run the harbor program from the "doka-harbor" directory, it will be the root directory
+
+    let session_token = SessionToken { 0: "".to_string() };
+    let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
+    let image_bytes = delegate.get_file(&file_ref).await.unwrap();
+
+    use base64::engine::general_purpose;
+    use base64::Engine;
+    let image_base64 = general_purpose::STANDARD.encode(image_bytes);
+    let data = ImageData { image_base64 };
+
+    // Register and render the template
+    let mut hb = Handlebars::new();
+    hb.register_template_file("image", "./templates/image.hbs")
+        .expect("Failed to load template");
+
+    let rendered = hb
+        .render("image", &data)
+        .expect("Failed to render template");
+
+    Html(rendered)
+}
+
+async fn item_update_html(Path(item_id): Path<String>) -> Html<String> {
+    // The web server will serve the HTML files located in all the subdirectories of the "root" directory
+    // If you run the harbor program from the "doka-harbor" directory, it will be the root directory
+
+    // let session_token = SessionToken { 0: "".to_string() };
+    // let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
+    // let image_bytes = delegate.get_file(&file_ref).await.unwrap();
+
+    // use base64::engine::general_purpose;
+    // use base64::Engine;
+    // let image_base64 = general_purpose::STANDARD.encode(image_bytes);
+    // let data = ImageData { image_base64 };
+
+    #[derive(Serialize)]
+    struct TemplateData {}
+    let data = TemplateData {};
+
+    // Register and render the template
+    let mut hb = Handlebars::new();
+    hb.register_template_file("item_update", "./templates/item_update.hbs")
+        .expect("Failed to load template");
+
+    let rendered = hb
+        .render("item_update", &data)
+        .expect("Failed to render template");
+
+    Html(rendered)
+}
 
 /// Main async routine
 #[tokio::main(flavor = "multi_thread", worker_threads = 6)]
@@ -162,7 +247,9 @@ async fn main() {
         .route("/cbor/view_file/:file_ref", get(view_file))
         .route("/cbor/search_result", get(search_result))
         // TODO below is a test page to serve a static content
-        .route("/index2", get(serve_html))
+        .route("/index2", get(index_html))
+        .route("/image/:file_ref", get(image_html))
+        .route("/item_update/:item_id", get(item_update_html))
         .nest_service("/static", ServeDir::new("static"))
         .layer(cors);
 

@@ -5,9 +5,8 @@ use crate::filter::filter_lexer::FilterErrorCode::{
     AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected,
     ValueExpected,
 };
-use crate::filter::filter_lexer::{lex3, FilterError};
+use crate::filter::filter_lexer::{lex3, FilterError, LogicalOperator, Token};
 use crate::filter::filter_normalizer::normalize_lexeme;
-use crate::filter::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
 use crate::parser_log;
 use commons_error::*;
 use log::*;
@@ -23,141 +22,59 @@ const LOGICAL_OPEN: &str = "(";
 const LOGICAL_CLOSE: &str = ")";
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum LogicalOperator {
-    AND,
-    OR,
+pub(crate) enum ComparisonOperator {
+    EQ,
+    NEQ,
+    GT,
+    GTE,
+    LT,
+    LTE,
+    LIKE,
 }
 
-//// Parser structures
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct PositionalToken<T> {
-    pub token: T,
-    pub position: usize,
+#[derive(Debug, Clone)]
+pub(crate) enum FilterValue {
+    ValueInt(i32),
+    ValueString(String),
+    ValueBool(bool),
 }
 
-impl<T> PositionalToken<T> {
-    pub fn new(token: T, position: usize) -> Self {
-        Self { token, position }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Token {
-    Attribute(PositionalToken<String>),
-    Operator(PositionalToken<ComparisonOperator>),
-    ValueInt(PositionalToken<i32>),
-    ValueString(PositionalToken<String>),
-    ValueBool(PositionalToken<bool>),
-    BinaryLogicalOperator(PositionalToken<LogicalOperator>),
-    ConditionOpen(PositionalToken<()>),  // [
-    ConditionClose(PositionalToken<()>), // ]
-    LogicalOpen(PositionalToken<()>),    // (
-    LogicalClose(PositionalToken<()>),   // ]
-}
-
-impl Token {
-    /// Test if the token is LogicalOpen
-    pub fn is_logical_open(&self) -> bool {
-        matches!(self, Token::LogicalOpen(_))
-    }
-
-    /// Test if the token is LogicalClose
-    pub fn is_logical_close(&self) -> bool {
-        matches!(self, Token::LogicalClose(_))
-    }
-
-    /// Test if the token is ConditionOpen
-    pub fn is_condition_open(&self) -> bool {
-        matches!(self, Token::ConditionOpen(_))
-    }
-
-    /// Test if the token is ConditionClose
-    pub fn is_condition_close(&self) -> bool {
-        matches!(self, Token::ConditionClose(_))
-    }
-
-    /// Extracts the position from the PositionalToken, regardless of the variant.
-    pub fn position(&self) -> usize {
-        match self {
-            Token::Attribute(p) => p.position,
-            Token::Operator(p) => p.position,
-            Token::ValueInt(p) => p.position,
-            Token::ValueString(p) => p.position,
-            Token::ValueBool(p) => p.position,
-            Token::BinaryLogicalOperator(p) => p.position,
-            Token::ConditionOpen(p) => p.position,
-            Token::ConditionClose(p) => p.position,
-            Token::LogicalOpen(p) => p.position,
-            Token::LogicalClose(p) => p.position,
-        }
-    }
-
-    pub fn move_position(&mut self, nb: i32) {
-        match self {
-            Token::Attribute(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::Operator(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::ValueInt(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::ValueString(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::ValueBool(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::BinaryLogicalOperator(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::ConditionOpen(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::ConditionClose(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::LogicalOpen(p) => p.position = (p.position as i32 + nb) as usize,
-            Token::LogicalClose(p) => p.position = (p.position as i32 + nb) as usize,
-        }
-    }
-}
-
-pub struct TokenSlice<'a>(pub &'a [Token]);
-
-impl<'a> fmt::Display for TokenSlice<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for token in self.0 {
-            write!(f, "{} ", token)?;
-        }
-        Ok(())
-    }
-}
-
-// for debug only
-impl fmt::Display for Token {
+impl fmt::Display for FilterValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Token::Attribute(pt) => write!(f, "{}", pt.token),
-            Token::Operator(pt) => write!(
-                f,
-                "{}",
-                match pt.token {
-                    ComparisonOperator::EQ => "=",
-                    ComparisonOperator::NEQ => "!=",
-                    ComparisonOperator::GT => ">",
-                    ComparisonOperator::GTE => ">=",
-                    ComparisonOperator::LT => "<",
-                    ComparisonOperator::LTE => "<=",
-                    ComparisonOperator::LIKE => "LIKE",
-                }
-            ),
-            Token::ValueInt(pt) => write!(f, "{}", pt.token),
-            Token::ValueString(pt) => write!(f, "\"{}\"", pt.token),
-            Token::ValueBool(pt) => write!(f, "{}", pt.token),
-            Token::BinaryLogicalOperator(pt) => write!(
-                f,
-                "{}",
-                match pt.token {
-                    LogicalOperator::AND => "AND",
-                    LogicalOperator::OR => "OR",
-                }
-            ),
-            Token::ConditionOpen(_) => write!(f, "["),
-            Token::ConditionClose(_) => write!(f, "]"),
-            Token::LogicalOpen(_) => write!(f, "("),
-            Token::LogicalClose(_) => write!(f, ")"),
+            FilterValue::ValueInt(i) => {
+                write!(f, "{}", i)
+            }
+            FilterValue::ValueString(s) => {
+                write!(f, "\"{}\"", s.as_str())
+            }
+            FilterValue::ValueBool(b) => {
+                write!(f, "{}", if *b { "TRUE" } else { "FALSE" })
+            }
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub(crate) struct FilterCondition {
+    pub(crate) key: String, // a unique key to identify the leaves
+    pub(crate) attribute: String,
+    pub(crate) operator: ComparisonOperator,
+    pub(crate) value: FilterValue,
+}
+
+#[derive(Debug)]
+pub enum FilterExpressionAST {
+    Condition(FilterCondition),
+    Logical {
+        operator: LogicalOperator,
+        leaves: Vec<Box<FilterExpressionAST>>,
+    },
+}
+
 
 /**
-REF_TAG : Parsing doka search expressions.md
+REF_TAG : DOKA_SEARCH_SQL
  */
 #[cfg(test)]
 pub(crate) fn to_canonical_form(
@@ -467,23 +384,21 @@ mod tests {
 
     //cargo test --color=always --bin document-server filter_ast::tests   -- --show-output
 
-    use crate::filter::filter_ast::LogicalOperator::{AND, OR};
     use crate::filter::filter_ast::Token::{
         Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen,
         Operator, ValueInt, ValueString,
     };
-    use crate::filter::filter_ast::{
-        parse_tokens, parse_tokens_with_index, to_canonical_form, FilterError, PositionalToken,
-        Token, TokenSlice,
-    };
-    use crate::filter::filter_lexer::{lex3, FilterErrorCode};
+    use crate::filter::filter_ast::{parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator, FilterError, Token};
+    use crate::filter::filter_lexer::{lex3, FilterErrorCode, PositionalToken, TokenSlice};
     use crate::filter::filter_normalizer::normalize_lexeme;
     use crate::filter::tests::init_logger;
-    use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
-    use crate::filter::{analyse_expression, to_sql_form, ComparisonOperator, FilterExpressionAST};
+
+    use crate::filter::{analyse_expression, to_sql_form};
     use commons_error::*;
     use log::*;
     use std::cell::RefCell;
+    use crate::filter::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
+    use crate::filter::filter_lexer::LogicalOperator::{AND, OR};
 
     #[test]
     pub fn test_logs() {

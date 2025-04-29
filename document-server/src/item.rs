@@ -32,8 +32,9 @@ use dkdto::{
 };
 use doka_cli::request_client::TokenType;
 
-use crate::filter::{analyse_expression, to_sql_form, FilterExpressionAST};
+use crate::filter::{analyse_expression, to_sql_form};
 use crate::{TagDelegate, WebType};
+use crate::filter::filter_ast::FilterExpressionAST;
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,

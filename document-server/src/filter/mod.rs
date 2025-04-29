@@ -1,6 +1,6 @@
-use crate::filter::filter_ast::{parse_tokens, LogicalOperator};
+use crate::filter::filter_ast::{parse_tokens, ComparisonOperator, FilterCondition, FilterExpressionAST};
 use crate::filter::filter_lexer::FilterErrorCode::EmptyCondition;
-use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode};
+use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode, LogicalOperator};
 use crate::filter::filter_normalizer::normalize_lexeme;
 use crate::parser_log;
 use chrono::format::Numeric::Second;
@@ -11,62 +11,12 @@ use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-mod filter_ast;
-mod filter_lexer;
-mod filter_normalizer;
+pub (crate) mod filter_ast;
+pub (crate) mod filter_lexer;
+pub (crate) mod filter_normalizer;
 
 const EXTRA_TABLE_PREFIX: &str = "ot";
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ComparisonOperator {
-    EQ,
-    NEQ,
-    GT,
-    GTE,
-    LT,
-    LTE,
-    LIKE,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum FilterValue {
-    ValueInt(i32),
-    ValueString(String),
-    ValueBool(bool),
-}
-
-impl fmt::Display for FilterValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FilterValue::ValueInt(i) => {
-                write!(f, "{}", i)
-            }
-            FilterValue::ValueString(s) => {
-                write!(f, "\"{}\"", s.as_str())
-            }
-            FilterValue::ValueBool(b) => {
-                write!(f, "{}", if *b { "TRUE" } else { "FALSE" })
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct FilterCondition {
-    key: String, // a unique key to identify the leaves
-    attribute: String,
-    operator: ComparisonOperator,
-    value: FilterValue,
-}
-
-#[derive(Debug)]
-pub(crate) enum FilterExpressionAST {
-    Condition(FilterCondition),
-    Logical {
-        operator: LogicalOperator,
-        leaves: Vec<Box<FilterExpressionAST>>,
-    },
-}
 
 pub(crate) fn analyse_expression(
     expression: &str,
@@ -125,6 +75,9 @@ pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<Str
     Ok(content)
 }
 
+///
+///
+///
 fn vectorize_conditions(
     filter_expression: &FilterExpressionAST,
 ) -> Result<Vec<FilterCondition>, GenerationError> {
@@ -163,7 +116,7 @@ pub(crate) fn extract_all_conditions(
     Ok(all_conditions_map)
 }
 
-/// from the AST, we extract complete filter but replacing the actual filter conditions with  ot_{{tag_name}}.value is not null
+/// From the AST, we extract complete filter but replacing the actual filter conditions with  ot_{{tag_name}}.value is not null
 /// Be careful, the filter_conditions must have been generated from the same filter_expression AST
 pub(crate) fn extract_boolean_filter(
     filter_expression_ast: &FilterExpressionAST,
@@ -210,6 +163,9 @@ pub(crate) fn extract_boolean_filter(
     Ok(content)
 }
 
+///
+///
+///
 fn generate_tag_value_filter(
     filter_condition: &FilterCondition,
     tag_type: &TagType,
@@ -273,10 +229,20 @@ impl fmt::Display for GenerationError {
     }
 }
 
-pub(crate) fn generate_generate_search_sql(
+
+#[derive(Debug)]
+struct TagDefinition {
+    tag_names: String,
+    tag_type : TagType
+}
+
+/// 🔑 Generate the SQL query from the filter AST
+pub(crate) fn generate_search_sql(
     filter_expression_ast: &FilterExpressionAST,
+    tag_definition: Vec<TagDefinition>,
     generation_mode: SearchSqlGenerationMode,
 ) -> Result<String, GenerationError> {
+
     // get all the final nodes (leaves), for instance, == (lastname, "a%" )
     let filter_conditions = extract_all_conditions(&filter_expression_ast).map_err(tr_fwd!())?;
 
@@ -295,6 +261,8 @@ pub(crate) fn generate_generate_search_sql(
             generate_tag_value_filter(&filter_condition, &TagType::Text).unwrap()
         } /* TODO */)
         .collect();
+
+    dbg!(&tag_value_filters);
 
     if let SearchSqlGenerationMode::Persisted = generation_mode {
         // evaluate the count of items from the tag_value_filter

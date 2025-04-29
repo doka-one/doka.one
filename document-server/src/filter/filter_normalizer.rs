@@ -1,5 +1,5 @@
-use crate::filter::filter_ast::{LogicalOperator, PositionalToken, Token, TokenSlice};
-use crate::filter::filter_lexer::{FilterError, FilterErrorCode};
+
+use crate::filter::filter_lexer::{FilterError, FilterErrorCode, LogicalOperator, PositionalToken, Token, TokenSlice};
 use commons_error::*;
 use log::*;
 
@@ -476,8 +476,7 @@ fn extract_position_info(token: &Token) -> usize {
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter::filter_ast::{PositionalToken, Token, TokenSlice};
-    use crate::filter::filter_lexer::{lex3, FilterError};
+    use crate::filter::filter_lexer::{lex3, FilterError, PositionalToken, Token, TokenSlice};
     use crate::filter::filter_normalizer::{
         n1_remove_successive_logical_open_close, n2_mark_condition_open_close,
         n3_binary_logical_operator,

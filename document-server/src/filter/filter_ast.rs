@@ -72,7 +72,6 @@ pub enum FilterExpressionAST {
     },
 }
 
-
 /**
 REF_TAG : DOKA_SEARCH_SQL
  */
@@ -281,7 +280,7 @@ fn parse_condition(
     index: &RefCell<usize>,
 ) -> Result<Box<FilterExpressionAST>, FilterError> {
     // Here we know that the form is C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
-//
+    //
     log_debug!("parse_condition at [{}]", *index.borrow());
 
     *index.borrow_mut() += 1;
@@ -388,17 +387,20 @@ mod tests {
         Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen,
         Operator, ValueInt, ValueString,
     };
-    use crate::filter::filter_ast::{parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator, FilterError, Token};
+    use crate::filter::filter_ast::{
+        parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator, FilterError,
+        Token,
+    };
     use crate::filter::filter_lexer::{lex3, FilterErrorCode, PositionalToken, TokenSlice};
     use crate::filter::filter_normalizer::normalize_lexeme;
     use crate::filter::tests::init_logger;
 
+    use crate::filter::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
+    use crate::filter::filter_lexer::LogicalOperator::{AND, OR};
     use crate::filter::{analyse_expression, to_sql_form};
     use commons_error::*;
     use log::*;
     use std::cell::RefCell;
-    use crate::filter::filter_ast::ComparisonOperator::{EQ, GT, GTE, LIKE, LT};
-    use crate::filter::filter_lexer::LogicalOperator::{AND, OR};
 
     #[test]
     pub fn test_logs() {

@@ -28,6 +28,7 @@ use crate::item::ItemDelegate;
 use crate::tag::TagDelegate;
 
 mod char_lib;
+mod engine;
 mod filter;
 mod ft_tokenizer;
 mod fulltext;

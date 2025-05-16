@@ -404,6 +404,18 @@ impl TagType {
             TagType::Link => TAG_TYPE_LINK,
         }
     }
+
+    pub fn value_column_name(&self) -> &str {
+        match self {
+            TagType::Text => "value_string",
+            TagType::Bool => "value_boolean",
+            TagType::Int => "value_integer",
+            TagType::Double => "value_double",
+            TagType::Date => "value_date",
+            TagType::DateTime => "value_datetime",
+            TagType::Link => "value_link",
+        }
+    }
 }
 
 impl FromStr for TagType {

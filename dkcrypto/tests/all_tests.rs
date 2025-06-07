@@ -55,10 +55,6 @@ mod tests {
 
         let key = DkEncrypt::generate_random_key();
         let encrypted = DkEncrypt::new(CC20).encrypt_str(clear, &key).unwrap();
-
-        dbg!(&key);
-        dbg!(&encrypted);
-
         let new_clear = DkEncrypt::new(CC20).decrypt_str(&encrypted, &key).unwrap();
         // dbg!(&new_clear);
 
@@ -68,7 +64,6 @@ mod tests {
     #[test]
     fn b10_hash_password() {
         let hash = DkEncrypt::hash_password("my_super_password");
-        dbg!(&hash);
         let check = DkEncrypt::verify_password("my_super_password", &hash);
         assert_eq!(true, check);
     }
@@ -126,10 +121,7 @@ mod tests {
         }
         let timestamp_end_0 = Utc::now().timestamp_millis();
         println!("diff [{}] ms", timestamp_end_0 - timestamp_start_0);
-        println!(
-            "avg [{}] ms",
-            (timestamp_end_0 - timestamp_start_0) / count_0 as i64
-        );
+        println!("avg [{}] ms", (timestamp_end_0 - timestamp_start_0) / count_0 as i64);
 
         // Avec Rayon
         let timestamp_start = Utc::now().timestamp_millis();
@@ -141,10 +133,7 @@ mod tests {
         }
         let timestamp_end = Utc::now().timestamp_millis();
         println!("rayon diff [{}] ms", timestamp_end - timestamp_start);
-        println!(
-            "rayon avg [{}] ms",
-            (timestamp_end - timestamp_start) / count as i64
-        );
+        println!("rayon avg [{}] ms", (timestamp_end - timestamp_start) / count as i64);
 
         for w in encrypted_words {
             let clear = DkEncrypt::new(CC20).decrypt_str(&w, KEY).unwrap();
@@ -163,10 +152,8 @@ mod tests {
 
     fn encrypt_rayon_test(phrases: &[&str]) -> Vec<String> {
         use rayon::prelude::*;
-        let encrypted_phrases: Vec<String> = phrases
-            .par_iter()
-            .map(|phrase| DkEncrypt::new(CC20).encrypt_str(phrase, KEY).unwrap())
-            .collect();
+        let encrypted_phrases: Vec<String> =
+            phrases.par_iter().map(|phrase| DkEncrypt::new(CC20).encrypt_str(phrase, KEY).unwrap()).collect();
         encrypted_phrases
     }
 }

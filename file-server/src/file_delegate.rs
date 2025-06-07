@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::anyhow;
 use axum::body::Body;
@@ -10,8 +10,9 @@ use axum::extract::Multipart;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use base64::Engine;
 use bytes::Bytes;
-use futures::future;
+
 use futures::stream::Stream;
+use futures::{future, TryFutureExt};
 use log::*;
 use mime::Mime;
 use rs_uuid::iso::uuid_v4;
@@ -29,16 +30,15 @@ use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
 use dkconfig::property_name::{
-    DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY,
-    TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY,
+    DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY, TIKA_SERVER_HOSTNAME_PROPERTY,
+    TIKA_SERVER_PORT_PROPERTY,
 };
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use dkdto::{
-    DownloadReply, EntrySession, ErrorSet, GetFileInfoReply, GetFileInfoShortReply,
-    ListOfFileInfoReply, ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType,
-    WebTypeBuilder,
+    DownloadReply, EntrySession, ErrorSet, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply,
+    ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType, WebTypeBuilder,
 };
 use doka_cli::async_request_client::{DocumentServerClientAsync, TikaServerClientAsync};
 use doka_cli::request_client::TokenType;
@@ -68,11 +68,7 @@ impl PartsStream {
         // On récupère juste les Vec<u8> triés
         let sorted_data = sorted_parts.into_iter().map(|(_, data)| data).collect();
 
-        PartsStream {
-            parts: sorted_data,
-            current_index: 0,
-            current_offset: 0,
-        }
+        PartsStream { parts: sorted_data, current_index: 0, current_offset: 0 }
     }
 }
 
@@ -125,10 +121,7 @@ impl FileDelegate {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
         Self {
             session_token,
-            follower: Follower {
-                x_request_id: x_request_id.new_if_null(),
-                token_type: TokenType::None,
-            },
+            follower: Follower { x_request_id: x_request_id.new_if_null(), token_type: TokenType::None },
         }
     }
 
@@ -140,10 +133,7 @@ impl FileDelegate {
         entry_session: &EntrySession,
     ) -> anyhow::Result<(usize, u32)> {
         // Create parts
-        log_info!(
-            "Start creating clear parts in the database, follower=[{}]",
-            &self.follower
-        );
+        log_info!("Start creating clear parts in the database, follower=[{}]", &self.follower);
 
         const INSERT_GROUP_SIZE: usize = 10;
         let mut block_set: HashMap<u32, Vec<u8>> = HashMap::with_capacity(INSERT_GROUP_SIZE);
@@ -151,16 +141,34 @@ impl FileDelegate {
         let mut total_size: usize = 0;
         let mut block_num: u32 = 0;
 
-        // Test
-        while let Some(mut field) = file_data.next_field().await.unwrap() {
+        loop {
+            let mut field = match file_data.next_field().await {
+                Ok(Some(field)) => field,
+                Ok(None) => {
+                    break; // No more fields to process
+                }
+                Err(e) => {
+                    return Err(anyhow!(
+                        "💣 Error reading multipart field, follower=[{}], error=[{}]",
+                        &self.follower,
+                        e
+                    ));
+                }
+            };
+
             let file_name = field.file_name().unwrap_or("default_name").to_string();
-            println!("Receiving file: {}", file_name);
 
             use bytes::Bytes;
             let mut buffer = Bytes::new();
 
-            while let Some(chunk) = field.chunk().await.unwrap() {
-                //log_info!("Chunk {}, size = {}", count, chunk.len());
+            loop {
+                let chunk = match field.chunk().await {
+                    Ok(Some(chunk)) => chunk,
+                    Ok(None) => break, // No more chunks in this field
+                    Err(e) => {
+                        return Err(anyhow!("💣 Error reading chunk, follower=[{}], error=[{}]", &self.follower, e));
+                    }
+                };
 
                 buffer = Bytes::copy_from_slice(&[buffer, chunk].concat());
                 // Tant que le buffer contient au moins BLOCK_SIZE octets, écrire un bloc
@@ -174,10 +182,7 @@ impl FileDelegate {
                     log_info!("block num {}, size = {}", block_num, slice.len());
 
                     if block_set.len() >= INSERT_GROUP_SIZE {
-                        if let Err(e) = self
-                            .store_group_block(item_info, file_ref, &block_set, entry_session)
-                            .await
-                        {
+                        if let Err(e) = self.store_group_block(item_info, file_ref, &block_set, entry_session).await {
                             return Err(anyhow!(
                                 "💣 Cannot store the set of blocks, follower=[{}], error=[{}]",
                                 &self.follower,
@@ -201,10 +206,7 @@ impl FileDelegate {
 
                 log_info!("block num {}, size = {}", block_num, buffer.len());
 
-                if let Err(e) = self
-                    .store_group_block(item_info, file_ref, &block_set, entry_session)
-                    .await
-                {
+                if let Err(e) = self.store_group_block(item_info, file_ref, &block_set, entry_session).await {
                     return Err(anyhow!(
                         "💣 Cannot store the set of blocks, follower=[{}], error=[{}]",
                         &self.follower,
@@ -300,10 +302,7 @@ impl FileDelegate {
 
         // Ajouter les en-têtes HTTP
         let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_str(media.to_string().as_str()).unwrap(),
-        );
+        headers.insert(header::CONTENT_TYPE, HeaderValue::from_str(media.to_string().as_str()).unwrap());
         headers.insert(
             header::CONTENT_DISPOSITION,
             HeaderValue::from_str("inline; filename=\"file_from_parts\"").unwrap(),
@@ -315,16 +314,8 @@ impl FileDelegate {
 
     /// Get all the encrypted parts of the file
     /// ( "application/pdf", {0 : "...", 1: "...", ...} )
-    async fn search_incoming_blocks(
-        &self,
-        file_ref: &str,
-        customer_code: &str,
-    ) -> anyhow::Result<SQLDataSet> {
-        log_info!(
-            "Search the incoming blocks for the file, file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+    async fn search_incoming_blocks(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<SQLDataSet> {
+        log_info!("Search the incoming blocks for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
@@ -341,31 +332,14 @@ impl FileDelegate {
 
         let sql_query = sql_str.replace("{customer_code}", customer_code);
         let mut params = HashMap::new();
-        params.insert(
-            "p_file_ref".to_string(),
-            CellValue::from_raw_string(file_ref.to_string()),
-        );
+        params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.to_string()));
 
-        let query = SQLQueryBlockAsync {
-            sql_query,
-            start: 0,
-            length: None,
-            params,
-        };
+        let query = SQLQueryBlockAsync { sql_query, start: 0, length: None, params };
 
-        let dataset = query
-            .execute(&mut trans)
-            .await
-            .map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-        log_info!(
-            "😎 Found incoming blocks for the file, file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        let dataset =
+            query.execute(&mut trans).await.map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        log_info!("😎 Found incoming blocks for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         Ok(dataset)
     }
@@ -390,35 +364,16 @@ impl FileDelegate {
         let sequence_name = format!("fs_{}.file_parts_id_seq", customer_code);
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_file_reference_id".to_string(),
-            CellValue::from_raw_int(file_id),
-        );
-        params.insert(
-            "p_part_number".to_string(),
-            CellValue::from_raw_int_32(block_number as i32),
-        );
+        params.insert("p_file_reference_id".to_string(), CellValue::from_raw_int(file_id));
+        params.insert("p_part_number".to_string(), CellValue::from_raw_int_32(block_number as i32));
         params.insert("p_part_data".to_string(), CellValue::from_raw_str(enc_data));
 
-        let sql_insert = SQLChangeAsync {
-            sql_query,
-            params,
-            sequence_name,
-        };
+        let sql_insert = SQLChangeAsync { sql_query, params, sequence_name };
 
-        let _file_part_id = sql_insert
-            .insert(&mut trans)
-            .await
-            .map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-        log_info!(
-            "Encrypted block inserted as a part, block_num=[{}], follower=[{}]",
-            block_number,
-            &self.follower
-        );
+        let _file_part_id =
+            sql_insert.insert(&mut trans).await.map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        log_info!("Encrypted block inserted as a part, block_num=[{}], follower=[{}]", block_number, &self.follower);
         Ok(())
     }
 
@@ -435,37 +390,24 @@ impl FileDelegate {
     ) -> anyhow::Result<()> {
         // Query the blocks from file_upload table
 
-        let mut dataset = self
-            .search_incoming_blocks(file_ref, customer_code)
-            .await
-            .map_err(tr_fwd!())?;
+        let mut dataset = self.search_incoming_blocks(file_ref, customer_code).await.map_err(tr_fwd!())?;
         let mut row_index: u32 = 0;
 
         // Loop the blocks
         while dataset.next() {
-            let block_number = dataset
-                .get_int_32("part_number")
-                .ok_or(anyhow!("Wrong part_number col"))? as u32;
-            let part_data = dataset
-                .get_string("part_data")
-                .ok_or(anyhow!("Wrong part_data col"))?;
+            let block_number = dataset.get_int_32("part_number").ok_or(anyhow!("Wrong part_number col"))? as u32;
+            let part_data = dataset.get_string("part_data").ok_or(anyhow!("Wrong part_data col"))?;
 
             // | Encrypt the data
-            let raw_value = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(part_data)
-                .map_err(tr_fwd!())?;
+            let raw_value = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(part_data).map_err(tr_fwd!())?;
 
             let encrypted_block = DkEncrypt::new(CC20)
                 .encrypt_vec(&raw_value, &customer_key)
-                .map_err(err_fwd!(
-                    "Cannot encrypt the data block, follower=[{}]",
-                    &self.follower
-                ))?;
+                .map_err(err_fwd!("Cannot encrypt the data block, follower=[{}]", &self.follower))?;
 
             // | Store the data in the file_parts
 
-            let enc_data =
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&encrypted_block);
+            let enc_data = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&encrypted_block);
             log_info!(
                 "Encrypted the row number=[{}/{}], enc_parts=[{}], follower=[{}]",
                 row_index,
@@ -473,9 +415,7 @@ impl FileDelegate {
                 &enc_data[..10],
                 &self.follower
             );
-            let _ = self
-                .write_part(file_id, block_number, &enc_data, customer_code)
-                .await?;
+            let _ = self.write_part(file_id, block_number, &enc_data, customer_code).await?;
 
             row_index += 1;
         }
@@ -492,20 +432,12 @@ impl FileDelegate {
         customer_code: &str,
         customer_key: &str,
     ) -> anyhow::Result<()> {
-        log_info!(
-            "Process the blocks for file ref = [{}], follower=[{}]",
-            &file_ref,
-            &self.follower
-        );
+        log_info!("Process the blocks for file ref = [{}], follower=[{}]", &file_ref, &self.follower);
         // Read the file parts from the file_uploads table, encrypt the blocks and store the encrypted part into file_parts
-        let _ = self
-            .serial_encrypt(file_id, file_ref, block_count, customer_code, customer_key)
-            .await?;
+        let _ = self.serial_encrypt(file_id, file_ref, block_count, customer_code, customer_key).await?;
 
         // Parse the file (Tika)
-        let _r = self
-            .serial_parse_content(file_id, &file_ref, block_count, customer_code)
-            .await?;
+        let _r = self.serial_parse_content(file_id, &file_ref, block_count, customer_code).await?;
         log_info!(
             "😎 Successful process file for file_ref=[{}], file_id=[{}], follower=[{}]",
             file_ref,
@@ -529,14 +461,11 @@ impl FileDelegate {
     pub async fn upload2(
         &mut self,
         item_info: &str,
+        content_length: &Option<u64>,
         file_data: &mut Multipart,
     ) -> WebType<UploadReply> {
         // Pre-processing
-        log_info!(
-            "🚀 Start upload api, item_info=[{}], follower=[{}]",
-            &item_info,
-            &self.follower
-        );
+        log_info!("🚀 Start upload api, item_info=[{}], follower=[{}]", &item_info, &self.follower);
 
         let entry_session = try_or_return!(
             valid_sid_get_session(&self.session_token, &mut self.follower).await,
@@ -549,22 +478,16 @@ impl FileDelegate {
 
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
             .await
-            .map_err(err_fwd!(
-                "💣 Cannot get the customer key, follower=[{}]",
-                &self.follower
-            ))
+            .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
         else {
             return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Create an entry in file_reference
-        let Ok((file_id, file_ref)) =
-            self.create_file_reference(customer_code)
-                .await
-                .map_err(err_fwd!(
-                    "💣 Cannot create an entry in the file reference table, follower=[{}]",
-                    &self.follower
-                ))
+        let Ok((file_id, file_ref)) = self
+            .create_file_reference(customer_code, content_length)
+            .await
+            .map_err(err_fwd!("💣 Cannot create an entry in the file reference table, follower=[{}]", &self.follower))
         else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
@@ -577,28 +500,33 @@ impl FileDelegate {
         );
 
         // Phase 1 :  Read all the incoming blocks and write them in the DB (file_uploads table)
+
+        let Ok(item_info_decoded) = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(item_info)
+            .map_err(err_fwd!("💣 Cannot decode item_info, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        };
+
+        let item_info = String::from_utf8_lossy(&item_info_decoded);
+
         let Ok((total_size, block_count)) = self
             .read_and_write_incoming_data(&item_info, &file_ref, file_data, &entry_session)
             .await
-            .map_err(err_fwd!(
-                "💣 Cannot write parts, follower=[{}]",
-                &self.follower
-            ))
+            .map_err(err_fwd!("💣 Cannot write parts, follower=[{}]", &self.follower))
         else {
             // The stream is managed by the routine above, so no need to empty it here.
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
-        // Phase 2 : Run a thread to perform all the other operations (encrypt, tika parse, ...)
-        self.thread_processing_block(
-            &item_info,
-            file_id,
+        log_info!(
+            "😎 Upload complete. About to process blocks, file_ref=[{}], follower=[{}]",
             &file_ref,
-            customer_code,
-            &customer_key,
-            block_count,
-        )
-        .await;
+            &self.follower
+        );
+
+        // Phase 2 : Run a thread to perform all the other operations (encrypt, tika parse, ...)
+        self.thread_processing_block(&item_info, file_id, &file_ref, customer_code, &customer_key, block_count).await;
 
         // Return the file_reference
 
@@ -606,11 +534,7 @@ impl FileDelegate {
 
         WebType::from_item(
             StatusCode::OK.as_u16(),
-            UploadReply {
-                file_ref: file_ref.clone(),
-                size: total_size,
-                block_count,
-            },
+            UploadReply { file_ref: file_ref.clone(), size: total_size, block_count },
         )
     }
 
@@ -628,7 +552,13 @@ impl FileDelegate {
         let local_file_ref = String::from(file_ref);
         let local_customer_code = String::from(customer_code);
         let local_customer_key = String::from(customer_key);
-        let _th = tokio::spawn(async move {
+        let parallel_process = tokio::spawn(async move {
+            log_info!(
+                "Blocks processing is flying away for file_ref=[{}], follower=[{}]",
+                &local_file_ref,
+                &local_self.follower
+            );
+
             let status = local_self
                 .process_file_blocks(
                     file_id,
@@ -640,35 +570,39 @@ impl FileDelegate {
                 )
                 .await;
             if status.is_err() {
-                log_info!("💣 The file processing failed. Enter the rollback process, file_ref=[{}], follower=[{}]", &local_file_ref, &local_self.follower);
+                log_error!(
+                    "💣 The file processing failed. Enter the rollback process, file_ref=[{}], follower=[{}]",
+                    &local_file_ref,
+                    &local_self.follower
+                );
                 // Clean the tables : file_parts (file_id) + file_metadata (file_id)
-                let _ = local_self
-                    .delete_from_target_table("file_parts", file_id, &local_customer_code)
-                    .await;
-                let _ = local_self
-                    .delete_from_target_table("file_metadata", file_id, &local_customer_code)
-                    .await;
+                let _ = local_self.delete_from_target_table("file_parts", file_id, &local_customer_code).await;
+                let _ = local_self.delete_from_target_table("file_metadata", file_id, &local_customer_code).await;
                 // Change the status of file_reference (file_id) : put all the values to "0" (size + total_part)
-                let _ = local_self
-                    .update_file_reference(file_id, 0, 0, "text", &local_customer_code)
-                    .await;
+                let _ = local_self.update_file_reference(file_id, 0, 0, "text", &local_customer_code).await;
                 // Call the document server to delete the text indexing
-                if let Ok(document_server) = Self::find_document_server_client()
-                    .map_err(err_fwd!("Cannot find the document server"))
+                if let Ok(document_server) =
+                    Self::find_document_server_client().map_err(err_fwd!("Cannot find the document server"))
                 {
                     let _ = document_server
-                        .delete_text_indexing(
-                            &local_file_ref,
-                            &local_self.follower.token_type.value(),
-                        )
+                        .delete_text_indexing(&local_file_ref, &local_self.follower.token_type.value())
                         .await;
                 }
             }
 
+            log_info!(
+                "End of the block processing. Ready to delete upload parts, file_ref=[{}], follower=[{}]",
+                &local_file_ref,
+                &local_self.follower
+            );
+
             // Clean file_uploads (file_ref)
-            let _ = local_self
-                .delete_from_file_uploads(&local_file_ref, &local_customer_code)
-                .await;
+            let _ = local_self.delete_from_file_uploads(&local_file_ref, &local_customer_code).await;
+        });
+
+        let _ = parallel_process.map_err(|e| {
+            log_error!("💣 Error in the thread processing block, error=[{}], follower=[{}]", e, &self.follower);
+            e
         });
     }
 
@@ -719,31 +653,22 @@ impl FileDelegate {
     ) -> anyhow::Result<()> {
         // Build the file in memory
         let mut mem_file: Vec<u8> = vec![];
-        let mut dataset = self
-            .search_incoming_blocks(/*&mut trans,*/ file_ref, customer_code)
-            .await
-            .map_err(tr_fwd!())?;
+        let mut dataset =
+            self.search_incoming_blocks(/*&mut trans,*/ file_ref, customer_code).await.map_err(tr_fwd!())?;
 
         // Loop the blocks
         while dataset.next() {
-            let part_data = dataset
-                .get_string("part_data")
-                .ok_or(anyhow!("Wrong part_data col"))?;
+            let part_data = dataset.get_string("part_data").ok_or(anyhow!("Wrong part_data col"))?;
 
             // | Encrypt the data
-            let raw_value = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(part_data)
-                .map_err(tr_fwd!())?;
+            let raw_value = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(part_data).map_err(tr_fwd!())?;
 
             mem_file.extend(&raw_value);
         }
 
         let total_size = mem_file.len();
         // Read the metadata and the raw text of the file
-        let media_type = self
-            .analyse_entire_content(&file_ref, mem_file, &customer_code)
-            .await
-            .map_err(tr_fwd!())?;
+        let media_type = self.analyse_entire_content(&file_ref, mem_file, &customer_code).await.map_err(tr_fwd!())?;
         // Update the file_reference table : checksum, original_file_size, total_part, media_type
         let _ = self
             .update_file_reference(file_id, total_size, block_count, &media_type, customer_code)
@@ -778,21 +703,13 @@ impl FileDelegate {
         // Open the transaction
         let block_range = Self::min_max(&block_set);
 
-        log_info!(
-            "Block range processing, block range=[{:?}], follower=[{}]",
-            &block_range,
-            &self.follower
-        );
+        log_info!("Block range processing, block range=[{:?}], follower=[{}]", &block_range, &self.follower);
 
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         for (block_num, block) in block_set {
-            log_debug!(
-                "Block processing... : block_num=[{}], follower=[{}]",
-                block_num,
-                &self.follower
-            );
+            log_debug!("Block processing... : block_num=[{}], follower=[{}]", block_num, &self.follower);
 
             let original_part_size = block.len();
             // Store in the DB
@@ -808,60 +725,30 @@ impl FileDelegate {
 
             let mut params = HashMap::new();
 
-            params.insert(
-                "p_session_id".to_string(),
-                CellValue::from_raw_str(&self.follower.token_type.value()),
-            );
-            params.insert(
-                "p_start_time_gmt".to_string(),
-                CellValue::from_raw_systemtime(SystemTime::now()),
-            );
-            params.insert(
-                "p_user_id".to_string(),
-                CellValue::from_raw_int(entry_session.user_id),
-            );
-            params.insert(
-                "p_item_info".to_string(),
-                CellValue::from_raw_str(item_info_str),
-            );
+            params.insert("p_session_id".to_string(), CellValue::from_raw_str(&self.follower.token_type.value()));
+            params.insert("p_start_time_gmt".to_string(), CellValue::from_raw_systemtime(SystemTime::now()));
+            params.insert("p_user_id".to_string(), CellValue::from_raw_int(entry_session.user_id));
+            params.insert("p_item_info".to_string(), CellValue::from_raw_str(item_info_str));
             params.insert("p_file_ref".to_string(), CellValue::from_raw_str(file_ref));
-            params.insert(
-                "p_part_number".to_string(),
-                CellValue::from_raw_int_32(*block_num as i32),
-            );
-            params.insert(
-                "p_original_part_size".to_string(),
-                CellValue::from_raw_int(original_part_size as i64),
-            );
+            params.insert("p_part_number".to_string(), CellValue::from_raw_int_32(*block_num as i32));
+            params.insert("p_original_part_size".to_string(), CellValue::from_raw_int(original_part_size as i64));
             params.insert("p_part_data".to_string(), CellValue::from_raw_string(data));
 
-            let sql_insert = SQLChangeAsync {
-                sql_query,
-                params,
-                sequence_name: "".to_uppercase(),
-            };
+            let sql_insert = SQLChangeAsync { sql_query, params, sequence_name: "".to_uppercase() };
 
             let _ = sql_insert
                 .insert_no_pk(&mut trans)
                 .await
                 .map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
-            log_debug!(
-                "...Block inserted, block_num=[{}], follower=[{}]",
-                block_num,
-                &self.follower
-            );
+            log_debug!("...Block inserted, block_num=[{}], follower=[{}]", block_num, &self.follower);
         }
 
         // End of the 'pink' multiple transaction
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-        log_info!(
-            "😎 Committed. Block inserted, block_range=[{:?}], follower=[{}]",
-            &block_range,
-            &self.follower
-        );
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        log_info!("😎 Committed. Block inserted, block_range=[{:?}], follower=[{}]", &block_range, &self.follower);
+
+        // Slow down the process for 2 seconds
+        // tokio::time::sleep(Duration::from_secs(5)).await;
 
         Ok(())
     }
@@ -962,10 +849,7 @@ impl FileDelegate {
     fn find_document_server_client() -> anyhow::Result<DocumentServerClientAsync> {
         let document_server_host = get_prop_value(DOCUMENT_SERVER_HOSTNAME_PROPERTY)?;
         let document_server_port = get_prop_value(DOCUMENT_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
-        Ok(DocumentServerClientAsync::new(
-            &document_server_host,
-            document_server_port,
-        ))
+        Ok(DocumentServerClientAsync::new(&document_server_host, document_server_port))
     }
 
     /// Call the tika server to parse the file and get the text data
@@ -978,29 +862,24 @@ impl FileDelegate {
         mem_file: Vec<u8>,
         customer_code: &str,
     ) -> anyhow::Result<String> {
-        log_info!(
-            "Parsing file content ... ,file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        log_info!("Parsing file content ... ,file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         let tika_server_host = get_prop_value(TIKA_SERVER_HOSTNAME_PROPERTY)?;
         let tika_server_port = get_prop_value(TIKA_SERVER_PORT_PROPERTY)?.parse::<u16>()?;
 
         // Get the raw text from the original file
         let tsc = TikaServerClientAsync::new(&tika_server_host, tika_server_port);
-        let raw_json = tsc
-            .parse_data_json(&mem_file)
-            .await
-            .map_err(err_fwd!("Cannot parse the original file"))?;
-        let x_tika_content = raw_json[TIKA_CONTENT_META]
-            .as_str()
-            .ok_or(anyhow!("Bad tika content"))?;
-        let content_type = raw_json[CONTENT_TYPE_META]
-            .as_str()
-            .ok_or(anyhow!("Bad content type"))?;
+        let raw_json = tsc.parse_data_json(&mem_file).await.map_err(err_fwd!("Cannot parse the original file"))?;
+        let x_tika_content = raw_json[TIKA_CONTENT_META].as_str().ok_or(anyhow!("Bad tika content"))?;
+        let content_type = raw_json[CONTENT_TYPE_META].as_str().ok_or(anyhow!("Bad content type"))?;
 
-        let metadata = raw_json.as_object().unwrap();
+        let metadata = match raw_json.as_object() {
+            Some(obj) => obj.clone(),
+            None => {
+                return Err(anyhow!("Bad metadata"));
+            }
+        };
+
         log_info!(
             "Parsing done for file_ref=[{}], content size=[{}], content type=[{}], follower=[{}]",
             file_ref,
@@ -1009,30 +888,17 @@ impl FileDelegate {
             &self.follower
         );
 
-        let _ = self
-            .insert_metadata(&customer_code, file_ref, &metadata)
-            .await?;
+        let _ = self.insert_metadata(&customer_code, file_ref, &metadata).await?;
 
         // TODO TikaParsing can contain all the metadata, so keep them and return then instead of getting only the content-type.
-        log_info!(
-            "Metadata done for file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        log_info!("Metadata done for file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
-        let document_server = Self::find_document_server_client()
-            .map_err(err_fwd!("Cannot find the document server"))?;
-
-        dbg!(&document_server.read_info());
+        let document_server =
+            Self::find_document_server_client().map_err(err_fwd!("Cannot find the document server"))?;
 
         // TODO we must also pass the  self.follower.x_request_id + handle the file name
         let wr_reply = document_server
-            .fulltext_indexing(
-                &x_tika_content,
-                "no_filename_for_now",
-                file_ref,
-                &self.follower.token_type.value(),
-            )
+            .fulltext_indexing(&x_tika_content, "no_filename_for_now", file_ref, &self.follower.token_type.value())
             .await;
         match wr_reply {
             Ok(reply) => {
@@ -1041,12 +907,10 @@ impl FileDelegate {
                     reply.part_count,
                     &self.follower
                 );
-                self.set_file_reference_fulltext_indicator(file_ref, customer_code)
-                    .await
-                    .map_err(err_fwd!(
-                        "Cannot set the file reference to fulltext parsed indicator, follower=[{}]",
-                        &self.follower
-                    ))?;
+                self.set_file_reference_fulltext_indicator(file_ref, customer_code).await.map_err(err_fwd!(
+                    "Cannot set the file reference to fulltext parsed indicator, follower=[{}]",
+                    &self.follower
+                ))?;
             }
             Err(e) => {
                 log_error!("Error while sending the raw text to the fulltext indexing, file_ref=[{}], reply=[{:?}], follower=[{}], ",  file_ref, e, &self.follower);
@@ -1054,11 +918,7 @@ impl FileDelegate {
             }
         }
 
-        log_info!(
-            "... End of parse file content processing, file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        log_info!("... End of parse file content processing, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
         Ok(content_type.to_owned())
     }
 
@@ -1084,39 +944,36 @@ impl FileDelegate {
                 let mut params: HashMap<String, CellValue> = HashMap::new();
                 params.insert("p_file_ref".to_owned(), CellValue::from_raw_str(file_ref));
                 params.insert("p_meta_key".to_owned(), CellValue::from_raw_str(key));
-                params.insert(
-                    "p_value".to_owned(),
-                    CellValue::from_raw_string(value.to_string()),
+                params.insert("p_value".to_owned(), CellValue::from_raw_string(value.to_string()));
+
+                let sql_insert =
+                    SQLChangeAsync { sql_query: sql_query.clone(), params, sequence_name: sequence_name.clone() };
+                let meta_id = sql_insert.insert(&mut trans).await.map_err(err_fwd!(
+                    "💣 Cannot insert the metadata, file_ref=[{}], key=[{}], value=[{}], follower=[{}]",
+                    file_ref,
+                    key,
+                    value.to_string(),
+                    &self.follower
+                ))?;
+
+                log_info!(
+                    "Success inserting meta meta_id=[{}], file_ref=[{}], key=[{}], value=[{}], follower=[{}]",
+                    meta_id,
+                    file_ref,
+                    key,
+                    value.to_string(),
+                    &self.follower
                 );
-
-                let sql_insert = SQLChangeAsync {
-                    sql_query: sql_query.clone(),
-                    params,
-                    sequence_name: sequence_name.clone(),
-                };
-                let meta_id = sql_insert.insert(&mut trans).await
-                    .map_err(err_fwd!("💣 Cannot insert the metadata, file_ref=[{}], key=[{}], value=[{}], follower=[{}]",
-                    file_ref, key, value.to_string(), &self.follower))?;
-
-                log_info!("Success inserting meta meta_id=[{}], file_ref=[{}], key=[{}], value=[{}], follower=[{}]",
-                    meta_id, file_ref, key, value.to_string(), &self.follower);
             }
         }
 
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         Ok(())
     }
 
     //
-    async fn set_file_reference_fulltext_indicator(
-        &self,
-        file_ref: &str,
-        customer_code: &str,
-    ) -> anyhow::Result<()> {
+    async fn set_file_reference_fulltext_indicator(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
@@ -1130,28 +987,20 @@ impl FileDelegate {
         let sequence_name = format!("fs_{}.file_reference_id_seq", customer_code);
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_file_ref".to_string(),
-            CellValue::from_raw_string(file_ref.to_string()),
+        params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.to_string()));
+
+        let sql_update = SQLChangeAsync { sql_query, params, sequence_name };
+
+        let _ =
+            sql_update.update(&mut trans).await.map_err(err_fwd!("Update failed, follower=[{}]", &self.follower))?;
+
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+
+        log_info!(
+            "😎 Committed. Successfully set the full text indicator, file_ref=[{:?}], follower=[{}]",
+            file_ref,
+            &self.follower
         );
-
-        let sql_update = SQLChangeAsync {
-            sql_query,
-            params,
-            sequence_name,
-        };
-
-        let _ = sql_update
-            .update(&mut trans)
-            .await
-            .map_err(err_fwd!("Update failed, follower=[{}]", &self.follower))?;
-
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
-
-        log_info!("😎 Committed. Successfully set the full text indicator, file_ref=[{:?}], follower=[{}]", file_ref, &self.follower);
 
         Ok(())
     }
@@ -1180,10 +1029,8 @@ impl FileDelegate {
 
         let customer_code = entry_session.customer_code.as_str();
 
-        let mut files = try_or_return!(
-            self.fetch_files_information(file_ref, &customer_code).await,
-            Self::web_type_error()
-        );
+        let mut files =
+            try_or_return!(self.fetch_files_information(file_ref, &customer_code).await, Self::web_type_error());
 
         let web_type = if !files.list_of_files.is_empty() {
             let item = files.list_of_files.remove(0);
@@ -1200,10 +1047,9 @@ impl FileDelegate {
     pub async fn file_list(&mut self, match_expression: &str) -> WebType<ListOfFileInfoReply> {
         log_info!("🚀 Start file_list api, follower=[{}]", &self.follower);
 
-        let entry_session = try_or_return!(
-            valid_sid_get_session(&self.session_token, &mut self.follower).await,
-            |e| WebType::from_errorset(e)
-        );
+        let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower).await, |e| {
+            WebType::from_errorset(e)
+        });
 
         log_info!(
             "😎 We read the session information, customer_code=[{}], user_id=[{}], follower=[{}]",
@@ -1212,16 +1058,7 @@ impl FileDelegate {
             &self.follower
         );
 
-        // let Ok(match_expression_str) = match_expression.percent_decode().map_err(err_fwd!(
-        //     "💣 Invalid match expression, [{}]",
-        //     match_expression
-        // )) else {
-        //     return WebType::from_errorset(&FILE_INFO_NOT_FOUND);
-        // };
-
-        let r_files = self
-            .fetch_files_information(&match_expression, &entry_session.customer_code)
-            .await;
+        let r_files = self.fetch_files_information(&match_expression, &entry_session.customer_code).await;
 
         log_info!("🏁 End file_list api, follower=[{}]", &self.follower);
 
@@ -1232,8 +1069,7 @@ impl FileDelegate {
     }
 
     fn is_valid_pattern(s: &str) -> bool {
-        s.chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '*')
+        s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '*')
     }
 
     ///
@@ -1262,43 +1098,24 @@ impl FileDelegate {
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
         let mut params = HashMap::new();
-        params.insert(
-            "p_file_reference".to_string(),
-            CellValue::from_raw_str(sql_pattern),
-        );
+        params.insert("p_file_reference".to_string(), CellValue::from_raw_str(sql_pattern));
 
-        dbg!(&sql_query);
-
-        let query = SQLQueryBlockAsync {
-            sql_query: sql_query.to_string(),
-            start: 0,
-            length: None,
-            params,
-        };
+        let query = SQLQueryBlockAsync { sql_query: sql_query.to_string(), start: 0, length: None, params };
         let dataset = query.execute(&mut trans).await?;
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &follower))?;
         Ok(dataset)
     }
 
     /// Inner function
-    async fn build_file_reference_block_info(
-        data_set: &mut SQLDataSet,
-    ) -> anyhow::Result<GetFileInfoReply> {
-        let file_ref = data_set
-            .get_string("file_ref")
-            .ok_or(anyhow!("Wrong file_ref"))?;
+    async fn build_file_reference_block_info(data_set: &mut SQLDataSet) -> anyhow::Result<GetFileInfoReply> {
+        let file_ref = data_set.get_string("file_ref").ok_or(anyhow!("Wrong file_ref"))?;
         let media_type = data_set.get_string("mime_type");
         let checksum = data_set.get_string("checksum");
         let original_file_size = data_set.get_int("original_file_size");
         let encrypted_file_size = data_set.get_int("encrypted_file_size");
         let total_part = data_set.get_int_32("total_part");
         // let total_part = None;
-        let is_encrypted = data_set
-            .get_bool("is_encrypted")
-            .ok_or(anyhow!("Wrong is_encrypted col"))?;
+        let is_encrypted = data_set.get_bool("is_encrypted").ok_or(anyhow!("Wrong is_encrypted col"))?;
         let is_fulltext_parsed = data_set.get_bool("is_fulltext_parsed");
         let is_preview_generated = data_set.get_bool("is_preview_generated");
 
@@ -1327,25 +1144,17 @@ impl FileDelegate {
 
         let sql_pattern = pattern.replace('*', "%");
 
-        let Ok(mut data_set) =
-            Self::query_file_reference(&customer_code, &sql_pattern, &self.follower).await
-        else {
+        let Ok(mut data_set) = Self::query_file_reference(&customer_code, &sql_pattern, &self.follower).await else {
             return Err(&INTERNAL_DATABASE_ERROR);
         };
 
-        let mut files = ListOfFileInfoReply {
-            list_of_files: vec![],
-        };
+        let mut files = ListOfFileInfoReply { list_of_files: vec![] };
 
         while data_set.next() {
             match Self::build_file_reference_block_info(&mut data_set).await {
                 Ok(block_info) => files.list_of_files.push(block_info),
                 Err(e) => {
-                    log_error!(
-                        "💣 Error while building file info, e=[{}], follower=[{}]",
-                        e,
-                        &self.follower
-                    );
+                    log_error!("💣 Error while building file info, e=[{}], follower=[{}]", e, &self.follower);
                     return Err(&INTERNAL_DATABASE_ERROR);
                 }
             }
@@ -1384,6 +1193,9 @@ impl FileDelegate {
                             current_uploads.start_time,
                             current_uploads.item_info,
                             current_uploads.count_uploaded,
+                            (SELECT total_part FROM fs_{0}.file_reference
+                                               WHERE file_ref = current_uploads.file_ref
+                            ) total_part,
                             (SELECT count(*)
                                 FROM  fs_{0}.file_parts
                                 WHERE file_reference_id = (SELECT id FROM fs_{0}.file_reference
@@ -1410,54 +1222,30 @@ impl FileDelegate {
             let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
             let mut params = HashMap::new();
-            params.insert(
-                "p_user_id".to_string(),
-                CellValue::from_raw_int(entry_session.user_id),
-            );
+            params.insert("p_user_id".to_string(), CellValue::from_raw_int(entry_session.user_id));
 
-            let query = SQLQueryBlockAsync {
-                sql_query,
-                start: 0,
-                length: None,
-                params,
-            };
+            let query = SQLQueryBlockAsync { sql_query, start: 0, length: None, params };
 
             let dataset = query.execute(&mut trans).await?;
-            trans
-                .commit()
-                .await
-                .map_err(err_fwd!("💣 Commit failed, follower=[{}]", follower))?;
+            trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", follower))?;
 
             Ok(dataset)
         }
 
-        let Ok(mut data_set) = execute_query(&entry_session, sql_query, &self.follower).await
-        else {
+        let Ok(mut data_set) = execute_query(&entry_session, sql_query, &self.follower).await else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Inner function
-        async fn build_loading_info_item(
-            data_set: &mut SQLDataSet,
-        ) -> anyhow::Result<UploadInfoReply> {
-            let file_reference = data_set
-                .get_string("file_ref")
-                .ok_or(anyhow!("Wrong file_ref col"))?;
-            let session_number = data_set
-                .get_string("session_id")
-                .ok_or(anyhow!("Wrong session_id col"))?;
-            let item_info = data_set
-                .get_string("item_info")
-                .ok_or(anyhow!("Wrong item_info col"))?;
-            let start_date_time = data_set
-                .get_timestamp_as_datetime("start_time")
-                .ok_or(anyhow!("Wrong start_time col"))?;
-            let encrypted_count = data_set
-                .get_int("count_encrypted")
-                .ok_or(anyhow!("Wrong count_encrypted col"))?;
-            let uploaded_count = data_set
-                .get_int("count_uploaded")
-                .ok_or(anyhow!("Wrong count_uploaded col"))?;
+        async fn build_loading_info_item(data_set: &mut SQLDataSet) -> anyhow::Result<UploadInfoReply> {
+            let file_reference = data_set.get_string("file_ref").ok_or(anyhow!("Wrong file_ref col"))?;
+            let session_number = data_set.get_string("session_id").ok_or(anyhow!("Wrong session_id col"))?;
+            let item_info = data_set.get_string("item_info").ok_or(anyhow!("Wrong item_info col"))?;
+            let start_date_time =
+                data_set.get_timestamp_as_datetime("start_time").ok_or(anyhow!("Wrong start_time col"))?;
+            let total_part = data_set.get_int_32("total_part").ok_or(anyhow!("Wrong total_part col"))?;
+            let encrypted_count = data_set.get_int("count_encrypted").ok_or(anyhow!("Wrong count_encrypted col"))?;
+            let uploaded_count = data_set.get_int("count_uploaded").ok_or(anyhow!("Wrong count_uploaded col"))?;
 
             let limit = min(session_number.len() - 2, 22);
             Ok(UploadInfoReply {
@@ -1467,32 +1255,24 @@ impl FileDelegate {
                 session_number: format!("{}...", session_number[..limit].to_owned()),
                 encrypted_count,
                 uploaded_count,
+                total_part: total_part as i64,
             })
         }
 
         let mut list_of_upload_info: Vec<UploadInfoReply> = vec![];
         while data_set.next() {
-            let Ok(loading_info_item) =
-                build_loading_info_item(&mut data_set)
-                    .await
-                    .map_err(err_fwd!(
-                        "Build loading info item failed, follower=[{}]",
-                        &self.follower
-                    ))
+            let Ok(loading_info_item) = build_loading_info_item(&mut data_set)
+                .await
+                .map_err(err_fwd!("Build loading info item failed, follower=[{}]", &self.follower))
             else {
                 return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
             };
             list_of_upload_info.push(loading_info_item);
         }
 
-        log_info!(
-            "😎 Successfully read the loading info, follower=[{}]",
-            &self.follower
-        );
+        log_info!("😎 Successfully read the loading info, follower=[{}]", &self.follower);
 
-        let upload_info = ListOfUploadInfoReply {
-            list_of_upload_info,
-        };
+        let upload_info = ListOfUploadInfoReply { list_of_upload_info };
 
         log_info!("🏁 End file_loading api, follower=[{}]", &self.follower);
         WebType::from_item(StatusCode::OK.as_u16(), upload_info)
@@ -1502,11 +1282,7 @@ impl FileDelegate {
     /// 🌟 Get the information about the loading status of the [file_ref]
     ///
     pub async fn file_stats(&mut self, file_ref: &str) -> WebType<GetFileInfoShortReply> {
-        log_info!(
-            "🚀 Start file_stats api, file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        log_info!("🚀 Start file_stats api, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
         let entry_session = try_or_return!(
@@ -1516,20 +1292,20 @@ impl FileDelegate {
         let customer_code = entry_session.customer_code.as_str();
 
         // TODO instead of constant 1, check if the document is fulltext parsed and previewed
+        // The blocks in file_parts are encrypted, so the number of bloccks is the same as the number of encrypted blocks
         let sql_query = format!(
             r" SELECT
                 fr.mime_type, fr.checksum, fr.original_file_size, fr.total_part, 1 fulltext,  1 preview,
                 (SELECT count(*)
                 FROM  fs_{0}.file_parts
                 WHERE file_reference_id = (SELECT id FROM fs_{0}.file_reference WHERE file_ref = :p_file_ref)
-                ) count_encrypted,
+                ) parts_count,
+
                 (SELECT  count(*) from fs_{0}.file_uploads WHERE file_ref = :p_file_ref) count_uploaded
             FROM fs_{0}.file_reference fr
             WHERE file_ref = :p_file_ref",
             customer_code
         );
-
-        dbg!(&sql_query);
 
         /// Inner function
         async fn local_execute_query(
@@ -1541,59 +1317,37 @@ impl FileDelegate {
             let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
             let mut params = HashMap::new();
-            params.insert(
-                "p_file_ref".to_string(),
-                CellValue::from_raw_string(file_ref.to_string()),
-            );
+            params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.to_string()));
 
-            let query = SQLQueryBlockAsync {
-                sql_query: sql_query.to_string(),
-                start: 0,
-                length: None,
-                params,
-            };
+            let query = SQLQueryBlockAsync { sql_query: sql_query.to_string(), start: 0, length: None, params };
 
             let dataset = query.execute(&mut trans).await?;
-            trans
-                .commit()
-                .await
-                .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &follower))?;
+            trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &follower))?;
 
             Ok(dataset)
         }
 
-        let Ok(mut data_set) = local_execute_query(&sql_query, &file_ref, &self.follower).await
-        else {
+        let Ok(mut data_set) = local_execute_query(&sql_query, &file_ref, &self.follower).await else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 
         // Inner function
-        async fn build_file_info(
-            data_set: &mut SQLDataSet,
-            file_ref: &str,
-        ) -> anyhow::Result<GetFileInfoShortReply> {
+        async fn build_file_info(data_set: &mut SQLDataSet, file_ref: &str) -> anyhow::Result<GetFileInfoShortReply> {
             let _mime_type = data_set.get_string("mime_type").unwrap_or("".to_string()); // optional
             let _checksum = data_set.get_string("checksum").unwrap_or("".to_string()); // optional
             let original_file_size = data_set.get_int("original_file_size")/*.ok_or(anyhow!("Wrong original_file_size col"))?*/;
-            let total_part = data_set.get_int_32("total_part")/*.ok_or(anyhow!("Wrong total_part col"))?*/;
-            let encrypted_count = data_set
-                .get_int("count_encrypted")
-                .ok_or(anyhow!("Wrong count_encrypted col"))?;
-            let uploaded_count = data_set
-                .get_int("count_uploaded")
-                .ok_or(anyhow!("Wrong count_uploaded col"))?;
-            let fulltext_indexed_count = data_set
-                .get_int_32("fulltext")
-                .ok_or(anyhow!("Wrong fulltext col"))?;
-            let preview_generated_count = data_set
-                .get_int_32("preview")
-                .ok_or(anyhow!("Wrong preview col"))?;
+            let total_part = data_set.get_int_32("total_part").ok_or(anyhow!("Wrong total_part col"))?;
+
+            let parts_count = data_set.get_int("parts_count").ok_or(anyhow!("Wrong count_encrypted col"))?;
+            let uploaded_count = data_set.get_int("count_uploaded").ok_or(anyhow!("Wrong count_uploaded col"))?;
+            let fulltext_indexed_count = data_set.get_int_32("fulltext").ok_or(anyhow!("Wrong fulltext col"))?;
+            let preview_generated_count = data_set.get_int_32("preview").ok_or(anyhow!("Wrong preview col"))?;
 
             Ok(GetFileInfoShortReply {
                 file_ref: file_ref.to_string(),
-                block_count: total_part.unwrap_or(0) as u32,
+                block_count: total_part as u32,
                 original_file_size: original_file_size.unwrap_or(0i64) as u64,
-                encrypted_count,
+                encrypted_count: parts_count,
                 uploaded_count,
                 fulltext_indexed_count: fulltext_indexed_count as i64,
                 preview_generated_count: preview_generated_count as i64,
@@ -1603,26 +1357,15 @@ impl FileDelegate {
         let wt_stats = if data_set.next() {
             let Ok(stats) = build_file_info(&mut data_set, file_ref)
                 .await
-                .map_err(err_fwd!(
-                    "Build file info failed, follower=[{}]",
-                    &self.follower
-                ))
+                .map_err(err_fwd!("Build file info failed, follower=[{}]", &self.follower))
             else {
                 return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
             };
 
-            log_info!(
-                "😎 Successfully read the file stats, file_ref=[{}], follower=[{}]",
-                file_ref,
-                &self.follower
-            );
+            log_info!("😎 Successfully read the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
             WebType::from_item(StatusCode::OK.as_u16(), stats)
         } else {
-            log_info!(
-                "⛔ Cannot find the file stats, file_ref=[{}], follower=[{}]",
-                file_ref,
-                &self.follower
-            );
+            log_info!("⛔ Cannot find the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
             WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
         };
 
@@ -1639,11 +1382,7 @@ impl FileDelegate {
 
     /// 🌟 Download the binary content of a file
     pub async fn download(&mut self, file_ref: &str) -> DownloadReply {
-        log_info!(
-            "🚀 Start download api, file_ref = [{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        log_info!("🚀 Start download api, file_ref = [{}], follower=[{}]", file_ref, &self.follower);
 
         // Check if the token is valid
         let entry_session = try_or_return!(
@@ -1652,19 +1391,11 @@ impl FileDelegate {
         );
 
         let customer_code = entry_session.customer_code.as_str();
-        log_info!(
-            "Found session and customer code=[{}], follower=[{}]",
-            &customer_code,
-            &self.follower
-        );
+        log_info!("Found session and customer code=[{}], follower=[{}]", &customer_code, &self.follower);
 
         // Search the document's parts from the database
 
-        let Ok((media_type, enc_parts)) = self
-            .search_parts(file_ref, customer_code)
-            .await
-            .map_err(tr_fwd!())
-        else {
+        let Ok((media_type, enc_parts)) = self.search_parts(file_ref, customer_code).await.map_err(tr_fwd!()) else {
             log_error!("");
             return DownloadReply::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
@@ -1679,19 +1410,12 @@ impl FileDelegate {
             return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
 
-        log_info!(
-            "😎 Found correct media type=[{}], follower=[{}]",
-            &media,
-            &self.follower
-        );
+        log_info!("😎 Found correct media type=[{}], follower=[{}]", &media, &self.follower);
 
         // Get the customer key
         let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
             .await
-            .map_err(err_fwd!(
-                "💣 Cannot get the customer key, follower=[{}]",
-                &self.follower
-            ))
+            .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
         else {
             return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
         };
@@ -1709,11 +1433,7 @@ impl FileDelegate {
 
         // Output : Get a file array of P parts
 
-        log_info!(
-            "😎 Decrypt done, number of parts=[{}], follower=[{}]",
-            &clear_parts.len(),
-            &self.follower
-        );
+        log_info!("😎 Decrypt done, number of parts=[{}], follower=[{}]", &clear_parts.len(), &self.follower);
 
         // Merge all the parts in one big file
         let Ok(stream) = Self::download_from_parts(clear_parts, &media).await else {
@@ -1738,11 +1458,7 @@ impl FileDelegate {
         file_ref: &str,
         customer_code: &str,
     ) -> anyhow::Result<(String, HashMap<u32, String>)> {
-        log_info!(
-            "Search the parts for the file, file_ref=[{}], follower=[{}]",
-            file_ref,
-            &self.follower
-        );
+        log_info!("Search the parts for the file, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
 
         let sql_str = r"
             SELECT fp.id,
@@ -1750,6 +1466,7 @@ impl FileDelegate {
                 fr.mime_type,
                 fr.is_encrypted,
                 fp.part_number,
+                length(fp.part_data) as part_data_length,
                 fp.part_data
             FROM  fs_{customer_code}.file_reference fr, fs_{customer_code}.file_parts fp
             WHERE
@@ -1763,30 +1480,19 @@ impl FileDelegate {
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_file_ref".to_string(),
-            CellValue::from_raw_string(file_ref.to_string()),
-        );
+        params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.to_string()));
 
-        let query = SQLQueryBlockAsync {
-            sql_query,
-            start: 0,
-            length: None,
-            params,
-        };
+        let query = SQLQueryBlockAsync { sql_query, start: 0, length: None, params };
 
-        let mut dataset = query
-            .execute(&mut trans)
-            .await
-            .map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
+        let mut dataset =
+            query.execute(&mut trans).await.map_err(err_fwd!("💣 Query failed, follower=[{}]", &self.follower))?;
 
         let mut parts: HashMap<u32, String> = HashMap::new();
         let mut media_type = String::new();
         while dataset.next() {
-            let part_info = Self::read_part(&mut dataset).map_err(err_fwd!(
-                "Cannot read part data, follower=[{}]",
-                &self.follower
-            ))?;
+            let part_info_len = dataset.get_int_32("part_data_length").ok_or(anyhow!("Wrong part_data_length col"))?;
+            let part_info = Self::read_part(&mut dataset)
+                .map_err(err_fwd!("Cannot read part data, follower=[{}]", &self.follower))?;
             media_type = part_info.0; // always the same media type for each row
             parts.insert(part_info.1, part_info.2);
         }
@@ -1803,24 +1509,13 @@ impl FileDelegate {
 
     /// ( <mdeia_type>, <part_number>, <data> )
     fn read_part(data_set: &mut SQLDataSet) -> anyhow::Result<(String, u32, String)> {
-        let media_type = data_set
-            .get_string("mime_type")
-            .ok_or(anyhow!("Wrong mime_type col"))?;
-        let is_encrypted = data_set
-            .get_bool("is_encrypted")
-            .ok_or(anyhow!("Wrong is_encrypted col"))?;
-        let part_number = data_set
-            .get_int_32("part_number")
-            .ok_or(anyhow!("Wrong part_number col"))?;
-        let part_data = data_set
-            .get_string("part_data")
-            .ok_or(anyhow!("Wrong part_data col"))?;
+        let media_type = data_set.get_string("mime_type").ok_or(anyhow!("Wrong mime_type col"))?;
+        let is_encrypted = data_set.get_bool("is_encrypted").ok_or(anyhow!("Wrong is_encrypted col"))?;
+        let part_number = data_set.get_int_32("part_number").ok_or(anyhow!("Wrong part_number col"))?;
+        let part_data = data_set.get_string("part_data").ok_or(anyhow!("Wrong part_data col"))?;
 
         if !is_encrypted {
-            return Err(anyhow!(
-                "Part is not encrypted, part number=[{}]",
-                part_number
-            ));
+            return Err(anyhow!("Part is not encrypted, part number=[{}]", part_number));
         }
 
         Ok((media_type, part_number as u32, part_data))
@@ -1960,11 +1655,7 @@ impl FileDelegate {
         let mut task_handles = vec![];
         let n_threads = std::cmp::max(1, num_cpus::get() - 1);
 
-        log_debug!(
-            "Number of threads=[{}], follower=[{}]",
-            n_threads,
-            &self.follower
-        );
+        log_debug!("Number of threads=[{}], follower=[{}]", n_threads, &self.follower);
 
         let number_of_parts = enc_parts.len();
         let pool_size = Self::compute_pool_size(n_threads as u32, number_of_parts as u32);
@@ -2016,11 +1707,7 @@ impl FileDelegate {
                     }
                 }
                 Ok(Err(e)) => {
-                    log_error!(
-                        "Decryption error for pool [{:?}], follower=[{}]",
-                        e,
-                        &self.follower,
-                    );
+                    log_error!("Decryption error for pool [{:?}], follower=[{}]", e, &self.follower,);
                 }
                 Err(e) => {
                     log_error!("Task join error [{:?}], follower=[{}]", e, &self.follower);
@@ -2048,26 +1735,24 @@ impl FileDelegate {
         );
 
         for (index, enc_content) in enc_slides {
-            let clear_content = DkEncrypt::new(CC20)
-                .decrypt_vec(&enc_content, &customer_key)
-                .map_err(err_fwd!(
-                    "Cannot decrypt the part, pool_index=[{}], follower=[{}]",
-                    pool_index,
-                    &self.follower
-                ))?;
+            let clear_content = DkEncrypt::new(CC20).decrypt_vec(&enc_content, &customer_key).map_err(err_fwd!(
+                "Cannot decrypt the part, pool_index=[{}], follower=[{}]",
+                pool_index,
+                &self.follower
+            ))?;
 
             clear_slides.insert(index, clear_content);
         }
 
-        log_info!(
-            "😎 Decrypted, pool_index=[{}], follower=[{}]",
-            pool_index,
-            &self.follower
-        );
+        log_info!("😎 Decrypted, pool_index=[{}], follower=[{}]", pool_index, &self.follower);
         Ok(clear_slides)
     }
 
-    async fn create_file_reference(&self, customer_code: &str) -> anyhow::Result<(i64, String)> {
+    async fn create_file_reference(
+        &self,
+        customer_code: &str,
+        content_length: &Option<u64>,
+    ) -> anyhow::Result<(i64, String)> {
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
@@ -2081,37 +1766,25 @@ impl FileDelegate {
         );
 
         let sequence_name = format!("fs_{}.file_reference_id_seq", customer_code);
+        let number_of_parts = content_length.map(|l| ((l / Self::BLOCK_SIZE as u64) + 1) as i32);
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_file_ref".to_string(),
-            CellValue::from_raw_string(file_ref.clone()),
-        );
-        params.insert(
-            "p_mime_type".to_string(),
-            CellValue::from_raw_string(String::from("text")),
-        );
+
+        params.insert("p_file_ref".to_string(), CellValue::from_raw_string(file_ref.clone()));
+        params.insert("p_mime_type".to_string(), CellValue::from_raw_string(String::from("text")));
+
         params.insert("p_checksum".to_string(), CellValue::String(None));
         params.insert("p_original_file_size".to_string(), CellValue::Int(None));
         params.insert("p_encrypted_file_size".to_string(), CellValue::Int(None));
-        params.insert("p_total_part".to_string(), CellValue::Int32(None));
+        params.insert("p_total_part".to_string(), CellValue::Int32(number_of_parts));
 
-        let sql_insert = SQLChangeAsync {
-            sql_query,
-            params,
-            sequence_name,
-        };
+        let sql_insert = SQLChangeAsync { sql_query, params, sequence_name };
 
-        let file_id = sql_insert
-            .insert(&mut trans)
-            .await
-            .map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
+        let file_id =
+            sql_insert.insert(&mut trans).await.map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
 
         // End of the 'blue' transaction
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         log_info!(
             "😎 Committed. Successfully created a file reference, file_ref=[{}], follower=[{}]",
@@ -2147,36 +1820,18 @@ impl FileDelegate {
         let sequence_name = format!("fs_{}.file_reference_id_seq", customer_code);
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_original_file_size".to_string(),
-            CellValue::from_raw_int(total_size as i64),
-        );
-        params.insert(
-            "p_total_part".to_string(),
-            CellValue::from_raw_int_32(total_part as i32),
-        );
+        params.insert("p_original_file_size".to_string(), CellValue::from_raw_int(total_size as i64));
+        params.insert("p_total_part".to_string(), CellValue::from_raw_int_32(total_part as i32));
         params.insert("p_file_id".to_string(), CellValue::from_raw_int(file_id));
-        params.insert(
-            "p_mime_type".to_string(),
-            CellValue::from_raw_string(media_type.to_string()),
-        );
+        params.insert("p_mime_type".to_string(), CellValue::from_raw_string(media_type.to_string()));
 
-        let sql_update = SQLChangeAsync {
-            sql_query,
-            params,
-            sequence_name,
-        };
+        let sql_update = SQLChangeAsync { sql_query, params, sequence_name };
 
-        let _ = sql_update
-            .update(&mut trans)
-            .await
-            .map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
+        let _ =
+            sql_update.update(&mut trans).await.map_err(err_fwd!("Insertion failed, follower=[{}]", &self.follower))?;
 
         // End of the 'purple' transaction
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         Ok(())
     }
@@ -2190,64 +1845,41 @@ impl FileDelegate {
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
-        let sql_delete = format!(
-            "DELETE FROM fs_{}.{} WHERE file_reference_id = :p_file_id",
-            &customer_code, &target_table
-        );
+        let sql_delete =
+            format!("DELETE FROM fs_{}.{} WHERE file_reference_id = :p_file_id", &customer_code, &target_table);
 
         let mut params = HashMap::new();
         params.insert("p_file_id".to_string(), CellValue::from_raw_int(file_id));
 
-        let query = SQLChangeAsync {
-            sql_query: sql_delete.to_string(),
-            params,
-            sequence_name: "".to_string(),
-        };
+        let query = SQLChangeAsync { sql_query: sql_delete.to_string(), params, sequence_name: "".to_string() };
 
         let _ = query.delete(&mut trans).await.map_err(err_fwd!(
             "💣 Query failed, [{}], , follower=[{}]",
             &query.sql_query,
             &self.follower
         ))?;
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         Ok(())
     }
 
-    async fn delete_from_file_uploads(
-        &self,
-        file_ref: &str,
-        customer_code: &str,
-    ) -> anyhow::Result<()> {
+    async fn delete_from_file_uploads(&self, file_ref: &str, customer_code: &str) -> anyhow::Result<()> {
         let mut cnx = SQLConnectionAsync::from_pool().await.map_err(tr_fwd!())?;
         let mut trans = cnx.begin().await.map_err(tr_fwd!())?;
 
-        let sql_delete = format!(
-            "DELETE FROM fs_{}.file_uploads WHERE file_ref = :p_file_ref",
-            &customer_code
-        );
+        let sql_delete = format!("DELETE FROM fs_{}.file_uploads WHERE file_ref = :p_file_ref", &customer_code);
 
         let mut params = HashMap::new();
         params.insert("p_file_ref".to_string(), CellValue::from_raw_str(&file_ref));
 
-        let query = SQLChangeAsync {
-            sql_query: sql_delete.to_string(),
-            params,
-            sequence_name: "".to_string(),
-        };
+        let query = SQLChangeAsync { sql_query: sql_delete.to_string(), params, sequence_name: "".to_string() };
 
         let _ = query.delete(&mut trans).await.map_err(err_fwd!(
             "💣 Query failed, [{}], , follower=[{}]",
             &query.sql_query,
             &self.follower
         ))?;
-        trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
+        trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))?;
 
         log_info!(
             "😎 Committed. Successfully delete file uploads, file_ref=[{}], follower=[{}]",

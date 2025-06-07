@@ -544,6 +544,7 @@ pub struct UploadInfoReply {
     pub session_number: String, // Only the first letters of the session id
     pub encrypted_count: i64,   // Number of encrypted parts
     pub uploaded_count: i64,    // Number of block simply loaded
+    pub total_part: i64,        // Number of parts to be uploaded
 }
 
 #[derive(Serialize, Deserialize, Debug)]

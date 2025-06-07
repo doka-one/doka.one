@@ -24,12 +24,14 @@ use tower_http::services::ServeDir;
 
 use crate::search_result_component::SearchResultComponent;
 use crate::search_result_model::SearchResultHarbor;
+use crate::upload_watcher_component::UploadWatcherComponent;
 
 mod buckets;
 mod date_tools;
 mod kv_store;
 mod search_result_component;
 mod search_result_model;
+mod upload_watcher_component;
 
 /** REF TAG: DOKA_HARBOR */
 
@@ -58,6 +60,15 @@ async fn search_result() -> CborBytes {
     let session_token = SessionToken { 0: "".to_string() };
     let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
     delegate.search_result_cbor().await.into()
+}
+
+/// 🌟 File upload watcher
+///
+/// GET /cbor/upload_watch
+async fn upload_watch() -> CborBytes {
+    let session_token = SessionToken { 0: "".to_string() };
+    let mut delegate = UploadWatcherComponent::new(session_token, XRequestID::from_value(None));
+    delegate.upload_watch_cbor().await.into()
 }
 
 #[derive(Serialize)]
@@ -246,6 +257,7 @@ async fn main() {
         .route("/cbor/get_file/:file_ref", get(get_file))
         .route("/cbor/view_file/:file_ref", get(view_file))
         .route("/cbor/search_result", get(search_result))
+        .route("/cbor/upload_watch", get(upload_watch))
         // TODO below is a test page to serve a static content
         .route("/index2", get(index_html))
         .route("/image/:file_ref", get(image_html))

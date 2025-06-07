@@ -484,11 +484,10 @@ mod tests {
         build_query_filter, extract_all_conditions, generate_search_sql, verify_filter_conditions,
         GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
     };
+    use crate::filter::analyse_expression;
     use crate::filter::filter_ast::{
-        parse_tokens, to_canonical_form, ComparisonOperator, FilterCondition, FilterExpressionAST,
-        FilterValue,
+        to_canonical_form, ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue,
     };
-    use crate::filter::{analyse_expression, to_sql_form};
     use crate::parser_log;
     use commons_error::*;
     use dkdto::TagType;

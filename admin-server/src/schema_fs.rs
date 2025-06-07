@@ -1,5 +1,4 @@
-
-pub (crate) const FS_SCHEMA: &str =  r#"
+pub(crate) const FS_SCHEMA: &str = r#"
 
 CREATE SCHEMA {customer_schema} AUTHORIZATION doka;
 
@@ -41,6 +40,7 @@ CREATE TABLE file_uploads (
 	part_data text NULL
 );
 CREATE UNIQUE INDEX file_uploads_customer_user_idx ON file_uploads (file_ref, part_number);
+CREATE INDEX file_uploads_file_ref_idx ON file_uploads (file_ref);
 CREATE INDEX file_uploads_start_time_idx ON file_uploads (start_time_gmt);
 
 CREATE TABLE file_metadata (

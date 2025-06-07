@@ -87,8 +87,20 @@ pub async fn delete_customer(
     x_request_id: XRequestID,
     Path(customer_code): Path<String>,
 ) -> WebType<SimpleMessage> {
-    let delegate = CustomerDelegate::new(security_token, x_request_id);
+    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.delete_customer(&customer_code).await
+}
+
+/// 🔑 Purge integration tests customer
+/// **NORM
+///
+/// #[delete("/customer/integration_tests")]
+pub async fn delete_integration_tests_customer(
+    security_token: SecurityToken,
+    x_request_id: XRequestID,
+) -> WebType<SimpleMessage> {
+    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
+    delegate.delete_integration_tests_customer().await
 }
 
 /// Accept parameters from the commande line
@@ -176,6 +188,10 @@ async fn main() {
         .route("/login", post(login))
         .route("/customer", post(create_customer))
         .route("/customer/:customer_code", delete(delete_customer))
+        .route(
+            "/customer/integration_tests",
+            delete(delete_integration_tests_customer),
+        )
         .route(
             "/customer/removable/:customer_code",
             patch(set_removable_flag_customer),

@@ -1,6 +1,8 @@
 mod test_lib;
 
-const TEST_TO_RUN: &[&str] = &["t10_upload_file", "t20_upload_download_file"];
+const TEST_TO_RUN: &[&str] = &["t10_upload_file", "t20_upload_download_file", "t30_upload_download_big_file"];
+
+/// cargo test t30_upload_download_big_file -- --nocapture
 
 #[cfg(test)]
 mod api_fileserver_tests {
@@ -35,8 +37,7 @@ mod api_fileserver_tests {
         eprintln!("file name : {}", &file_name);
 
         let file_content = std::fs::read(file_name).unwrap();
-        let upload_reply =
-            file_server.upload("bright_snow", &file_content, &login_reply.session_id)?;
+        let upload_reply = file_server.upload("bright_snow", &file_content, &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
         assert_eq!(NB_PARTS, upload_reply.block_count);
 
@@ -66,7 +67,7 @@ mod api_fileserver_tests {
         block_count: u32,
     ) {
         let mut count = 0;
-        let duration = Duration::from_millis(500);
+        let duration = Duration::from_millis(1000);
         loop {
             eprintln!("Stats count [{}]", count);
             match file_server.stats(&file_ref, &session_id) {
@@ -74,9 +75,7 @@ mod api_fileserver_tests {
                     eprintln!("Stats reply [{:?}]", &stats_reply);
                     // The exit conditions : cyphered blocks is the total number of blocks
                     // and the uploaded information have been cleaned up (count is zero)
-                    if stats_reply.encrypted_count == block_count as i64
-                        && stats_reply.uploaded_count == 0
-                    {
+                    if stats_reply.encrypted_count == block_count as i64 && stats_reply.uploaded_count == 0 {
                         break;
                     }
                 }
@@ -85,7 +84,7 @@ mod api_fileserver_tests {
                 }
             }
             thread::sleep(duration);
-            if count > 10 {
+            if count > 60 {
                 break;
             }
             count += 1;
@@ -109,8 +108,7 @@ mod api_fileserver_tests {
 
         let file_name = format!(r"{}/111-Bright_Snow.jpg", &props.get("file.path").unwrap());
         let file_content = std::fs::read(file_name).unwrap();
-        let upload_reply =
-            file_server.upload("bright_snow", &file_content, &login_reply.session_id)?;
+        let upload_reply = file_server.upload("bright_snow", &file_content, &login_reply.session_id)?;
         eprintln!("Upload reply [{:?}]", &upload_reply);
         assert_eq!(NB_PARTS, upload_reply.block_count);
 
@@ -122,11 +120,50 @@ mod api_fileserver_tests {
         );
 
         // Download the file
-        let download_reply =
-            file_server.download(&upload_reply.file_ref, &login_reply.session_id)?;
+        let download_reply = file_server.download(&upload_reply.file_ref, &login_reply.session_id)?;
 
         eprintln!("Download reply size [{}]", &download_reply.data.len());
         assert_eq!(8890555, download_reply.data.len());
+
+        lookup.close();
+        Ok(())
+    }
+
+    #[test]
+    fn t30_upload_download_big_file() -> Result<(), ErrorMessage> {
+        let lookup = Lookup::new("t30_upload_download_big_file", TEST_TO_RUN); // auto dropping
+        let props = lookup.props();
+
+        // Login
+        let admin_server = AdminServerClient::new("localhost", 30060);
+        let login_request = get_login_request(&props);
+        let login_reply = admin_server.login(&login_request)?;
+
+        eprintln!("login_reply {:?}", &login_reply);
+
+        // Upload the document
+        let file_server = FileServerClient::new("localhost", 30080);
+
+        let file_name = format!(r"{}/1111-38M.pdf", &props.get("file.path").unwrap());
+        let file_content = std::fs::read(file_name).unwrap();
+        let upload_reply = file_server.upload("bright_snow", &file_content, &login_reply.session_id)?;
+        eprintln!("Upload reply [{:?}]", &upload_reply);
+        assert_eq!(37, upload_reply.block_count);
+
+        wait_until_file_processing_complete(
+            &file_server,
+            &upload_reply.file_ref,
+            &login_reply.session_id,
+            upload_reply.block_count,
+        );
+
+        // thread::sleep(Duration::from_secs(5));
+
+        // Download the file
+        let download_reply = file_server.download(&upload_reply.file_ref, &login_reply.session_id)?;
+
+        eprintln!("Download reply size [{}]", &download_reply.data.len());
+        assert_eq!(38611912, download_reply.data.len());
 
         lookup.close();
         Ok(())

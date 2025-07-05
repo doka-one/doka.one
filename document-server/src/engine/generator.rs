@@ -525,8 +525,8 @@ mod tests {
     pub(crate) fn init_logger() {
         INIT_LOGGER.call_once(|| {
             if let Err(e) = log4rs::init_file(
-                //"/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
-                 r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
+                "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
+                // r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
                 Default::default(),
             ) {
                 panic!("{:?}", e);

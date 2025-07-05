@@ -143,12 +143,7 @@ async fn main() {
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
-    log_mdc::insert("request_id", "abc-123");
-    log_mdc::insert("user", "alice");
-
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
-
-    log_mdc::remove("request_id");
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::PATCH, Method::DELETE])

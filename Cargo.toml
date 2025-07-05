@@ -27,8 +27,7 @@ serde_derive = "^1.0"
 base64 = "^0.21"
 rs-uuid = "^0.4"
 log = "^0.4"
-log4rs = { version = "^1.4.0-rc1", features = ["mdc", "rolling_file_appender", "console_appender", "json_encoder"] }
-log-mdc = "^0.1"
+log4rs = { version = "^1.4.0-rc1", features = ["rolling_file_appender", "console_appender", "json_encoder"] }
 schemars = { version = "^0.7", features = ["chrono"] } #because of okapi
 okapi = { version = "^0.4", features = ["derive_json_schema"] }
 java-properties = "^1.2"

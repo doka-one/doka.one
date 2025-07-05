@@ -10,45 +10,34 @@ const EXTRA_TABLE_PREFIX: &str = "ot";
 
 use once_cell::sync::Lazy;
 
-static LEGAL_OPERATORS_BY_TAG_TYPE: Lazy<HashMap<TagType, Vec<ComparisonOperator>>> =
-    Lazy::new(|| {
-        let mut map = HashMap::new();
-        map.insert(
-            TagType::Bool,
-            vec![ComparisonOperator::EQ, ComparisonOperator::NEQ],
-        );
-        map.insert(
-            TagType::Int,
-            vec![
-                ComparisonOperator::EQ,
-                ComparisonOperator::NEQ,
-                ComparisonOperator::GT,
-                ComparisonOperator::GTE,
-                ComparisonOperator::LT,
-                ComparisonOperator::LTE,
-            ],
-        );
-        map.insert(
-            TagType::Double,
-            vec![
-                ComparisonOperator::EQ,
-                ComparisonOperator::NEQ,
-                ComparisonOperator::GT,
-                ComparisonOperator::GTE,
-                ComparisonOperator::LT,
-                ComparisonOperator::LTE,
-            ],
-        );
-        map.insert(
-            TagType::Text,
-            vec![
-                ComparisonOperator::EQ,
-                ComparisonOperator::NEQ,
-                ComparisonOperator::LIKE,
-            ],
-        );
-        map
-    });
+static LEGAL_OPERATORS_BY_TAG_TYPE: Lazy<HashMap<TagType, Vec<ComparisonOperator>>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    map.insert(TagType::Bool, vec![ComparisonOperator::EQ, ComparisonOperator::NEQ]);
+    map.insert(
+        TagType::Int,
+        vec![
+            ComparisonOperator::EQ,
+            ComparisonOperator::NEQ,
+            ComparisonOperator::GT,
+            ComparisonOperator::GTE,
+            ComparisonOperator::LT,
+            ComparisonOperator::LTE,
+        ],
+    );
+    map.insert(
+        TagType::Double,
+        vec![
+            ComparisonOperator::EQ,
+            ComparisonOperator::NEQ,
+            ComparisonOperator::GT,
+            ComparisonOperator::GTE,
+            ComparisonOperator::LT,
+            ComparisonOperator::LTE,
+        ],
+    );
+    map.insert(TagType::Text, vec![ComparisonOperator::EQ, ComparisonOperator::NEQ, ComparisonOperator::LIKE]);
+    map
+});
 
 pub(crate) enum SearchSqlGenerationMode {
     Live,
@@ -82,9 +71,7 @@ fn extract_all_conditions(
 }
 
 /// Vectorize the filter_expression AST into a vector of filter conditions
-fn vectorize_conditions(
-    filter_expression: &FilterExpressionAST,
-) -> Result<Vec<FilterCondition>, GenerationError> {
+fn vectorize_conditions(filter_expression: &FilterExpressionAST) -> Result<Vec<FilterCondition>, GenerationError> {
     let mut filter_conditions: Vec<FilterCondition> = vec![];
     match filter_expression {
         FilterExpressionAST::Condition(filter_condition) => {
@@ -109,12 +96,7 @@ pub(crate) fn build_query_filter(
 ) -> Result<String, GenerationError> {
     let mut content: String = String::from("");
     match filter_expression_ast {
-        FilterExpressionAST::Condition(FilterCondition {
-            key,
-            attribute,
-            operator,
-            value,
-        }) => {
+        FilterExpressionAST::Condition(FilterCondition { key, attribute, operator, value }) => {
             // Search the key in the hashmap
 
             match filter_conditions.get(key) {
@@ -122,10 +104,7 @@ pub(crate) fn build_query_filter(
                     panic!("No matching conditions"); // TODO ...
                 }
                 Some((index, fc)) => {
-                    let s = format!(
-                        " {}_{}_{}.value is not null ",
-                        EXTRA_TABLE_PREFIX, &fc.attribute, index
-                    );
+                    let s = format!(" {}_{}_{}.value is not null ", EXTRA_TABLE_PREFIX, &fc.attribute, index);
                     content.push_str(&s);
                 }
             }
@@ -176,10 +155,7 @@ impl TagDefinitionInterface for TagDefinitionBuilder {
 }
 
 ///
-fn build_tag_value_filter(
-    filter_condition: &FilterCondition,
-    tag_type: &TagType,
-) -> Result<String, GenerationError> {
+fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType) -> Result<String, GenerationError> {
     let sql_op = match filter_condition.operator {
         ComparisonOperator::EQ => "=",
         ComparisonOperator::NEQ => "<>",
@@ -234,19 +210,14 @@ fn verify_filter_conditions(
     definitions: &Vec<TagDefinition>,
 ) -> Result<(), GenerationError> {
     for (_, (_, filter_condition)) in filter_conditions.iter() {
-        if let Some(definition) = definitions
-            .iter()
-            .find(|def| &def.tag_names == &filter_condition.attribute)
-        {
+        if let Some(definition) = definitions.iter().find(|def| &def.tag_names == &filter_condition.attribute) {
             /** TODO we must also check the value format depending on the tag type here */
             // Check if the operator is valid for the tag type
             if let Some(valid_operators) = LEGAL_OPERATORS_BY_TAG_TYPE.get(&definition.tag_type) {
                 if !valid_operators.contains(&filter_condition.operator) {
                     return Err(GenerationError::TagIncompatibleType(format!(
                         "Tag : {}, Invalid operator {:?} for tag type {:?}",
-                        &filter_condition.attribute,
-                        &filter_condition.operator,
-                        &definition.tag_type
+                        &filter_condition.attribute, &filter_condition.operator, &definition.tag_type
                     )));
                 }
             } else {
@@ -265,18 +236,12 @@ fn verify_filter_conditions(
     Ok(())
 }
 
-fn build_order_column(
-    order_tags: &[&str],
-    map_of_tags_with_occurrence: &HashMap<String, Vec<String>>,
-) -> Vec<String> {
+fn build_order_column(order_tags: &[&str], map_of_tags_with_occurrence: &HashMap<String, Vec<String>>) -> Vec<String> {
     order_tags
         .iter()
         .filter_map(|tag| map_of_tags_with_occurrence.get(&tag.to_string()))
         .map(|occurrences| {
-            let mut coalesce_expr = occurrences
-                .iter()
-                .map(|o| format!("{}.value", o))
-                .collect::<Vec<_>>();
+            let mut coalesce_expr = occurrences.iter().map(|o| format!("{}.value", o)).collect::<Vec<_>>();
             if coalesce_expr.len() == 1 {
                 coalesce_expr.pop().unwrap()
             } else {
@@ -296,25 +261,15 @@ fn build_tag_column_with_alias(
 ) -> Vec<String> {
     select_tags
         .iter()
-        .filter_map(|tag| {
-            map_of_tags_with_occurrence
-                .get(&tag.to_string())
-                .map(|occurrences| (tag, occurrences))
-        })
+        .filter_map(|tag| map_of_tags_with_occurrence.get(&tag.to_string()).map(|occurrences| (tag, occurrences)))
         .map(|(tag, occurrences)| {
             if occurrences.len() == 1 {
                 format!("{}.value AS {}", occurrences[0], tag)
             } else if occurrences.len() == 2 {
-                format!(
-                    "COALESCE({}.value, {}.value) AS {}",
-                    occurrences[0], occurrences[1], tag
-                )
+                format!("COALESCE({}.value, {}.value) AS {}", occurrences[0], occurrences[1], tag)
             } else {
                 // For 3 or more, nest COALESCE as requested
-                let mut expr = format!(
-                    "COALESCE({}.value, {}.value)",
-                    occurrences[0], occurrences[1]
-                );
+                let mut expr = format!("COALESCE({}.value, {}.value)", occurrences[0], occurrences[1]);
                 for o in &occurrences[2..] {
                     expr = format!("COALESCE({}, {}.value)", expr, o);
                 }
@@ -340,10 +295,8 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
     dbg!(&filter_conditions);
 
     // Extract all the tags name from each leaves
-    let tags: HashSet<_> = filter_conditions
-        .iter()
-        .map(|(_, (_, filter_condition))| filter_condition.attribute.clone())
-        .collect();
+    let tags: HashSet<_> =
+        filter_conditions.iter().map(|(_, (_, filter_condition))| filter_condition.attribute.clone()).collect();
 
     dbg!(&tags);
 
@@ -357,9 +310,7 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
         Err(e) => {
             // TODO tracer and session id ?
             log_error!("Error while getting tag definitions: {:?}", e);
-            return Err(GenerationError::TagSearchError(
-                "Error in tag search".to_string(),
-            ));
+            return Err(GenerationError::TagSearchError("Error in tag search".to_string()));
         }
     };
 
@@ -383,12 +334,9 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
     let mut map_of_tags_with_occurrence: HashMap<String, Vec<String>> = HashMap::new();
 
     // Generate the {{tag_value_filter}} for all tags condition
+    let mut list_of_query_tags: Vec<String> = vec![];
     for (_, (occurrence, fc)) in filter_conditions.iter() {
-        let tag_type = definitions
-            .iter()
-            .find(|def| def.tag_names == fc.attribute)
-            .map(|def| &def.tag_type)
-            .unwrap();
+        let tag_type = definitions.iter().find(|def| def.tag_names == fc.attribute).map(|def| &def.tag_type).unwrap();
 
         let tag_value_filter = build_tag_value_filter(fc, tag_type).map_err(|e| {
             log_error!("Error while building tag value filter: {:?}", e);
@@ -397,9 +345,8 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
 
         log_debug!("tag_value_filter: {}", &tag_value_filter);
 
-        let query_tag = build_query_tag(fc, tag_type, *occurrence, &tag_value_filter)
-            .map_err(tr_fwd!())
-            .map_err(|e| {
+        let query_tag =
+            build_query_tag(fc, tag_type, *occurrence, &tag_value_filter).map_err(tr_fwd!()).map_err(|e| {
                 log_error!("Error while building query filter: {:?}", e);
                 GenerationError::TagSearchError("Error in tag search".to_string())
             })?;
@@ -409,19 +356,17 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
         dbg!(&tag_occurrence);
 
         // Add the tag_occurrence to a list associated with the tag name through a hash map
-        map_of_tags_with_occurrence
-            .entry(fc.attribute.clone())
-            .or_insert_with(Vec::new)
-            .push(tag_occurrence);
+        map_of_tags_with_occurrence.entry(fc.attribute.clone()).or_insert_with(Vec::new).push(tag_occurrence);
 
         dbg!(&map_of_tags_with_occurrence);
 
-        log_info!("query_filter: {}", &query_tag);
+        log_info!("query_tags: {}", &query_tag);
+
+        list_of_query_tags.push(query_tag);
     }
 
     // build the query filter aka boolean filter
-    let query_filter =
-        build_query_filter(&filter_expression_ast, &filter_conditions).map_err(tr_fwd!())?;
+    let query_filter = build_query_filter(&filter_expression_ast, &filter_conditions).map_err(tr_fwd!())?;
 
     dbg!(&query_filter);
 
@@ -431,8 +376,7 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
     dbg!(&order_columns);
 
     // build the tag_columns
-    let tag_columns =
-        build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(", ");
+    let tag_columns = build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(", ");
 
     dbg!(&tag_columns);
 
@@ -449,8 +393,25 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
         // Compute the super filter for all tag_value_filter
     }
 
+    // Build the final SQL
+
+    let mut final_sql = String::from("SELECT i.id,");
+    final_sql.push_str(&tag_columns);
+
+    final_sql.push_str(" FROM item i ");
+
+    final_sql.push_str(&list_of_query_tags.join(" "));
+
+    final_sql.push_str(" WHERE ");
+
+    final_sql.push_str(query_filter.as_str());
+
+    final_sql.push_str(" ORDER BY ");
+
+    final_sql.push_str(order_columns.as_str());
+
     // generate the DOKA search sql
-    Ok(String::from(""))
+    Ok(final_sql.to_string())
 }
 
 const QUERY_FILTER_TEMPLATE: &str = r#"LEFT OUTER JOIN (
@@ -481,8 +442,8 @@ mod tests {
     // cargo test --color=always --bin document-server engine  [ -- --show-output]
 
     use crate::engine::generator::{
-        build_query_filter, extract_all_conditions, generate_search_sql, verify_filter_conditions,
-        GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
+        build_query_filter, extract_all_conditions, generate_search_sql, verify_filter_conditions, GenerationError,
+        SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
     };
     use crate::filter::analyse_expression;
     use crate::filter::filter_ast::{
@@ -500,8 +461,8 @@ mod tests {
     pub(crate) fn init_logger() {
         INIT_LOGGER.call_once(|| {
             if let Err(e) = log4rs::init_file(
-                "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
-                // r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
+                //"/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
+                 r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
                 Default::default(),
             ) {
                 panic!("{:?}", e);
@@ -515,18 +476,9 @@ mod tests {
         fn get_tag_definition(&self, tag_name: &Vec<String>) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
             let tag_definitions = vec![
-                TagDefinition {
-                    tag_names: "country".to_string(),
-                    tag_type: TagType::Text,
-                },
-                TagDefinition {
-                    tag_names: "science".to_string(),
-                    tag_type: TagType::Int,
-                },
-                TagDefinition {
-                    tag_names: "is_open".to_string(),
-                    tag_type: TagType::Bool,
-                },
+                TagDefinition { tag_names: "country".to_string(), tag_type: TagType::Text },
+                TagDefinition { tag_names: "science".to_string(), tag_type: TagType::Int },
+                TagDefinition { tag_names: "is_open".to_string(), tag_type: TagType::Bool },
             ];
             Ok(tag_definitions)
         }
@@ -547,24 +499,52 @@ mod tests {
             &vec!["country", "science", "is_open"],
             SearchSqlGenerationMode::Live,
         );
+
+        log_info!("FINAL QUERY : {}", &query.unwrap());
+    }
+
+    struct TagDefinitionBuilderMock2 {}
+    impl TagDefinitionInterface for TagDefinitionBuilderMock2 {
+        fn get_tag_definition(&self, tag_name: &Vec<String>) -> anyhow::Result<Vec<TagDefinition>> {
+            // Write a list of tag definitions
+            let tag_definitions = vec![
+                TagDefinition { tag_names: "lastname".to_string(), tag_type: TagType::Text },
+                TagDefinition { tag_names: "postal_code".to_string(), tag_type: TagType::Int },
+            ];
+            Ok(tag_definitions)
+        }
+    }
+
+    ///
+    /// -- CASE 7 lastname LIKE 'ab%' OR  (postal_code = 30099 AND lastname LIKE '%h%')
+    ///
+    #[test]
+    pub fn generate_query_2() {
+        init_logger();
+        let input = r#"lastname LIKE "%ab%" OR (postal_code == 30099  AND  lastname LIKE "%h%")"#;
+
+        let filter_expression_ast = analyse_expression(input).unwrap();
+
+        let tag_definition_builder = TagDefinitionBuilderMock2 {};
+
+        let query = generate_search_sql(
+            &filter_expression_ast,
+            &tag_definition_builder,
+            &vec!["lastname", "postal_code"],
+            &vec!["lastname", "postal_code"],
+            SearchSqlGenerationMode::Live,
+        );
+
+        log_info!("FINAL QUERY : {}", &query.unwrap());
     }
 
     #[test]
     fn test_verify_filter_conditions() {
         // Initialize valid tag definitions
         let definitions = vec![
-            TagDefinition {
-                tag_names: "country".to_string(),
-                tag_type: TagType::Text,
-            },
-            TagDefinition {
-                tag_names: "age".to_string(),
-                tag_type: TagType::Int,
-            },
-            TagDefinition {
-                tag_names: "is_active".to_string(),
-                tag_type: TagType::Bool,
-            },
+            TagDefinition { tag_names: "country".to_string(), tag_type: TagType::Text },
+            TagDefinition { tag_names: "age".to_string(), tag_type: TagType::Int },
+            TagDefinition { tag_names: "is_active".to_string(), tag_type: TagType::Bool },
         ];
 
         // Create valid filter conditions
@@ -631,18 +611,9 @@ mod tests {
         let all_conditions = extract_all_conditions(tree1.as_ref()).unwrap();
         parser_log!("all_conditions...{:?}", all_conditions; 0);
         assert_eq!(5, all_conditions.values().len());
-        let count_country = all_conditions
-            .iter()
-            .filter(|(c, d)| &d.1.attribute == "country")
-            .count();
-        let count_science = all_conditions
-            .iter()
-            .filter(|(c, d)| &d.1.attribute == "science")
-            .count();
-        let count_is_open = all_conditions
-            .iter()
-            .filter(|(c, d)| &d.1.attribute == "is_open")
-            .count();
+        let count_country = all_conditions.iter().filter(|(c, d)| &d.1.attribute == "country").count();
+        let count_science = all_conditions.iter().filter(|(c, d)| &d.1.attribute == "science").count();
+        let count_is_open = all_conditions.iter().filter(|(c, d)| &d.1.attribute == "is_open").count();
         assert_eq!(2, count_country);
         assert_eq!(2, count_science);
         assert_eq!(1, count_is_open);

@@ -14,7 +14,6 @@ serde_derive = { workspace = true }
 rs-uuid = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
-log-mdc = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }

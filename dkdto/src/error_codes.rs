@@ -1,7 +1,11 @@
 use http::StatusCode;
 use once_cell::sync::Lazy;
-
+use crate::ApiError::ApiError;
 use crate::ErrorSet;
+
+pub static API_SUCCESS: Lazy<ApiError<'static>> = Lazy::new(||
+    ApiError::borrowed(StatusCode::OK.as_u16(), "Success")
+);
 
 pub static URL_PARSING_ERROR: Lazy<ErrorSet> = Lazy::new(|| ErrorSet {
     err_message: "Impossible to parse the Url",

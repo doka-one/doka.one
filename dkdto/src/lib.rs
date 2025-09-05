@@ -8,11 +8,13 @@ use axum::Json;
 use chrono::{DateTime, NaiveDate, Utc};
 use http::{HeaderMap, StatusCode};
 use serde::de;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_derive::Deserialize;
 
 pub mod cbor_type;
 pub mod error_codes;
+mod ApiError;
 
 ///
 /// Commons DTO
@@ -46,31 +48,41 @@ impl Display for ErrorMessage {
     }
 }
 
+///
+
+
+// ----- existing -----
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SimpleMessage {
     pub message: String,
 }
+impl From<String> for SimpleMessage {
+    fn from(value: String) -> Self { SimpleMessage { message: value } }
+}
 
 pub type DType = (String, u64); // For test only
 
-/// TODO It should be possible to get rid of the Axum dependency
-///     we only need it because of Json()
-///     so, find a pattern to make all the code below smart enough
-pub type WebType<T> = (StatusCode, Result<Json<T>, Json<SimpleMessage>>);
+// ----- generalized aliases -----
+pub type FlexibleWebType<T, E> = (StatusCode, Result<Json<T>, Json<E>>);
 
-pub trait WebTypeBuilder<T> {
-    fn from_simple(code: u16, simple: SimpleMessage) -> Self;
+// Keep the old alias so existing code compiles & behaves the same.
+pub type WebType<T> = FlexibleWebType<T, SimpleMessage>;
+
+// ----- trait -----
+pub trait WebTypeBuilder<T, E> {
+    fn from_simple(code: u16, simple: E) -> Self;
     fn from_item(code: u16, item: T) -> Self;
     fn from_errorset(error: &ErrorSet<'static>) -> Self;
 }
 
-impl<T> WebTypeBuilder<T> for WebType<T>
+// Implement the builder for the tuple (your alias resolves to this).
+impl<T, E> WebTypeBuilder<T, E> for (StatusCode, Result<Json<T>, Json<E>>)
 where
-    T: de::DeserializeOwned,
+    T: DeserializeOwned,
+    E: DeserializeOwned + From<String>,
 {
-    fn from_simple(code: u16, simple: SimpleMessage) -> Self {
-        let status = StatusCode::from_u16(code).unwrap();
-        (status, Err(Json(simple)))
+    fn from_simple(code: u16, simple: E) -> Self {
+        (StatusCode::from_u16(code).unwrap(), Err(Json(simple)))
     }
 
     fn from_item(code: u16, item: T) -> Self {
@@ -79,25 +91,20 @@ where
 
     fn from_errorset(error: &ErrorSet<'static>) -> Self {
         let s = StatusCode::from_u16(error.http_error_code).unwrap();
-        (
-            s,
-            Err(Json(SimpleMessage {
-                message: error.err_message.to_string(),
-            })),
-        )
+        // Generic: build E from a message string
+        (s, Err(Json(E::from(error.err_message.to_string()))))
     }
 }
 
-// Need for the ? operator
-impl<T> From<ErrorMessage> for WebType<T> {
+// Let `?` convert your domain error into any FlexibleWebType<T, E>
+// (and thus also into WebType<T> via the alias).
+impl<T, E> From<ErrorMessage> for FlexibleWebType<T, E>
+where
+    E: DeserializeOwned + From<String>,
+{
     fn from(error: ErrorMessage) -> Self {
         let s = StatusCode::from_u16(error.http_error_code).unwrap();
-        (
-            s,
-            Err(Json(SimpleMessage {
-                message: error.message,
-            })),
-        )
+        (s, Err(Json(E::from(error.message))))
     }
 }
 
@@ -108,7 +115,7 @@ impl<T> From<ErrorMessage> for WebType<T> {
 /// ```
 pub type WebResponse<T> = Result<T, ErrorMessage>;
 
-impl<T> WebTypeBuilder<T> for WebResponse<T> {
+impl<T> WebTypeBuilder<T, SimpleMessage> for WebResponse<T> {
     fn from_simple(code: u16, simple: SimpleMessage) -> Self {
         Err(ErrorMessage {
             http_error_code: code,
@@ -497,7 +504,7 @@ pub type DownloadReply = Result<(HeaderMap, Body), (axum::http::StatusCode, Stri
 // pub type DownloadReply = Custom<Content<Vec<u8>>>;
 // pub type DownloadReply = Vec<u8>; // TODO
 //
-impl WebTypeBuilder<Vec<u8>> for DownloadReply {
+impl WebTypeBuilder<Vec<u8>, SimpleMessage> for DownloadReply {
     fn from_simple(code: u16, simple: SimpleMessage) -> Self {
         let status = StatusCode::from_u16(code).unwrap();
         Err((status, simple.message))

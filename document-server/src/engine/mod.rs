@@ -1,1 +1,1 @@
-mod generator;
+pub(crate) mod generator;

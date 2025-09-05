@@ -1,14 +1,19 @@
 use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST};
 use commons_error::tr_fwd;
 use commons_error::*;
-use dkdto::TagType;
+use dkdto::{TagType, WebType};
 use log::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-
-const EXTRA_TABLE_PREFIX: &str = "ot";
+use axum::async_trait;
 
 use once_cell::sync::Lazy;
+use commons_pg::sql_transaction::SQLDataSet;
+use commons_pg::sql_transaction_async::{SQLConnectionAsync, SQLQueryBlockAsync};
+use commons_services::x_request_id::Follower;
+use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
+
+const EXTRA_TABLE_PREFIX: &str = "ot";
 
 static LEGAL_OPERATORS_BY_TAG_TYPE: Lazy<HashMap<TagType, Vec<ComparisonOperator>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -141,18 +146,68 @@ impl fmt::Display for GenerationError {
     }
 }
 
-struct TagDefinitionBuilder {}
+use std::sync::Arc;
+use anyhow::Result;
 
-trait TagDefinitionInterface {
-    fn get_tag_definition(&self, tag_name: &Vec<String>) -> anyhow::Result<Vec<TagDefinition>>;
+// Make sure Follower implements Debug (or Display).
+// #[derive(Debug)]
+// pub struct Follower { /* ... */ }
+
+pub(crate) struct TagDefinitionBuilder {
+    follower: Follower,
 }
 
+impl TagDefinitionBuilder {
+    pub fn new(follower: Follower) -> Self {
+        Self { follower }
+    }
+}
+
+#[async_trait]
+trait TagDefinitionInterface {
+    /// Prefer slices over &Vec<T>
+    async fn get_tag_definition(&self, tag_name: &[String]) -> Result<Vec<TagDefinition>>;
+}
+
+#[async_trait]
 impl TagDefinitionInterface for TagDefinitionBuilder {
-    fn get_tag_definition(&self, tag_name: &Vec<String>) -> anyhow::Result<Vec<TagDefinition>> {
-        // TODO # implement the service
+    async fn get_tag_definition(&self, _tag_name: &[String]) -> Result<Vec<TagDefinition>> {
+        // Example: include follower in every error path
+        let mut cnx = SQLConnectionAsync::from_pool()
+            .await
+            .map_err(err_fwd!("New DB connection failed; follower={:?}", self.follower))?;
+
+        let mut trans = cnx.begin()
+            .await
+            .map_err(err_fwd!("Transaction issue; follower={:?}", self.follower))?;
+
+        let mut params = HashMap::new();
+        // params.insert("p_customer_code".to_owned(), p_customer_code);
+
+        let sql_query = r#"SELECT 1 FROM dokaadmin.customer WHERE code = :p_customer_code"#.to_owned();
+
+        let query = SQLQueryBlockAsync {
+            sql_query,
+            params,
+            start: 0,
+            length: Some(1),
+        };
+
+        let _sql_result: SQLDataSet = query.execute(&mut trans)
+            .await
+            .map_err(err_fwd!(
+                "Query failed [{}]; follower={:?}",
+                &query.sql_query,
+                self.follower
+            ))?;
+
+        // If your transaction commit is async, keep `.await`; if not, remove it.
+        trans.commit().await?;
+
         Ok(vec![])
     }
 }
+
 
 ///
 fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType) -> Result<String, GenerationError> {
@@ -282,7 +337,7 @@ fn build_tag_column_with_alias(
 /// 🔑 Generate the SQL query from the filter AST
 ///    
 ///     REF_TAG : DOKA_SEARCH_SQL
-pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
+pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     filter_expression_ast: &FilterExpressionAST,
     tag_definition_builder: &T,
     select_tags: &[&str],
@@ -301,9 +356,10 @@ pub(crate) fn generate_search_sql<T: TagDefinitionInterface>(
     dbg!(&tags);
 
     // Find the tag_definitions for all the tags (type, limit, default value)
+    let tags_list: Vec<String> = tags.iter().cloned().collect();
 
     let definitions = match tag_definition_builder
-        .get_tag_definition(&tags.iter().map(|s| s.to_string()).collect())
+        .get_tag_definition(&tags_list).await
         .map_err(tr_fwd!())
     {
         Ok(definitions) => definitions,
@@ -454,7 +510,15 @@ mod tests {
     use dkdto::TagType;
     use log::*;
     use std::collections::HashMap;
-    use std::sync::Once;
+    use std::sync::{Arc, Once};
+    use sqlparser::parser::Parser;
+    use sqlparser::dialect::PostgreSqlDialect;
+    use sqlparser::ast::{Statement, SetExpr, TableFactor, TableWithJoins, Query, ObjectName};
+    use std::collections::HashSet;
+    use axum::async_trait;
+    use commons_services::x_request_id::{Follower, XRequestID};
+    use doka_cli::request_client::TokenType;
+    use crate::filter::filter_lexer::FilterError;
 
     static INIT_LOGGER: Once = Once::new();
 
@@ -472,8 +536,9 @@ mod tests {
 
     struct TagDefinitionBuilderMock {}
 
+    #[async_trait]
     impl TagDefinitionInterface for TagDefinitionBuilderMock {
-        fn get_tag_definition(&self, tag_name: &Vec<String>) -> anyhow::Result<Vec<TagDefinition>> {
+        async fn get_tag_definition(&self, tag_name: &[String]) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
             let tag_definitions = vec![
                 TagDefinition { tag_names: "country".to_string(), tag_type: TagType::Text },
@@ -484,8 +549,90 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn generate_query_1() {
+
+    /// Parse the SQL and return a list of base tables used in the query.
+    ///
+    /// Example:
+    ///   SELECT ... FROM item i
+    ///   JOIN tag_value tv ON ...
+    /// returns ["item", "tag_value"]
+    pub fn validate_my_engine_query(sql: &str) -> Result<Vec<String>, String> {
+        let dialect = PostgreSqlDialect {};
+        let r_statements = Parser::parse_sql(&dialect, sql)
+            .map_err(|e| e.to_string());
+
+        assert_eq!(false, r_statements.is_err());
+
+        let statements = r_statements.unwrap();
+
+        let mut tables = HashSet::new();
+        for stmt in statements {
+            collect_tables_from_statement(&stmt, &mut tables);
+        }
+
+        let mut list: Vec<String> = tables.into_iter().collect();
+        list.sort();
+
+        // ✅ Assert that we only got the expected tables
+        assert_eq!(
+            list,
+            vec!["item".to_string(), "tag_definition".to_string(), "tag_value".to_string()]
+        );
+
+        Ok(list)
+    }
+
+    fn collect_tables_from_statement(stmt: &Statement, tables: &mut HashSet<String>) {
+        match stmt {
+            Statement::Query(q) => collect_tables_from_query(q, tables),
+            // Add more if you want to support INSERT, UPDATE, DELETE, etc.
+            _ => {}
+        }
+    }
+
+    fn collect_tables_from_query(query: &Query, tables: &mut HashSet<String>) {
+        match &*query.body {
+            SetExpr::Select(s) => {
+                for twj in &s.from {
+                    collect_tables_from_table_with_joins(twj, tables);
+                }
+            }
+            SetExpr::Query(q) => collect_tables_from_query(q, tables),
+            _ => {}
+        }
+        // Also recurse into subqueries in ORDER BY, WITH, etc., if needed
+    }
+
+    fn collect_tables_from_table_with_joins(twj: &TableWithJoins, tables: &mut HashSet<String>) {
+        collect_table_factor(&twj.relation, tables);
+        for j in &twj.joins {
+            collect_table_factor(&j.relation, tables);
+        }
+    }
+
+    fn collect_table_factor(tf: &TableFactor, tables: &mut HashSet<String>) {
+        match tf {
+            TableFactor::Table { name, .. } => {
+                let table = objectname_last_ident(name);
+                tables.insert(table);
+            }
+            TableFactor::Derived { subquery, .. } => {
+                collect_tables_from_query(subquery, tables);
+            }
+            _ => {}
+        }
+    }
+
+    fn objectname_last_ident(name: &ObjectName) -> String {
+        name.0
+            .last()
+            .map(|id| id.to_string())
+            .unwrap_or_default()
+    }
+
+
+    #[tokio::test]
+    pub async fn test_generate_search_sql_6_conditions() {
         init_logger();
         let input = " (country == \"US\" OR country == \"FR\"  AND  (science >= 50) OR (is_open == FALSE OR (country == \"LU\" AND science >=50) ) )";
         let filter_expression_ast = analyse_expression(input).unwrap();
@@ -498,14 +645,17 @@ mod tests {
             &vec!["country", "science", "is_open"],
             &vec!["country", "science", "is_open"],
             SearchSqlGenerationMode::Live,
-        );
-
-        log_info!("FINAL QUERY : {}", &query.unwrap());
+        ).await;
+        let q = &query.unwrap();
+        // validate and assert table names
+        let _r = validate_my_engine_query(q);
+        log_info!("FINAL QUERY : {}", q);
     }
 
     struct TagDefinitionBuilderMock2 {}
+    #[async_trait]
     impl TagDefinitionInterface for TagDefinitionBuilderMock2 {
-        fn get_tag_definition(&self, tag_name: &Vec<String>) -> anyhow::Result<Vec<TagDefinition>> {
+        async fn get_tag_definition(&self, tag_name: &[String]) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
             let tag_definitions = vec![
                 TagDefinition { tag_names: "lastname".to_string(), tag_type: TagType::Text },
@@ -518,24 +668,26 @@ mod tests {
     ///
     /// -- CASE 7 lastname LIKE 'ab%' OR  (postal_code = 30099 AND lastname LIKE '%h%')
     ///
-    #[test]
-    pub fn generate_query_2() {
+    #[tokio::test]
+    pub async fn test_generate_search_sql_3_conditions() {
         init_logger();
         let input = r#"lastname LIKE "%ab%" OR (postal_code == 30099  AND  lastname LIKE "%h%")"#;
 
         let filter_expression_ast = analyse_expression(input).unwrap();
 
         let tag_definition_builder = TagDefinitionBuilderMock2 {};
-
         let query = generate_search_sql(
             &filter_expression_ast,
             &tag_definition_builder,
             &vec!["lastname", "postal_code"],
             &vec!["lastname", "postal_code"],
             SearchSqlGenerationMode::Live,
-        );
+        ).await;
 
-        log_info!("FINAL QUERY : {}", &query.unwrap());
+        let q = &query.unwrap();
+        // validate and assert table names
+        let _r = validate_my_engine_query(q);
+        log_info!("FINAL QUERY : {}", q);
     }
 
     #[test]
@@ -595,7 +747,7 @@ mod tests {
         let result = verify_filter_conditions(&filter_conditions, &definitions);
         assert!(result.is_err());
         if let Err(GenerationError::TagIncompatibleType(err_msg)) = result {
-            dbg!(&err_msg);
+            // dbg!(&err_msg);
             assert!(err_msg.contains("is_active"));
         } else {
             panic!("Expected TagIncompatibleType error");
@@ -607,7 +759,7 @@ mod tests {
         init_logger();
         let input1 = " (country == \"FR\"  AND  (science >= 50) OR (is_open == \"TRUE\" OR (country == \"LU\" AND science >=50) ) )";
         let tree1 = analyse_expression(input1).unwrap();
-        let canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
+        // let _canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
         let all_conditions = extract_all_conditions(tree1.as_ref()).unwrap();
         parser_log!("all_conditions...{:?}", all_conditions; 0);
         assert_eq!(5, all_conditions.values().len());
@@ -624,7 +776,7 @@ mod tests {
         init_logger();
         let input1 = " (country == \"FR\"  AND  (science >= 50) OR (is_open == \"TRUE\" OR (country == \"LU\" AND science >=50) ) )";
         let tree1 = analyse_expression(input1).unwrap();
-        let canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
+        // let canonical1 = to_canonical_form(tree1.as_ref()).unwrap();
         let all_conditions = extract_all_conditions(tree1.as_ref()).unwrap();
         let boolean_filter = build_query_filter(tree1.as_ref(), &all_conditions).unwrap();
         log_debug!("boolean filter: {}", &boolean_filter);

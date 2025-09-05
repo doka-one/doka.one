@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::anyhow;
@@ -34,6 +35,7 @@ use doka_cli::request_client::TokenType;
 
 use crate::filter::{analyse_expression, to_sql_form};
 use crate::{TagDelegate, WebType};
+use crate::engine::generator::{generate_search_sql, SearchSqlGenerationMode, TagDefinitionBuilder};
 use crate::filter::filter_ast::FilterExpressionAST;
 
 pub(crate) struct ItemDelegate {
@@ -59,7 +61,7 @@ impl ItemDelegate {
         mut self,
         start_page: Option<u32>,
         page_size: Option<u32>,
-        filters: Option<String>,
+        filter_expression: Option<String>,
     ) -> WebType<GetItemReply> {
         log_info!(
             "🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]",
@@ -73,8 +75,10 @@ impl ItemDelegate {
             Self::web_type_error()
         );
 
-        let filter_tokens: Box<FilterExpressionAST> =
-            match analyse_expression(&filters.unwrap_or("()".to_owned())) {
+        log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
+
+        let filter_expression_ast: Box<FilterExpressionAST> =
+            match analyse_expression(&filter_expression.unwrap_or("()".to_owned())) {
                 Ok(v) => v,
                 Err(_) => {
                     // TODO
@@ -82,22 +86,20 @@ impl ItemDelegate {
                 }
             };
 
-        let s = to_sql_form(&filter_tokens.deref()).unwrap(); // TODO
+        let tag_definition_builder = TagDefinitionBuilder::new(self.follower.clone());
+        let select_tags = &vec!["lastname", "postal_code"];
+        let order_tags= &vec!["lastname", "postal_code"];
+
+        // We use a tag definition interface,because we don't know which tags
+        //      we want the definition for, because they are in the filter's conditions.
+        let r = generate_search_sql(&filter_expression_ast,
+                                    &tag_definition_builder,
+                                    select_tags,
+                                    order_tags,
+                                    SearchSqlGenerationMode::Live ).await;
+
+        let s = to_sql_form(&filter_expression_ast.deref()).unwrap(); // TODO
         log_info!("sql = {}", &s);
-
-        // let r_lexemes = filter_lexer::lex3(&filters.0);
-        // // Normalise !!!
-        //
-        // let Ok(lexeme) = r_lexemes else {
-        //     panic!("Cannot lex the expression");
-        // };
-        //
-        // let filter_tokens: Box<FilterExpressionAST> = parse_tokens(&lexeme).unwrap(); // TODO * 2
-
-        // Verify the the attributes are existing tag in doka and the type complies with the filter condition
-        // ...
-
-        log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
         // Open Db connection
         let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
@@ -109,7 +111,7 @@ impl ItemDelegate {
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
-            &self.follower
+             &self.follower
         )) else {
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
@@ -117,14 +119,14 @@ impl ItemDelegate {
         let Ok(items) = self
             .search_item_with_filter(
                 &mut trans,
-                &filter_tokens.deref(),
+                &filter_expression_ast.deref(),
                 start_page,
                 page_size,
                 &entry_session.customer_code,
             )
             .await
         else {
-            log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
+            log_error!("💣 Cannot find item by id, follower=[{}]",  &self.follower);
             return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
         };
 

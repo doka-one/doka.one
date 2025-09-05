@@ -42,7 +42,7 @@ fn serialize_to_bytes<T: Serialize>(value: &T) -> bytes::Bytes {
     }
 }
 
-impl<T> WebTypeBuilder<T> for CborType<T>
+impl<T> WebTypeBuilder<T, SimpleMessage> for CborType<T>
 where
     T: de::DeserializeOwned + Serialize,
 {

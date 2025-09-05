@@ -77,19 +77,6 @@ pub async fn search_item(
     delegate
         .search_item(page.start_page, page.page_size, page.filters)
         .await
-
-    // let lexems = filter_lexem_parser::lex(&filters.0);
-    // let filter_tokens : Box<FilterExpression> = parse_expression(&lexems).unwrap();
-    //
-    // // Verify the the attributes are existing tag in doka and the type complies with the filter condition
-    //
-    //
-    //
-    //
-    // let s = to_sql_form(&filter_tokens.deref()).unwrap();
-    //
-    // println!("sql = {:}", &s);
-    // WebType::from_errorset(INTERNAL_DATABASE_ERROR)
 }
 
 ///

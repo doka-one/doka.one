@@ -447,21 +447,18 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     final_sql.push_str(&tag_columns);
 
     final_sql.push_str("\n");
-    final_sql.push_str("FROM item i");
     final_sql.push_str(" FROM item i ");
 
     final_sql.push_str("\n");
     final_sql.push_str(&list_of_query_tags.join("\n"));
 
     final_sql.push_str("\n");
-    final_sql.push_str("WHERE");
     final_sql.push_str(" WHERE ");
 
     final_sql.push_str("\n    ");
     final_sql.push_str(query_filter.as_str());
 
     final_sql.push_str("\n");
-    final_sql.push_str("ORDER BY");
     final_sql.push_str(" ORDER BY ");
 
     final_sql.push_str("\n    ");
@@ -678,9 +675,11 @@ mod tests {
         .await;
 
         let q = &query.unwrap();
+
+        log_info!("FINAL QUERY : {}", &q);
+
         // validate and assert table names
         let _r = validate_my_engine_query(q);
-        log_info!("FINAL QUERY : {}", q);
     }
 
     #[test]

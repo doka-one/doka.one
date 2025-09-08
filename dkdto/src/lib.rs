@@ -3,6 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use crate::api_error::ApiError;
 use axum::body::Body;
 use axum::Json;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -11,11 +12,10 @@ use serde::de;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use crate::api_error::ApiError;
 
+pub mod api_error;
 pub mod cbor_type;
 pub mod error_codes;
-pub mod api_error;
 
 ///
 /// Commons DTO
@@ -26,7 +26,9 @@ pub struct SimpleMessage {
     pub message: String,
 }
 impl From<String> for SimpleMessage {
-    fn from(value: String) -> Self { Self { message: value } }
+    fn from(value: String) -> Self {
+        Self { message: value }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -35,7 +37,15 @@ pub struct ContextMessage {
     pub context: Vec<String>, // the meaning of this list depends on the Api context
 }
 impl From<String> for crate::ContextMessage {
-    fn from(value: String) -> Self { Self { message: value, context: vec![] } }
+    fn from(value: String) -> Self {
+        Self { message: value, context: vec![] }
+    }
+}
+
+impl From<SimpleMessage> for ContextMessage {
+    fn from(s: SimpleMessage) -> Self {
+        Self { message: s.message, context: vec![] }
+    }
 }
 
 pub type DType = (String, u64); // For test only
@@ -46,6 +56,19 @@ pub type FlexibleWebType<T, E> = (StatusCode, Result<Json<T>, Json<E>>);
 // Keep the old alias so existing code compiles & behaves the same.
 pub type WebType<T> = FlexibleWebType<T, SimpleMessage>;
 pub type WebTypeWithContext<T> = FlexibleWebType<T, ContextMessage>;
+
+pub(crate) trait IntoWebTypeWithContext<T> {
+    fn into_with_context(self) -> WebTypeWithContext<T>;
+}
+
+impl<T> IntoWebTypeWithContext<T> for WebType<T> {
+    fn into_with_context(self) -> WebTypeWithContext<T> {
+        match self {
+            (status, Ok(json_ok)) => (status, Ok(json_ok)),
+            (status, Err(Json(simple))) => (status, Err(Json(ContextMessage::from(simple)))),
+        }
+    }
+}
 
 // ----- trait -----
 pub trait WebTypeBuilder<T, E> {
@@ -81,8 +104,7 @@ where
     E: Serialize + From<String>,
 {
     fn from(err: ApiError<'static>) -> Self {
-        (StatusCode::from_u16(err.http_error_code).unwrap(),
-         Err(Json(E::from(err.message.into_owned()))))
+        (StatusCode::from_u16(err.http_error_code).unwrap(), Err(Json(E::from(err.message.into_owned()))))
     }
 }
 
@@ -501,7 +523,6 @@ impl WebTypeBuilder<Vec<u8>, SimpleMessage> for DownloadReply {
         Err((status, err.message.clone().into_owned()))
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetFileInfoReply {

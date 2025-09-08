@@ -35,10 +35,11 @@ use dkconfig::property_name::{
 };
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
+use dkdto::api_error::ApiError;
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use dkdto::{
-    DownloadReply, EntrySession, ErrorSet, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply,
-    ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType, WebTypeBuilder,
+    DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply,
+    UploadInfoReply, UploadReply, WebType, WebTypeBuilder,
 };
 use doka_cli::async_request_client::{DocumentServerClientAsync, TikaServerClientAsync};
 use doka_cli::request_client::TokenType;
@@ -1005,7 +1006,7 @@ impl FileDelegate {
         Ok(())
     }
 
-    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T>() -> impl Fn(&ApiError<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
@@ -1137,7 +1138,7 @@ impl FileDelegate {
         &self,
         pattern: &str,
         customer_code: &str,
-    ) -> Result<ListOfFileInfoReply, &ErrorSet<'static>> {
+    ) -> Result<ListOfFileInfoReply, &ApiError<'static>> {
         if !Self::is_valid_pattern(&pattern) {
             return Err(&FILE_INFO_NOT_FOUND);
         }
@@ -1373,10 +1374,10 @@ impl FileDelegate {
         wt_stats
     }
 
-    fn download_reply_error() -> impl Fn(&ErrorSet<'static>) -> DownloadReply {
+    fn download_reply_error() -> impl Fn(&ApiError<'static>) -> DownloadReply {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            DownloadReply::from_errorset(e)
+            DownloadReply::from_api_error(e)
         }
     }
 
@@ -1397,7 +1398,7 @@ impl FileDelegate {
 
         let Ok((media_type, enc_parts)) = self.search_parts(file_ref, customer_code).await.map_err(tr_fwd!()) else {
             log_error!("");
-            return DownloadReply::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -1407,7 +1408,7 @@ impl FileDelegate {
         );
 
         let Ok(media) = media_type.parse::<Mime>().map_err(tr_fwd!()) else {
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!("😎 Found correct media type=[{}], follower=[{}]", &media, &self.follower);
@@ -1417,7 +1418,7 @@ impl FileDelegate {
             .await
             .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
         else {
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Parallel decrypt of slides of parts [Parts, Q+(1*)]
@@ -1428,7 +1429,7 @@ impl FileDelegate {
                 &file_ref,
                 &self.follower
             );
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Output : Get a file array of P parts
@@ -1442,7 +1443,7 @@ impl FileDelegate {
                 &file_ref,
                 &self.follower
             );
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!("😎 Merged all the parts, follower=[{}]", &self.follower);

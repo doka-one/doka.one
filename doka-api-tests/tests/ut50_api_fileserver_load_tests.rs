@@ -4,20 +4,19 @@ const TEST_TO_RUN: &[&str] = &["t10_upload_mass_file"];
 
 #[cfg(test)]
 mod api_fileserver_load_tests {
-    use base64::Engine;
-    use core::time::Duration;
-    use dkdto::{ErrorMessage, UploadReply};
-    use doka_cli::request_client::{AdminServerClient, FileServerClient};
-    use std::collections::HashMap;
-    use std::thread;
-
     use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
+    use base64::Engine;
+    use core::time::Duration;
+    use dkdto::api_error::ApiError;
+    use dkdto::UploadReply;
+    use doka_cli::request_client::{AdminServerClient, FileServerClient};
+    use std::thread;
 
     const NB_PARTS: u32 = 37;
 
     #[test]
-    fn t10_upload_mass_file() -> Result<(), ErrorMessage> {
+    fn t10_upload_mass_file() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t10_upload_mass_file", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
@@ -65,7 +64,7 @@ mod api_fileserver_load_tests {
         Ok(())
     }
 
-    fn send_a_files(file_path: &str, session_id: &str) -> Result<UploadReply, ErrorMessage> {
+    fn send_a_files(file_path: &str, session_id: &str) -> Result<UploadReply, ApiError<'static>> {
         const FILE_NAME: &str = "1111-38M.pdf";
 
         // Upload the document

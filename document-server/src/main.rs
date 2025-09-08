@@ -14,13 +14,11 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest,
-    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply,
-    SimpleMessage, WebType, WebTypeBuilder,
+    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType,
+    WebTypeBuilder, WebTypeWithContext,
 };
 
 use crate::fulltext::FullTextDelegate;
@@ -47,10 +45,7 @@ pub struct PageQuery {
 /// **NORM
 ///
 ///#[get("/item?<start_page>&<page_size>")]
-pub async fn get_all_item(
-    Query(page): Query<PageQuery>,
-    session_token: SessionToken,
-) -> WebType<GetItemReply> {
+pub async fn get_all_item(Query(page): Query<PageQuery>, session_token: SessionToken) -> WebType<GetItemReply> {
     //
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_item(page.start_page, page.page_size).await
@@ -68,15 +63,10 @@ pub struct SearchQuery {
 /// **NORM
 ///
 /// #[get("/search?<start_page>&<page_size>&<filters>")]
-pub async fn search_item(
-    Query(page): Query<SearchQuery>,
-    session_token: SessionToken,
-) -> WebType<GetItemReply> {
+pub async fn search_item(Query(page): Query<SearchQuery>, session_token: SessionToken) -> WebType<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
 
-    delegate
-        .search_item(page.start_page, page.page_size, page.filters)
-        .await
+    delegate.search_item(page.start_page, page.page_size, page.filters).await
 }
 
 ///
@@ -84,10 +74,7 @@ pub async fn search_item(
 /// **NORM
 ///
 /// #[get("/item/<item_id>")]
-pub(crate) async fn get_item(
-    Path(item_id): Path<i64>,
-    session_token: SessionToken,
-) -> WebType<GetItemReply> {
+pub(crate) async fn get_item(Path(item_id): Path<i64>, session_token: SessionToken) -> WebType<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_item(item_id).await
 }
@@ -123,9 +110,7 @@ pub(crate) async fn update_item_tag(
     add_item_tag_request: Json<AddItemTagRequest>,
 ) -> WebType<AddItemTagReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    delegate
-        .update_item_tag(item_id, add_item_tag_request)
-        .await
+    delegate.update_item_tag(item_id, add_item_tag_request).await
 }
 
 #[derive(Serialize, Deserialize)]
@@ -156,10 +141,7 @@ type Type = GetTagReply;
 /// **NORM
 ///
 /// #[get("/tag?<start_page>&<page_size>")]
-pub(crate) async fn get_all_tag(
-    Query(page): Query<PageQuery>,
-    session_token: SessionToken,
-) -> WebType<Type> {
+pub(crate) async fn get_all_tag(Query(page): Query<PageQuery>, session_token: SessionToken) -> WebType<Type> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_tag(page.start_page, page.page_size).await
 }
@@ -169,10 +151,7 @@ pub(crate) async fn get_all_tag(
 /// **NORM
 ///
 /// #[delete("/tag/<tag_id>")]
-pub(crate) async fn delete_tag(
-    session_token: SessionToken,
-    Path(tag_id): Path<i64>,
-) -> WebType<SimpleMessage> {
+pub(crate) async fn delete_tag(session_token: SessionToken, Path(tag_id): Path<i64>) -> WebType<SimpleMessage> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.delete_tag(tag_id).await
 }
@@ -182,10 +161,7 @@ pub(crate) async fn delete_tag(
 /// **NORM
 ///
 /// #[post("/tag", format = "application/json", data = "<add_tag_request>")]
-pub(crate) async fn add_tag(
-    session_token: SessionToken,
-    add_tag_request: Json<AddTagRequest>,
-) -> WebType<AddTagReply> {
+pub(crate) async fn add_tag(session_token: SessionToken, add_tag_request: Json<AddTagRequest>) -> WebType<AddTagReply> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.add_tag(add_tag_request).await
 }
@@ -241,23 +217,13 @@ async fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!(
-        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
-        PROJECT_CODE, VAR_NAME
-    );
+    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(
-        PROJECT_CODE,
-        &read_doka_env(&VAR_NAME),
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
-        .unwrap_or("".to_string())
-        .parse::<u16>()
-    else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -287,21 +253,17 @@ async fn main() {
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
-    log_info!(
-        "😎 The CEK was correctly read : [{}]",
-        format!("{}...", &cek[0..5])
-    );
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     // Init DB pool
-    let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information"))
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{:?}", e);
-            exit(-64);
-        }
-    };
+    let (connect_string, db_pool_size) =
+        match get_prop_pg_connect_string().map_err(err_fwd!("Cannot read the database connection information")) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("{:?}", e);
+                exit(-64);
+            }
+        };
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 

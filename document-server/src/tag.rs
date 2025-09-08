@@ -8,24 +8,19 @@ use std::str::FromStr;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{iso_to_datetime, iso_to_naivedate, CellValue, SQLDataSet};
-use commons_pg::sql_transaction_async::{
-    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
-};
+use commons_pg::sql_transaction_async::{SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
+use dkdto::api_error::ApiError;
 use dkdto::error_codes::{
     INCORRECT_CHAR_TAG_NAME, INCORRECT_DEFAULT_BOOLEAN_VALUE, INCORRECT_DEFAULT_DATETIME_VALUE,
     INCORRECT_DEFAULT_DATE_VALUE, INCORRECT_DEFAULT_DOUBLE_VALUE, INCORRECT_DEFAULT_INTEGER_VALUE,
-    INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME,
-    INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, STILL_IN_USE,
+    INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_TAG_TYPE,
+    INTERNAL_DATABASE_ERROR, STILL_IN_USE,
 };
-use dkdto::{
-    AddTagReply, AddTagRequest, GetTagReply, SimpleMessage, TagElement, TagType, WebType,
-    WebTypeBuilder,
-};
-use dkdto::api_error::ApiError;
+use dkdto::{AddTagReply, AddTagRequest, GetTagReply, SimpleMessage, TagElement, TagType, WebType, WebTypeBuilder};
 use doka_cli::request_client::TokenType;
 
 use crate::char_lib::has_not_printable_char;
@@ -39,21 +34,14 @@ impl TagDelegate {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
         Self {
             session_token,
-            follower: Follower {
-                x_request_id: x_request_id.new_if_null(),
-                token_type: TokenType::None,
-            },
+            follower: Follower { x_request_id: x_request_id.new_if_null(), token_type: TokenType::None },
         }
     }
 
     ///
     /// 🌟 Find all the existing tags by pages
     ///
-    pub async fn get_all_tag(
-        mut self,
-        start_page: Option<u32>,
-        page_size: Option<u32>,
-    ) -> WebType<GetTagReply> {
+    pub async fn get_all_tag(mut self, start_page: Option<u32>, page_size: Option<u32>) -> WebType<GetTagReply> {
         log_info!("🚀 Start get_all_tag api, follower=[{}]", &self.follower);
 
         // Check if the token is valid
@@ -63,63 +51,31 @@ impl TagDelegate {
             Self::web_type_error()
         );
 
-        // if !self.session_token.is_valid() {
-        //     log_error!(
-        //         "💣 Invalid session token, token=[{:?}], follower=[{}]",
-        //         &self.session_token,
-        //         &self.follower
-        //     );
-        //     return WebType::from_api_error(&INVALID_TOKEN);
-        // }
-
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // // Read the session information
-        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
-        //     err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
-        // ) else {
-        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
-        // };
 
         // Query the items
         // Open Db connection
-        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
-            "💣 New Db connection failed, follower=[{}]",
-            &self.follower
-        )) else {
-            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
-        };
-
-        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
-            "💣 Transaction issue, follower=[{}]",
-            &self.follower
-        )) else {
-            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
-        };
-
-        let Ok(tags) = self
-            .search_tag_by_id(
-                &mut trans,
-                None,
-                start_page,
-                page_size,
-                &entry_session.customer_code,
-            )
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool()
             .await
-            .map_err(err_fwd!(
-                "💣 Cannot find the tag by id, follower=[{}]",
-                &self.follower
-            ))
+            .map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower))
         else {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        if trans
-            .commit()
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(tags) = self
+            .search_tag_by_id(&mut trans, None, start_page, page_size, &entry_session.customer_code)
             .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
-            .is_err()
-        {
+            .map_err(err_fwd!("💣 Cannot find the tag by id, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        };
+
+        if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
@@ -168,27 +124,14 @@ impl TagDelegate {
         while sql_result.next() {
             let id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
             let name: String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
-            let tag_type = sql_result
-                .get_string("type")
-                .ok_or(anyhow!("Wrong tag_type"))?;
+            let tag_type = sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
             // optional
 
             let default_value = sql_result.get_string("default_value");
 
-            log_debug!(
-                "Found tag, tag id=[{}], tag_name=[{}], follower=[{}]",
-                id,
-                &name,
-                &self.follower
-            );
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
 
-            let item = TagElement {
-                tag_id: id,
-                name,
-                tag_type,
-
-                default_value,
-            };
+            let item = TagElement { tag_id: id, name, tag_type, default_value };
             let _ = &tags.push(item);
         }
 
@@ -215,12 +158,7 @@ impl TagDelegate {
             customer_code
         );
 
-        let query = SQLQueryBlockAsync {
-            sql_query,
-            start: 0,
-            length: None,
-            params,
-        };
+        let query = SQLQueryBlockAsync { sql_query, start: 0, length: None, params };
 
         let mut sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
             "Query failed, sql=[{}], follower=[{}]",
@@ -231,32 +169,16 @@ impl TagDelegate {
         if sql_result.next() {
             let id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
             let name: String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
-            let tag_type = sql_result
-                .get_string("type")
-                .ok_or(anyhow!("Wrong tag_type"))?;
+            let tag_type = sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
             // optional
             // let string_tag_length = sql_result.get_int_32("string_tag_length");
             let default_value = sql_result.get_string("default_value");
 
-            log_debug!(
-                "Found tag, tag id=[{}], tag_name=[{}], follower=[{}]",
-                id,
-                &name,
-                &self.follower
-            );
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
 
-            Ok(TagElement {
-                tag_id: id,
-                name,
-                tag_type,
-                default_value,
-            })
+            Ok(TagElement { tag_id: id, name, tag_type, default_value })
         } else {
-            log_error!(
-                "💣 Cannot find the tag, tag_name=[{}], follower=[{}]",
-                tag_name,
-                &self.follower
-            );
+            log_error!("💣 Cannot find the tag, tag_name=[{}], follower=[{}]", tag_name, &self.follower);
             Err(anyhow!("Cannot find tag, tag_name=[{}]", tag_name))
         }
     }
@@ -273,66 +195,33 @@ impl TagDelegate {
             Self::web_type_error()
         );
 
-        // if !self.session_token.is_valid() {
-        //     log_error!(
-        //         "💣 Invalid session token, token=[{:?}], follower=[{}]",
-        //         &self.session_token,
-        //         &self.follower
-        //     );
-        //     return WebType::from_api_error(&INVALID_TOKEN);
-        // }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // Read the session information
-        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
-        //     err_fwd!("💣 Session Manager failed, follower={}", &self.follower),
-        // ) else {
-        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
-        // };
 
         let customer_code = entry_session.customer_code.as_str();
 
-        log_info!(
-            "😎 We found the session, customer code=[{}], follower=[{}]",
-            customer_code,
-            &self.follower
-        );
+        log_info!("😎 We found the session, customer code=[{}], follower=[{}]", customer_code, &self.follower);
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
-            "💣 New Db connection failed, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool()
+            .await
+            .map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower))
+        else {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
-            "💣 Transaction issue, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower))
+        else {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Check if the tag definition is used somewhere
 
-        if self
-            .check_tag_usage(&mut trans, tag_id, customer_code)
-            .await
-            .is_err()
-        {
-            log_error!(
-                "💣 The tag is still in use, tag id=[{}], follower=[{}]",
-                tag_id,
-                &self.follower
-            );
+        if self.check_tag_usage(&mut trans, tag_id, customer_code).await.is_err() {
+            log_error!("💣 The tag is still in use, tag id=[{}], follower=[{}]", tag_id, &self.follower);
             return WebType::from_api_error(&STILL_IN_USE);
         }
 
-        log_info!(
-            "😎 The tag is not used anywhere, tag_id=[{}], follower=[{}]",
-            tag_id,
-            &self.follower
-        );
+        log_info!("😎 The tag is not used anywhere, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
 
         // Delete the tag definition
 
@@ -345,11 +234,7 @@ impl TagDelegate {
         let mut params = HashMap::new();
         params.insert("p_tag_id".to_string(), CellValue::from_raw_int(tag_id));
 
-        let sql_delete = SQLChangeAsync {
-            sql_query,
-            params,
-            sequence_name: "".to_string(),
-        };
+        let sql_delete = SQLChangeAsync { sql_query, params, sequence_name: "".to_string() };
 
         let Ok(_tag_id) = sql_delete.delete(&mut trans).await.map_err(err_fwd!(
             "💣 Tag delete failed, tag_id=[{}], follower=[{}]",
@@ -359,29 +244,15 @@ impl TagDelegate {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        if trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower))
-            .is_err()
-        {
+        if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower)).is_err() {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
-        log_info!(
-            "😎 The tag has been delete, tag_id=[{}], follower=[{}]",
-            tag_id,
-            &self.follower
-        );
+        log_info!("😎 The tag has been delete, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
 
         log_info!("🏁 End delete_tag api, follower=[{}]", &self.follower);
 
-        WebType::from_item(
-            StatusCode::OK.as_u16(),
-            SimpleMessage {
-                message: "Ok".to_string(),
-            },
-        )
+        WebType::from_item(StatusCode::OK.as_u16(), SimpleMessage { message: "Ok".to_string() })
     }
 
     async fn check_tag_usage(
@@ -399,20 +270,12 @@ impl TagDelegate {
         let mut params = HashMap::new();
         params.insert("p_tag_id".to_owned(), CellValue::from_raw_int(tag_id));
 
-        let sql = SQLQueryBlockAsync {
-            sql_query,
-            start: 0,
-            length: Some(1),
-            params,
-        };
+        let sql = SQLQueryBlockAsync { sql_query, start: 0, length: Some(1), params };
 
         let dataset = sql.execute(trans).await.map_err(tr_fwd!())?;
 
         if dataset.len() > 0 {
-            return Err(anyhow::anyhow!(
-                "Tag still in use, follower=[{}]",
-                &self.follower
-            ));
+            return Err(anyhow::anyhow!("Tag still in use, follower=[{}]", &self.follower));
         }
 
         Ok(())
@@ -450,61 +313,39 @@ impl TagDelegate {
 
         let customer_code = entry_session.customer_code.as_str();
 
-        log_info!(
-            "😎 We found the session, customer code=[{}], follower=[{}]",
-            customer_code,
-            &self.follower
-        );
+        log_info!("😎 We found the session, customer code=[{}], follower=[{}]", customer_code, &self.follower);
 
         if let Err(e) = self.check_input_values(&add_tag_request) {
-            log_error!(
-                "💣 Tag definition is not correct, err message=[{}], follower=[{}]",
-                e.message,
-                &self.follower
-            );
+            log_error!("💣 Tag definition is not correct, err message=[{}], follower=[{}]", e.message, &self.follower);
             return WebType::from_api_error(e);
         }
 
         // Open Db connection
-        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
-            "💣 New Db connection failed, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool()
+            .await
+            .map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower))
+        else {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
-            "💣 Transaction issue, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower))
+        else {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(tag_id) = self
             .insert_tag_definition(&mut trans, &add_tag_request, customer_code)
             .await
-            .map_err(err_fwd!(
-                "💣 Insertion of a new tag failed, follower=[{}]",
-                &self.follower
-            ))
+            .map_err(err_fwd!("💣 Insertion of a new tag failed, follower=[{}]", &self.follower))
         else {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        if trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
-            .is_err()
-        {
+        if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
-        log_info!(
-            "😎 The tag has been created, tag_id=[{}], follower=[{}]",
-            tag_id,
-            &self.follower
-        );
+        log_info!("😎 The tag has been created, tag_id=[{}], follower=[{}]", tag_id, &self.follower);
         log_info!("🏁 End add_tag api, follower=[{}]", &self.follower);
 
         WebType::from_item(StatusCode::OK.as_u16(), AddTagReply { tag_id })
@@ -527,27 +368,17 @@ impl TagDelegate {
         let length = CellValue::Int32(Some(2000_i32)); // TODO Db column to be removed
         let default_value = CellValue::from_opt_str(add_tag_request.default_value.as_deref());
         let mut params = HashMap::new();
-        params.insert(
-            "p_name".to_string(),
-            CellValue::from_raw_string(add_tag_request.name.clone()),
-        );
-        params.insert(
-            "p_type".to_string(),
-            CellValue::from_raw_string(add_tag_request.tag_type.clone()),
-        );
+        params.insert("p_name".to_string(), CellValue::from_raw_string(add_tag_request.name.clone()));
+        params.insert("p_type".to_string(), CellValue::from_raw_string(add_tag_request.tag_type.clone()));
         params.insert("p_string_tag_length".to_string(), length);
         params.insert("p_default_value".to_string(), default_value);
 
-        let sql_insert = SQLChangeAsync {
-            sql_query,
-            params,
-            sequence_name,
-        };
+        let sql_insert = SQLChangeAsync { sql_query, params, sequence_name };
 
-        let tag_id = sql_insert.insert(&mut trans).await.map_err(err_fwd!(
-            "💣 Insertion of a new tag failed, follower=[{}]",
-            &self.follower
-        ))?;
+        let tag_id = sql_insert
+            .insert(&mut trans)
+            .await
+            .map_err(err_fwd!("💣 Insertion of a new tag failed, follower=[{}]", &self.follower))?;
 
         Ok(tag_id)
     }
@@ -555,15 +386,8 @@ impl TagDelegate {
     ///
     /// Return a None if the tag definition is correct
     ///
-    pub(crate) fn check_input_values(
-        &self,
-        add_tag_request: &AddTagRequest,
-    ) -> Result<(), &ApiError<'static>> {
-        log_info!(
-            "Check the tag definition, add_tag_request=[{:?}], follower=[{}]",
-            add_tag_request,
-            &self.follower
-        );
+    pub(crate) fn check_input_values(&self, add_tag_request: &AddTagRequest) -> Result<(), &ApiError<'static>> {
+        log_info!("Check the tag definition, add_tag_request=[{:?}], follower=[{}]", add_tag_request, &self.follower);
 
         // Check the tag name
         if has_not_printable_char(&add_tag_request.name) {

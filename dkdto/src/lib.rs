@@ -108,16 +108,6 @@ where
     }
 }
 
-// impl<T, E> From<ErrorMessage> for FlexibleWebType<T, E>
-// where
-//     E: DeserializeOwned + From<String>,
-// {
-//     fn from(error: ErrorMessage) -> Self {
-//         let s = StatusCode::from_u16(error.http_error_code).unwrap();
-//         (s, Err(Json(E::from(error.message))))
-//     }
-// }
-
 /// A response with a potential error related to a http code
 
 //pub type WebResponse<T> = Result<T, ErrorMessage>;

@@ -163,27 +163,6 @@ impl ItemDelegate {
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
-        // // Check if the token is valid
-        // if !self.session_token.is_valid() {
-        //     log_error!(
-        //         "💣 Invalid session token=[{:?}], follower=[{}]",
-        //         &self.session_token,
-        //         &self.follower
-        //     );
-        //     return WebType::from_api_error(&INVALID_TOKEN);
-        // }
-        //
-        // // Read the session information
-        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-        //     .await
-        //     .map_err(err_fwd!(
-        //         "💣 Session Manager failed, follower=[{}]",
-        //         &self.follower
-        //     ))
-        // else {
-        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
-        // };
-
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
         // Open Db connection
@@ -424,28 +403,7 @@ impl ItemDelegate {
             Self::web_type_error()
         );
 
-        // // Check if the token is valid
-        // if !self.session_token.is_valid() {
-        //     log_error!(
-        //         "💣 Invalid session token=[{:?}], follower=[{}]",
-        //         &self.session_token,
-        //         &self.follower
-        //     );
-        //     return WebType::from_api_error(&INVALID_TOKEN);
-        // }
-
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
-
-        // // Read the session information
-        // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value())
-        //     .await
-        //     .map_err(err_fwd!(
-        //         "💣 Session Manager failed, follower=[{}]",
-        //         &self.follower
-        //     ))
-        // else {
-        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
-        // };
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 

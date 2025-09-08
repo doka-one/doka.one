@@ -20,9 +20,10 @@ use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
+use dkdto::api_error::ApiError;
 use dkdto::cbor_type::CborType;
 use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
-use dkdto::{ErrorSet, GetItemReply, WebType, WebTypeBuilder};
+use dkdto::{GetItemReply, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
 use doka_cli::request_client::TokenType;
 
@@ -45,23 +46,23 @@ impl SearchResultComponent {
         }
     }
 
-    fn cbor_type_error<T: de::DeserializeOwned + Serialize>() -> impl Fn(&ErrorSet<'static>) -> CborType<T>
+    fn cbor_type_error<T: de::DeserializeOwned + Serialize>() -> impl Fn(&ApiError<'static>) -> CborType<T>
     where
         T: DeserializeOwned,
     {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            CborType::from_errorset(e)
+            CborType::from_api_error(e)
         }
     }
 
-    fn web_type_error<T: de::DeserializeOwned + Serialize>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T: de::DeserializeOwned + Serialize>() -> impl Fn(&ApiError<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            WebType::from_errorset(e)
+            WebType::from_api_error(e)
         }
     }
 
@@ -81,7 +82,7 @@ impl SearchResultComponent {
             &file_ref,
             &self.follower
         )) else {
-            return CborType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return CborType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         let cbor_file = CborFile { file_data: Bytes::from(reduced_data.to_vec()) };
@@ -107,7 +108,7 @@ impl SearchResultComponent {
             &file_ref,
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         let cbor_file = CborFile { file_data: Bytes::from(reduced_data.to_vec()) };
@@ -118,12 +119,12 @@ impl SearchResultComponent {
     }
 
     /// 🌟 Read a file from the Doka API
-    pub async fn get_file(&mut self, file_ref: &str) -> Result<Bytes, &ErrorSet> {
+    pub async fn get_file(&mut self, file_ref: &str) -> Result<Bytes, &ApiError> {
         log_info!("🚀 Start the get_file API");
 
         // TODO check the session token
         fn my_type_error<T: de::DeserializeOwned + Serialize>(
-        ) -> impl Fn(&ErrorSet<'static>) -> Result<T, &'static ErrorSet<'static>>
+        ) -> impl Fn(&ApiError<'static>) -> Result<T, &'static ApiError<'static>>
         where
             T: DeserializeOwned,
         {
@@ -169,7 +170,7 @@ impl SearchResultComponent {
             }
             Err(error_set) => {
                 log_error!("💣 Error in get_file_cbor, error_set=[{:?}]", error_set);
-                // CborType::from_errorset(error_set.clone())
+                // CborType::from_api_error(error_set.clone())
                 // TODO find a way to convert the error_set to a CborType
                 panic!()
             }
@@ -206,7 +207,7 @@ impl SearchResultComponent {
     }
 
     /// 🌟 Search for the entities from the Doka API
-    pub async fn search_result(&self) -> Result<SearchResultHarbor, &ErrorSet> {
+    pub async fn search_result(&self) -> Result<SearchResultHarbor, &ApiError> {
         log_info!("🚀 Start the search_result API");
 
         // Call the doka API
@@ -301,8 +302,7 @@ impl SearchResultComponent {
             Ok(harbor_data) => CborType::from_item(StatusCode::OK.as_u16(), harbor_data),
             Err(error_set) => {
                 log_error!("💣 Error in search_result_cbor, error_set=[{:?}]", error_set);
-                // CborType::from_errorset(error_set.clone())
-                // TODO find a way to convert the error_set to a CborType
+                // CborType::from_api_error(error_set.clone())
                 panic!()
             }
         }

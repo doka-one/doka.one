@@ -35,10 +35,11 @@ use dkconfig::property_name::{
 };
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
+use dkdto::api_error::ApiError;
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
 use dkdto::{
-    DownloadReply, EntrySession, ErrorSet, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply,
-    ListOfUploadInfoReply, UploadInfoReply, UploadReply, WebType, WebTypeBuilder,
+    DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply,
+    UploadInfoReply, UploadReply, WebType, WebTypeBuilder,
 };
 use doka_cli::async_request_client::{DocumentServerClientAsync, TikaServerClientAsync};
 use doka_cli::request_client::TokenType;
@@ -480,7 +481,7 @@ impl FileDelegate {
             .await
             .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Create an entry in file_reference
@@ -489,7 +490,7 @@ impl FileDelegate {
             .await
             .map_err(err_fwd!("💣 Cannot create an entry in the file reference table, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -505,7 +506,7 @@ impl FileDelegate {
             .decode(item_info)
             .map_err(err_fwd!("💣 Cannot decode item_info, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         let item_info = String::from_utf8_lossy(&item_info_decoded);
@@ -516,7 +517,7 @@ impl FileDelegate {
             .map_err(err_fwd!("💣 Cannot write parts, follower=[{}]", &self.follower))
         else {
             // The stream is managed by the routine above, so no need to empty it here.
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -1005,13 +1006,13 @@ impl FileDelegate {
         Ok(())
     }
 
-    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T>() -> impl Fn(&ApiError<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            WebType::from_errorset(e)
+            WebType::from_api_error(e)
         }
     }
 
@@ -1048,7 +1049,7 @@ impl FileDelegate {
         log_info!("🚀 Start file_list api, follower=[{}]", &self.follower);
 
         let entry_session = try_or_return!(valid_sid_get_session(&self.session_token, &mut self.follower).await, |e| {
-            WebType::from_errorset(e)
+            WebType::from_api_error(e)
         });
 
         log_info!(
@@ -1064,7 +1065,7 @@ impl FileDelegate {
 
         match r_files {
             Ok(files) => WebType::from_item(StatusCode::OK.as_u16(), files),
-            Err(e) => WebType::from_errorset(e),
+            Err(e) => WebType::from_api_error(e),
         }
     }
 
@@ -1137,7 +1138,7 @@ impl FileDelegate {
         &self,
         pattern: &str,
         customer_code: &str,
-    ) -> Result<ListOfFileInfoReply, &ErrorSet<'static>> {
+    ) -> Result<ListOfFileInfoReply, &ApiError<'static>> {
         if !Self::is_valid_pattern(&pattern) {
             return Err(&FILE_INFO_NOT_FOUND);
         }
@@ -1233,7 +1234,7 @@ impl FileDelegate {
         }
 
         let Ok(mut data_set) = execute_query(&entry_session, sql_query, &self.follower).await else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Inner function
@@ -1265,7 +1266,7 @@ impl FileDelegate {
                 .await
                 .map_err(err_fwd!("Build loading info item failed, follower=[{}]", &self.follower))
             else {
-                return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+                return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
             };
             list_of_upload_info.push(loading_info_item);
         }
@@ -1328,7 +1329,7 @@ impl FileDelegate {
         }
 
         let Ok(mut data_set) = local_execute_query(&sql_query, &file_ref, &self.follower).await else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Inner function
@@ -1359,24 +1360,24 @@ impl FileDelegate {
                 .await
                 .map_err(err_fwd!("Build file info failed, follower=[{}]", &self.follower))
             else {
-                return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+                return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
             };
 
             log_info!("😎 Successfully read the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
             WebType::from_item(StatusCode::OK.as_u16(), stats)
         } else {
             log_info!("⛔ Cannot find the file stats, file_ref=[{}], follower=[{}]", file_ref, &self.follower);
-            WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
+            WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR)
         };
 
         log_info!("🏁 End file_stats api, follower=[{}]", &self.follower);
         wt_stats
     }
 
-    fn download_reply_error() -> impl Fn(&ErrorSet<'static>) -> DownloadReply {
+    fn download_reply_error() -> impl Fn(&ApiError<'static>) -> DownloadReply {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            DownloadReply::from_errorset(e)
+            DownloadReply::from_api_error(e)
         }
     }
 
@@ -1397,7 +1398,7 @@ impl FileDelegate {
 
         let Ok((media_type, enc_parts)) = self.search_parts(file_ref, customer_code).await.map_err(tr_fwd!()) else {
             log_error!("");
-            return DownloadReply::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -1407,7 +1408,7 @@ impl FileDelegate {
         );
 
         let Ok(media) = media_type.parse::<Mime>().map_err(tr_fwd!()) else {
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!("😎 Found correct media type=[{}], follower=[{}]", &media, &self.follower);
@@ -1417,7 +1418,7 @@ impl FileDelegate {
             .await
             .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
         else {
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Parallel decrypt of slides of parts [Parts, Q+(1*)]
@@ -1428,7 +1429,7 @@ impl FileDelegate {
                 &file_ref,
                 &self.follower
             );
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Output : Get a file array of P parts
@@ -1442,7 +1443,7 @@ impl FileDelegate {
                 &file_ref,
                 &self.follower
             );
-            return DownloadReply::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return DownloadReply::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!("😎 Merged all the parts, follower=[{}]", &self.follower);

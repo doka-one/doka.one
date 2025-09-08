@@ -18,7 +18,8 @@ use dkconfig::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PR
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
-use dkdto::{DeleteFullTextRequest, ErrorSet, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
+use dkdto::api_error::ApiError;
 use doka_cli::async_request_client::TikaServerClientAsync;
 use doka_cli::request_client::TokenType;
 
@@ -38,13 +39,13 @@ impl FullTextDelegate {
         }
     }
 
-    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T>() -> impl Fn(&ApiError<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            WebType::from_errorset(e)
+            WebType::from_api_error(e)
         }
     }
 
@@ -107,7 +108,7 @@ impl FullTextDelegate {
             .await
             .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         // Open Db connection
@@ -115,12 +116,12 @@ impl FullTextDelegate {
             .await
             .map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Generate the FT index and create an entry in the "document" table
@@ -129,11 +130,11 @@ impl FullTextDelegate {
             .await
             .map_err(err_fwd!("💣 Indexing process failed, follower=[{}]", &self.follower))
         else {
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(

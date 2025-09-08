@@ -7,10 +7,9 @@ const TEST_TO_RUN: &[&str] = &["t10_upload_file", "t20_upload_download_file", "t
 #[cfg(test)]
 mod api_fileserver_tests {
     use core::time::Duration;
-    use std::thread;
-
-    use dkdto::ErrorMessage;
+    use dkdto::api_error::ApiError;
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
+    use std::thread;
 
     use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
@@ -18,7 +17,7 @@ mod api_fileserver_tests {
     const NB_PARTS: u32 = 9;
 
     #[test]
-    fn t10_upload_file() -> Result<(), ErrorMessage> {
+    fn t10_upload_file() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t10_upload_file", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
         eprintln!("props {:?}", &props);
@@ -92,7 +91,7 @@ mod api_fileserver_tests {
     }
 
     #[test]
-    fn t20_upload_download_file() -> Result<(), ErrorMessage> {
+    fn t20_upload_download_file() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t20_upload_download_file", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
@@ -130,7 +129,7 @@ mod api_fileserver_tests {
     }
 
     #[test]
-    fn t30_upload_download_big_file() -> Result<(), ErrorMessage> {
+    fn t30_upload_download_big_file() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t30_upload_download_big_file", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 

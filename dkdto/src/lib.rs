@@ -3,6 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use crate::api_error::ApiError;
 use axum::body::Body;
 use axum::Json;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -12,52 +13,39 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_derive::Deserialize;
 
+pub mod api_error;
 pub mod cbor_type;
 pub mod error_codes;
-mod ApiError;
 
 ///
 /// Commons DTO
 ///
 
-#[derive(Debug)]
-pub struct ErrorSet<'a> {
-    pub http_error_code: u16,
-    pub err_message: &'a str,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ErrorMessage {
-    pub http_error_code: u16,
-    pub message: String,
-}
-
-impl From<anyhow::Error> for ErrorMessage {
-    fn from(error: anyhow::Error) -> Self {
-        ErrorMessage {
-            http_error_code: 500,
-            message: error.to_string(),
-        }
-    }
-}
-
-impl Display for ErrorMessage {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let str = format!("http:{} message:{}", self.http_error_code, &self.message);
-        write!(f, "{}", &str)
-    }
-}
-
-///
-
-
-// ----- existing -----
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SimpleMessage {
     pub message: String,
 }
 impl From<String> for SimpleMessage {
-    fn from(value: String) -> Self { SimpleMessage { message: value } }
+    fn from(value: String) -> Self {
+        Self { message: value }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ContextMessage {
+    pub message: String,
+    pub context: Vec<String>, // the meaning of this list depends on the Api context
+}
+impl From<String> for crate::ContextMessage {
+    fn from(value: String) -> Self {
+        Self { message: value, context: vec![] }
+    }
+}
+
+impl From<SimpleMessage> for ContextMessage {
+    fn from(s: SimpleMessage) -> Self {
+        Self { message: s.message, context: vec![] }
+    }
 }
 
 pub type DType = (String, u64); // For test only
@@ -67,12 +55,26 @@ pub type FlexibleWebType<T, E> = (StatusCode, Result<Json<T>, Json<E>>);
 
 // Keep the old alias so existing code compiles & behaves the same.
 pub type WebType<T> = FlexibleWebType<T, SimpleMessage>;
+pub type WebTypeWithContext<T> = FlexibleWebType<T, ContextMessage>;
+
+pub(crate) trait IntoWebTypeWithContext<T> {
+    fn into_with_context(self) -> WebTypeWithContext<T>;
+}
+
+impl<T> IntoWebTypeWithContext<T> for WebType<T> {
+    fn into_with_context(self) -> WebTypeWithContext<T> {
+        match self {
+            (status, Ok(json_ok)) => (status, Ok(json_ok)),
+            (status, Err(Json(simple))) => (status, Err(Json(ContextMessage::from(simple)))),
+        }
+    }
+}
 
 // ----- trait -----
 pub trait WebTypeBuilder<T, E> {
     fn from_simple(code: u16, simple: E) -> Self;
     fn from_item(code: u16, item: T) -> Self;
-    fn from_errorset(error: &ErrorSet<'static>) -> Self;
+    fn from_api_error(err: &ApiError<'static>) -> Self;
 }
 
 // Implement the builder for the tuple (your alias resolves to this).
@@ -89,47 +91,39 @@ where
         (StatusCode::from_u16(code).unwrap(), Ok(Json(item)))
     }
 
-    fn from_errorset(error: &ErrorSet<'static>) -> Self {
-        let s = StatusCode::from_u16(error.http_error_code).unwrap();
-        // Generic: build E from a message string
-        (s, Err(Json(E::from(error.err_message.to_string()))))
+    fn from_api_error(err: &ApiError<'static>) -> Self {
+        let status = StatusCode::from_u16(err.http_error_code).unwrap();
+        (status, Err(Json(E::from(err.message.clone().into_owned()))))
     }
 }
 
 // Let `?` convert your domain error into any FlexibleWebType<T, E>
 // (and thus also into WebType<T> via the alias).
-impl<T, E> From<ErrorMessage> for FlexibleWebType<T, E>
+impl<T, E> From<ApiError<'static>> for FlexibleWebType<T, E>
 where
-    E: DeserializeOwned + From<String>,
+    E: Serialize + From<String>,
 {
-    fn from(error: ErrorMessage) -> Self {
-        let s = StatusCode::from_u16(error.http_error_code).unwrap();
-        (s, Err(Json(E::from(error.message))))
+    fn from(err: ApiError<'static>) -> Self {
+        (StatusCode::from_u16(err.http_error_code).unwrap(), Err(Json(E::from(err.message.into_owned()))))
     }
 }
 
 /// A response with a potential error related to a http code
-/// ```
-/// use dkdto::{ErrorMessage, WebResponse};
-/// let wr: WebResponse<String> = Err( ErrorMessage { http_error_code: 401, message : "Cannot read the document".to_string()} );
-/// ```
-pub type WebResponse<T> = Result<T, ErrorMessage>;
+
+//pub type WebResponse<T> = Result<T, ErrorMessage>;
+pub type WebResponse<T> = Result<T, ApiError<'static>>;
 
 impl<T> WebTypeBuilder<T, SimpleMessage> for WebResponse<T> {
     fn from_simple(code: u16, simple: SimpleMessage) -> Self {
-        Err(ErrorMessage {
-            http_error_code: code,
-            message: simple.message.to_owned(),
-        })
+        Err(ApiError::owned(code, simple.message))
     }
+
     fn from_item(_code: u16, item: T) -> Self {
         Ok(item)
     }
-    fn from_errorset(error: &ErrorSet<'static>) -> Self {
-        Err(ErrorMessage {
-            http_error_code: error.http_error_code,
-            message: error.err_message.to_owned(),
-        })
+
+    fn from_api_error(err: &ApiError<'static>) -> Self {
+        Err(err.clone())
     }
 }
 
@@ -139,7 +133,7 @@ pub struct MediaBytes {
     pub data: bytes::Bytes,
 }
 
-pub type MyResult<T> = Result<T, ErrorMessage>;
+// pub type MyResult<T> = Result<T, ErrorMessage>;
 
 ///
 /// Key DTO
@@ -500,7 +494,7 @@ pub struct UploadReply {
     pub block_count: u32,
 }
 
-pub type DownloadReply = Result<(HeaderMap, Body), (axum::http::StatusCode, String)>;
+pub type DownloadReply = Result<(HeaderMap, Body), (StatusCode, String)>;
 // pub type DownloadReply = Custom<Content<Vec<u8>>>;
 // pub type DownloadReply = Vec<u8>; // TODO
 //
@@ -514,9 +508,9 @@ impl WebTypeBuilder<Vec<u8>, SimpleMessage> for DownloadReply {
         panic!("from_item is no implemented for DownloadReply")
     }
 
-    fn from_errorset(error: &ErrorSet<'static>) -> Self {
-        let status = StatusCode::from_u16(error.http_error_code).unwrap();
-        Err((status, error.err_message.to_owned()))
+    fn from_api_error(err: &ApiError<'static>) -> Self {
+        let status = StatusCode::from_u16(err.http_error_code).unwrap();
+        Err((status, err.message.clone().into_owned()))
     }
 }
 

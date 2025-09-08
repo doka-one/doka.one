@@ -1,14 +1,15 @@
-
 mod test_lib;
 
-const TEST_TO_RUN : &[&str] = &["t10_create_document", "t20_create_document_with_props", "t30_add_props", "t40_modify_tags"];
+const TEST_TO_RUN: &[&str] =
+    &["t10_create_document", "t20_create_document_with_props", "t30_add_props", "t40_modify_tags"];
 
 #[cfg(test)]
 mod api_document_tests {
     use anyhow::anyhow;
     use rand::Rng;
 
-    use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, ErrorMessage, GetItemReply};
+    use dkdto::api_error::ApiError;
+    use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
     use doka_cli::request_client::{AdminServerClient, DocumentServerClient};
 
     use crate::test_lib::{get_login_request, Lookup};
@@ -18,7 +19,7 @@ mod api_document_tests {
     /// Create simple item
     ///
     #[test]
-    fn t10_create_document() -> Result<(), ErrorMessage>  {
+    fn t10_create_document() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t10_create_document", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
@@ -26,11 +27,7 @@ mod api_document_tests {
         let login_request = get_login_request(&props);
         let login_reply = admin_server.login(&login_request)?;
 
-        let request = AddItemRequest {
-            name: "A truck".to_string(),
-            file_ref: None,
-            properties: None,
-        };
+        let request = AddItemRequest { name: "A truck".to_string(), file_ref: None, properties: None };
 
         let document_server = DocumentServerClient::new("localhost", 30070);
         let item_reply = document_server.create_item(&request, &login_reply.session_id)?;
@@ -47,7 +44,7 @@ mod api_document_tests {
     /// Create item with props
     ///
     #[test]
-    fn t20_create_document_with_props() -> Result<(), ErrorMessage>  {
+    fn t20_create_document_with_props() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t20_create_document_with_props", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
@@ -70,11 +67,7 @@ mod api_document_tests {
             value: EnumTagValue::Text(Option::from("My prop2 value".to_owned())),
         };
 
-        let request = AddItemRequest {
-            name: "A truck".to_string(),
-            file_ref: None,
-            properties: Some(vec![p1,p2]),
-        };
+        let request = AddItemRequest { name: "A truck".to_string(), file_ref: None, properties: Some(vec![p1, p2]) };
 
         let document_server = DocumentServerClient::new("localhost", 30070);
         let item_reply = document_server.create_item(&request, &login_reply.session_id)?;
@@ -93,12 +86,11 @@ mod api_document_tests {
         Ok(())
     }
 
-
     ///
     /// Create item and add tags
     ///
     #[test]
-    fn t30_add_props() -> Result<(), ErrorMessage>  {
+    fn t30_add_props() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t30_add_props", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
@@ -108,11 +100,7 @@ mod api_document_tests {
 
         // Create an item
 
-        let request = AddItemRequest {
-            name: "A truck".to_string(),
-            file_ref: None,
-            properties: None,
-        };
+        let request = AddItemRequest { name: "A truck".to_string(), file_ref: None, properties: None };
 
         let document_server = DocumentServerClient::new("localhost", 30070);
         let item_reply = document_server.create_item(&request, &login_reply.session_id)?;
@@ -134,13 +122,10 @@ mod api_document_tests {
             value: EnumTagValue::Text(Option::from("My prop2 value".to_owned())),
         };
 
-        let add_item_tag_request = AddItemTagRequest {
-            properties: vec![p1,p2],
-        };
+        let add_item_tag_request = AddItemTagRequest { properties: vec![p1, p2] };
 
-        let add_item_tag_reply = document_server.update_item_tag(item_reply.item_id,
-                                                                 &add_item_tag_request,
-                                                                 &login_reply.session_id)?;
+        let add_item_tag_reply =
+            document_server.update_item_tag(item_reply.item_id, &add_item_tag_request, &login_reply.session_id)?;
 
         assert_eq!(false, add_item_tag_reply.status.is_empty());
 
@@ -158,12 +143,11 @@ mod api_document_tests {
         Ok(())
     }
 
-
     ///
     /// Create item and modify tags
     ///
     #[test]
-    fn t40_modify_tags() -> Result<(), ErrorMessage>  {
+    fn t40_modify_tags() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t40_modify_tags", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
@@ -188,11 +172,7 @@ mod api_document_tests {
             value: EnumTagValue::Text(Option::from("My prop2 value".to_owned())),
         };
 
-        let request = AddItemRequest {
-            name: "A truck 2".to_string(),
-            file_ref: None,
-            properties: Some(vec![p1,p2]),
-        };
+        let request = AddItemRequest { name: "A truck 2".to_string(), file_ref: None, properties: Some(vec![p1, p2]) };
 
         let document_server = DocumentServerClient::new("localhost", 30070);
         let item_reply = document_server.create_item(&request, &login_reply.session_id)?;
@@ -211,12 +191,10 @@ mod api_document_tests {
             value: EnumTagValue::Text(Option::from("Une histoire de tag".to_owned())),
         };
 
-        let add_item_tag_request = AddItemTagRequest {
-            properties: vec![p1,p2],
-        };
+        let add_item_tag_request = AddItemTagRequest { properties: vec![p1, p2] };
 
-        let add_item_tag_reply = document_server.update_item_tag(item_reply.item_id,
-                                                                 &add_item_tag_request, &login_reply.session_id)?;
+        let add_item_tag_reply =
+            document_server.update_item_tag(item_reply.item_id, &add_item_tag_request, &login_reply.session_id)?;
 
         assert_eq!(false, add_item_tag_reply.status.is_empty());
 
@@ -236,7 +214,14 @@ mod api_document_tests {
 
     fn read_property(get_item_reply: &GetItemReply, prop_order: usize) -> anyhow::Result<String> {
         let item = get_item_reply.items.get(0).ok_or(anyhow!("No item found"))?;
-        Ok(item.properties.as_ref().ok_or(anyhow!("No properties"))?.get(prop_order).ok_or(anyhow!("No prop 0"))?.value.to_string())
+        Ok(item
+            .properties
+            .as_ref()
+            .ok_or(anyhow!("No properties"))?
+            .get(prop_order)
+            .ok_or(anyhow!("No prop 0"))?
+            .value
+            .to_string())
     }
 
     fn generate_random_tag() -> String {
@@ -245,11 +230,8 @@ mod api_document_tests {
 
         //let n = rng.gen_range(0..1_000_000)
 
-        let random_string: String = (0..5)
-            .map(|_| chars[rng.gen_range(0..chars.len())])
-            .collect();
+        let random_string: String = (0..5).map(|_| chars[rng.gen_range(0..chars.len())]).collect();
 
         format!("tag_{}", random_string)
     }
-
 }

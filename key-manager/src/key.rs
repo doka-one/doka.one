@@ -60,7 +60,7 @@ impl KeyDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&&INVALID_TOKEN);
+            return WebType::from_api_error(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -70,7 +70,7 @@ impl KeyDelegate {
             "💣 Cannot read the cek, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&&INVALID_CEK);
+            return WebType::from_api_error(&&INVALID_CEK);
         };
 
         let new_customer_key = DkEncrypt::generate_random_key();
@@ -82,7 +82,7 @@ impl KeyDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(&&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&&INTERNAL_TECHNICAL_ERROR);
         };
 
         let key_id = try_or_return!(
@@ -115,7 +115,7 @@ impl KeyDelegate {
             "💣 Open connection error, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let mut trans = try_or_return!(
@@ -123,7 +123,7 @@ impl KeyDelegate {
                 "💣 Open transaction error, follower=[{}]",
                 &self.follower
             )),
-            |_| WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR)
+            |_| WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR)
         );
 
         // Verify if the key already exists for the customer code
@@ -137,7 +137,7 @@ impl KeyDelegate {
                 &self.follower
             ))
         else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if entries.contains_key(customer_code) {
@@ -146,7 +146,7 @@ impl KeyDelegate {
                 customer_code,
                 &self.follower
             );
-            return WebResponse::from_errorset(&CUSTOMER_KEY_ALREADY_EXISTS);
+            return WebResponse::from_api_error(&CUSTOMER_KEY_ALREADY_EXISTS);
         }
 
         log_info!("😎 The customer code has no existing key in the system, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
@@ -175,7 +175,7 @@ impl KeyDelegate {
             "💣 Cannot insert the key, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -184,7 +184,7 @@ impl KeyDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         WebResponse::from_item(StatusCode::OK.as_u16(), key_id)
@@ -258,7 +258,7 @@ impl KeyDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&&INVALID_TOKEN);
+            return WebType::from_api_error(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -298,7 +298,7 @@ impl KeyDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&&INVALID_TOKEN);
+            return WebType::from_api_error(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
@@ -329,7 +329,7 @@ impl KeyDelegate {
             "💣 Open connection error, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let mut trans = try_or_return!(
@@ -337,7 +337,7 @@ impl KeyDelegate {
                 "💣 Open transaction error, follower=[{}]",
                 &self.follower
             )),
-            |_| WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR)
+            |_| WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR)
         );
 
         let Ok(entries) = self
@@ -345,7 +345,7 @@ impl KeyDelegate {
             .await
             .map_err(err_fwd!("Key search failed, follower=[{}]", &self.follower))
         else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -354,7 +354,7 @@ impl KeyDelegate {
             .map_err(err_fwd!("Commit failed"))
             .is_err()
         {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(

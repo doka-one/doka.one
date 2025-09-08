@@ -63,7 +63,7 @@ impl LoginDelegate {
             "💣 Cannot read the cek, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INVALID_CEK);
+            return WebType::from_api_error(&INVALID_CEK);
         };
 
         // let-else
@@ -74,7 +74,7 @@ impl LoginDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_api_error(&INVALID_TOKEN);
         };
 
         // The follower the an easiest way to pass the information
@@ -95,7 +95,7 @@ impl LoginDelegate {
                 &login_request.login,
                 &self.follower
             );
-            return WebType::from_errorset(&SESSION_LOGIN_DENIED);
+            return WebType::from_api_error(&SESSION_LOGIN_DENIED);
         }
 
         log_info!("😎 Password verified, follower=[{}]", &self.follower);
@@ -107,7 +107,7 @@ impl LoginDelegate {
                 "💣 Session Manager Client creation failed, follower=[{}]",
                 &self.follower
             );
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!(
@@ -186,14 +186,14 @@ impl LoginDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok((open_session_request, password_hash)) =
@@ -204,7 +204,7 @@ impl LoginDelegate {
                 &login_request.login,
                 &self.follower
             );
-            return WebResponse::from_errorset(&SESSION_LOGIN_DENIED);
+            return WebResponse::from_api_error(&SESSION_LOGIN_DENIED);
         };
 
         if trans
@@ -213,7 +213,7 @@ impl LoginDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         WebResponse::from_item(

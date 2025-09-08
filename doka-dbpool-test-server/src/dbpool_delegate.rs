@@ -25,14 +25,14 @@ impl DbPoolDelegate {
         let Ok(mut cnx) =
             SQLConnection::new().map_err(err_fwd!("💣 Connection issue, duration=[{}]", duration))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let r_trans = cnx
             .sql_transaction()
             .map_err(err_fwd!("💣 Transaction issue, duration=[{}]", duration));
         let Ok(mut trans) = r_trans else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let sql_insert = r#"INSERT INTO public.connection_history
@@ -56,7 +56,7 @@ impl DbPoolDelegate {
             "💣 Cannot insert the session, duration=[{}]",
             duration
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -64,7 +64,7 @@ impl DbPoolDelegate {
             .map_err(err_fwd!("💣 Commit failed, duration=[{}]", duration))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(

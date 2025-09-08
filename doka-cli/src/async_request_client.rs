@@ -235,9 +235,10 @@ impl FileServerClientAsync {
         // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
         let url = self.server.build_url_with_refcode("upload2", item_info);
 
-        let r = self.server.post_bytes(&url, request, &Sid(sid.to_string())).await;
-
-        r.unwrap()
+        self.server
+            .post_bytes(&url, request, &Sid(sid.to_owned()))
+            .await
+            .map_err(|e| e.into_owned())
     }
 
     pub async fn download(&self, file_reference: &str, sid: &str) -> WebResponse<MediaBytes> /*WebResponse<( String, bytes::Bytes, StatusCode )>*/
@@ -245,14 +246,11 @@ impl FileServerClientAsync {
         // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
         let url = self.server.build_url_with_refcode("download", file_reference);
 
-        match self.server.get_binary_data(&url, &Sid(sid.to_string())).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                println!("😎 Cannot download the binary content");
-                // log_error!("Cannot download the binary content");
-                return WebResponse::from_errorset(&INTERNAL_TECHNICAL_ERROR);
-            }
-        }
+        self.server.get_binary_data(&url, &Sid(sid.to_string())).await.unwrap_or_else(|e| {
+            println!("😎 Cannot download the binary content");
+            // log_error!("Cannot download the binary content");
+            WebResponse::from_api_error(&INTERNAL_TECHNICAL_ERROR)
+        })
     }
 
     pub async fn info(&self, file_ref: &str, sid: &str) -> WebResponse<GetFileInfoReply> {
@@ -363,7 +361,7 @@ impl WebServerAsync {
     async fn get_data_retry<V: de::DeserializeOwned>(&self, url: &str, token: &TokenType) -> WebResponse<V> {
         // let get_data = || -> anyhow::Result<WebResponse<V>> { self.get_data(url, token) };
         /*        self.retry(get_data)
-        .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR)).await*/
+        .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR)).await*/
         // FIXME we bypass the retry routine because we cannot figure out the right signature
         //          for the retry
         self.get_data(&url, &token).await?
@@ -402,10 +400,7 @@ impl WebServerAsync {
         // FIXME we bypass the retry routine because we cannot figure out the right signature
         //          for the retry
 
-        match /*self.retry(post_data).await*/ ret {
-            Ok(response) => response,
-            Err(_) => WebResponse::from_errorset(&HTTP_CLIENT_ERROR),
-        }
+        ret.unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     async fn post_data<U: Serialize, V: de::DeserializeOwned>(
@@ -445,7 +440,7 @@ impl WebServerAsync {
         let my_url = match Url::parse(url) {
             Ok(parsed_url) => parsed_url, // Parsed URL is valid
             Err(_) => {
-                return WebResponse::from_errorset(&URL_PARSING_ERROR); // Return an error response on failure
+                return WebResponse::from_api_error(&URL_PARSING_ERROR); // Return an error response on failure
             }
         };
 
@@ -548,11 +543,11 @@ impl WebServerAsync {
     }
 
     async fn delete_data_retry<V: de::DeserializeOwned>(&self, url: &str, token: &TokenType) -> WebResponse<V> {
-        self.delete_data(url, token).await.unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+        self.delete_data(url, token).await.unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
 
         // let delete_data = || -> anyhow::Result<WebResponse<V>> { self.delete_data(url, token) };
         // self.retry(delete_data)
-        //     .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+        //     .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     ///

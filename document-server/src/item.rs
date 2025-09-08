@@ -26,11 +26,8 @@ use dkdto::error_codes::{
     BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, MISSING_ITEM,
     MISSING_TAG_FOR_ITEM,
 };
-use dkdto::{
-    AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue,
-    EnumTagValue, ErrorSet, GetItemReply, ItemElement, SimpleMessage, TagType, TagValueElement,
-    WebTypeBuilder,
-};
+use dkdto::{AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, ContextMessage, EnumTagValue, GetItemReply, ItemElement, SimpleMessage, TagType, TagValueElement, WebTypeBuilder, WebTypeWithContext};
+use dkdto::api_error::ApiError;
 use doka_cli::request_client::TokenType;
 
 use crate::filter::{analyse_expression, to_sql_form};
@@ -62,7 +59,7 @@ impl ItemDelegate {
         start_page: Option<u32>,
         page_size: Option<u32>,
         filter_expression: Option<String>,
-    ) -> WebType<GetItemReply> {
+    ) -> WebTypeWithContext<GetItemReply> {
         log_info!(
             "🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]",
             start_page,
@@ -80,9 +77,16 @@ impl ItemDelegate {
         let filter_expression_ast: Box<FilterExpressionAST> =
             match analyse_expression(&filter_expression.unwrap_or("()".to_owned())) {
                 Ok(v) => v,
-                Err(_) => {
+                Err(e) => {
                     // TODO
-                    panic!("Cannot lex the expression");
+                    //     Here we can use a ContextMessage to keep the error colum name
+                    let c = ContextMessage {
+                        message: e.human_error_message(),
+                        context: vec![String::from(e.char_position)],
+                    };
+                    Err(WebTypeWithContext {
+                        
+                    })
                 }
             };
 
@@ -106,15 +110,17 @@ impl ItemDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
              &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
+
+
 
         let Ok(items) = self
             .search_item_with_filter(
@@ -127,7 +133,7 @@ impl ItemDelegate {
             .await
         else {
             log_error!("💣 Cannot find item by id, follower=[{}]",  &self.follower);
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -142,12 +148,12 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
 
-        WebType::from_errorset(&INTERNAL_DATABASE_ERROR)
+        WebType::from_api_error(&INTERNAL_DATABASE_ERROR)
     }
 
     /// Deprecated - replace it with search_item
@@ -181,7 +187,7 @@ impl ItemDelegate {
         //         &self.session_token,
         //         &self.follower
         //     );
-        //     return WebType::from_errorset(&INVALID_TOKEN);
+        //     return WebType::from_api_error(&INVALID_TOKEN);
         // }
         //
         // // Read the session information
@@ -192,7 +198,7 @@ impl ItemDelegate {
         //         &self.follower
         //     ))
         // else {
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         // };
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
@@ -202,14 +208,14 @@ impl ItemDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(items) = self
@@ -223,7 +229,7 @@ impl ItemDelegate {
             .await
         else {
             log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -238,7 +244,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
@@ -496,7 +502,7 @@ impl ItemDelegate {
         //         &self.session_token,
         //         &self.follower
         //     );
-        //     return WebType::from_errorset(&INVALID_TOKEN);
+        //     return WebType::from_api_error(&INVALID_TOKEN);
         // }
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
@@ -509,7 +515,7 @@ impl ItemDelegate {
         //         &self.follower
         //     ))
         // else {
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         // };
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
@@ -520,14 +526,14 @@ impl ItemDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(items) = self
@@ -544,7 +550,7 @@ impl ItemDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if items.is_empty() {
@@ -553,7 +559,7 @@ impl ItemDelegate {
                 item_id,
                 &self.follower
             );
-            let wt = WebType::from_errorset(&MISSING_ITEM);
+            let wt = WebType::from_api_error(&MISSING_ITEM);
             return wt;
         }
 
@@ -569,7 +575,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_item, follower=[{}]", &self.follower);
@@ -602,7 +608,7 @@ impl ItemDelegate {
         // let customer_code = &match self.valid_sid_get_session().await {
         //     Ok(cc) => cc,
         //     Err(e) => {
-        //         return WebType::from_errorset(e);
+        //         return WebType::from_api_error(e);
         //     }
         // };
 
@@ -617,18 +623,18 @@ impl ItemDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // if tag_names.0.is_empty() {
-        //     return WebType::from_errorset(&INVALID_REQUEST);
+        //     return WebType::from_api_error(&INVALID_REQUEST);
         // };
 
         //let item_id = add_item_tag_request.item_id;
@@ -642,7 +648,7 @@ impl ItemDelegate {
                     e,
                     &self.follower
                 );
-                return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+                return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
             };
             log_info!(
                 "😎 We deleted the tag, tag_name=[{}], follower=[{}]",
@@ -657,7 +663,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End delete_item_tag, follower=[{}]", &self.follower);
@@ -742,7 +748,7 @@ impl ItemDelegate {
         // let customer_code = &match self.valid_sid_get_session() {
         //     Ok(cc) => cc,
         //     Err(e) => {
-        //         return WebType::from_errorset(e);
+        //         return WebType::from_api_error(e);
         //     }
         // };
 
@@ -764,14 +770,14 @@ impl ItemDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Add the tags
@@ -784,7 +790,7 @@ impl ItemDelegate {
             )
             .await;
         if let Err(e) = r_add_tags {
-            return WebType::from_errorset(&e);
+            return WebType::from_api_error(&e);
         }
 
         if trans
@@ -793,7 +799,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End update_item_tag, follower=[{}]", &self.follower);
@@ -837,14 +843,14 @@ impl ItemDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let o_file_ref = add_item_request.file_ref.clone();
@@ -861,7 +867,7 @@ impl ItemDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -876,7 +882,7 @@ impl ItemDelegate {
                 .update_tags_on_item(&mut trans, item_id, customer_code, properties)
                 .await
             {
-                return WebType::from_errorset(e);
+                return WebType::from_api_error(e);
             }
         }
 
@@ -892,7 +898,7 @@ impl ItemDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         let now = SystemTime::now();
@@ -919,7 +925,7 @@ impl ItemDelegate {
         item_id: i64,
         customer_code: &str,
         properties: &Vec<AddTagValue>,
-    ) -> Result<(), &ErrorSet<'static>> {
+    ) -> Result<(), &ApiError<'static>> {
         for tag in properties {
             // Check / Define the property
             let tag_id = match (tag.tag_id, &tag.tag_name) {
@@ -1282,7 +1288,7 @@ impl ItemDelegate {
 
                 if let Err(err) = tag_delegate.check_input_values(&add_tag_request) {
                     log_error!("Tag definition is not correct, tag_name=[{}], err message=[{}], follower=[{}]",
-                                                            tag_name,  err.err_message, &self.follower);
+                                                            tag_name,  err.message, &self.follower);
                     return Err(anyhow!("Tag definition is not correct"));
                 }
 
@@ -1425,13 +1431,13 @@ impl ItemDelegate {
         params
     }
 
-    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T>() -> impl Fn(&ApiError<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            WebType::from_errorset(e)
+            WebType::from_api_error(e)
         }
     }
 }

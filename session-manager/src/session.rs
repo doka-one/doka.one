@@ -63,7 +63,7 @@ impl SessionDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_api_error(&INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
@@ -85,14 +85,14 @@ impl SessionDelegate {
             "💣 Connection issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let sql_insert = r#"INSERT INTO dokasys.SESSIONS
@@ -138,7 +138,7 @@ impl SessionDelegate {
             "💣 Cannot insert the session, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -147,7 +147,7 @@ impl SessionDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -170,7 +170,7 @@ impl SessionDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&&INVALID_TOKEN);
+            return WebType::from_api_error(&&INVALID_TOKEN);
         }
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
 
@@ -194,14 +194,14 @@ impl SessionDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Query the sessions to find the right one
@@ -214,7 +214,7 @@ impl SessionDelegate {
                 &self.follower
             ))
         else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -232,7 +232,7 @@ impl SessionDelegate {
                 "⛔ The session was not found, follower=[{}]",
                 &self.follower
             );
-            return WebResponse::from_errorset(&SESSION_NOT_FOUND);
+            return WebResponse::from_api_error(&SESSION_NOT_FOUND);
         }
 
         let Ok(session) = session_reply
@@ -244,7 +244,7 @@ impl SessionDelegate {
                 &self.follower
             ))
         else {
-            return WebResponse::from_errorset(&SESSION_NOT_FOUND);
+            return WebResponse::from_api_error(&SESSION_NOT_FOUND);
         };
 
         // If the termination time exists, it means the session is closed
@@ -254,7 +254,7 @@ impl SessionDelegate {
                 &session.termination_time_gmt.as_ref().unwrap(),
                 &self.follower
             );
-            return WebResponse::from_errorset(&SESSION_TIMED_OUT);
+            return WebResponse::from_api_error(&SESSION_TIMED_OUT);
         }
 
         // Update the session renew_time_gmt
@@ -266,7 +266,7 @@ impl SessionDelegate {
                 "💣 Rollback. Cannot update the renew time of the session, follower=[{}]",
                 &self.follower
             );
-            return WebResponse::from_errorset(&SESSION_CANNOT_BE_RENEWED);
+            return WebResponse::from_api_error(&SESSION_CANNOT_BE_RENEWED);
         }
 
         session.renew_time_gmt = Some(Utc::now().to_string());
@@ -278,7 +278,7 @@ impl SessionDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         WebResponse::from_item(StatusCode::OK.as_u16(), session_reply)

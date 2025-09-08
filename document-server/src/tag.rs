@@ -22,9 +22,10 @@ use dkdto::error_codes::{
     INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, STILL_IN_USE,
 };
 use dkdto::{
-    AddTagReply, AddTagRequest, ErrorSet, GetTagReply, SimpleMessage, TagElement, TagType, WebType,
+    AddTagReply, AddTagRequest, GetTagReply, SimpleMessage, TagElement, TagType, WebType,
     WebTypeBuilder,
 };
+use dkdto::api_error::ApiError;
 use doka_cli::request_client::TokenType;
 
 use crate::char_lib::has_not_printable_char;
@@ -68,7 +69,7 @@ impl TagDelegate {
         //         &self.session_token,
         //         &self.follower
         //     );
-        //     return WebType::from_errorset(&INVALID_TOKEN);
+        //     return WebType::from_api_error(&INVALID_TOKEN);
         // }
 
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
@@ -77,7 +78,7 @@ impl TagDelegate {
         // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
         //     err_fwd!("💣 Session Manager failed, follower=[{}]", &self.follower),
         // ) else {
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         // };
 
         // Query the items
@@ -86,14 +87,14 @@ impl TagDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(tags) = self
@@ -110,7 +111,7 @@ impl TagDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -119,7 +120,7 @@ impl TagDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!("🏁 End get_all_tag api, follower=[{}]", &self.follower);
@@ -278,7 +279,7 @@ impl TagDelegate {
         //         &self.session_token,
         //         &self.follower
         //     );
-        //     return WebType::from_errorset(&INVALID_TOKEN);
+        //     return WebType::from_api_error(&INVALID_TOKEN);
         // }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
@@ -286,7 +287,7 @@ impl TagDelegate {
         // let Ok(entry_session) = fetch_entry_session(&self.follower.token_type.value()).map_err(
         //     err_fwd!("💣 Session Manager failed, follower={}", &self.follower),
         // ) else {
-        //     return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+        //     return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         // };
 
         let customer_code = entry_session.customer_code.as_str();
@@ -302,14 +303,14 @@ impl TagDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Check if the tag definition is used somewhere
@@ -324,7 +325,7 @@ impl TagDelegate {
                 tag_id,
                 &self.follower
             );
-            return WebType::from_errorset(&STILL_IN_USE);
+            return WebType::from_api_error(&STILL_IN_USE);
         }
 
         log_info!(
@@ -355,7 +356,7 @@ impl TagDelegate {
             tag_id,
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -364,7 +365,7 @@ impl TagDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower={}", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -434,7 +435,7 @@ impl TagDelegate {
         //         &self.session_token,
         //         &self.follower
         //     );
-        //     return WebType::from_errorset(&INVALID_TOKEN);
+        //     return WebType::from_api_error(&INVALID_TOKEN);
         // }
         self.follower.token_type = TokenType::Sid(self.session_token.0.clone());
 
@@ -444,7 +445,7 @@ impl TagDelegate {
         //         "💣 Session Manager failed, follower=[{}]",
         //         &self.follower
         //     )),
-        //     |_e| WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR)
+        //     |_e| WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR)
         // );
 
         let customer_code = entry_session.customer_code.as_str();
@@ -458,10 +459,10 @@ impl TagDelegate {
         if let Err(e) = self.check_input_values(&add_tag_request) {
             log_error!(
                 "💣 Tag definition is not correct, err message=[{}], follower=[{}]",
-                e.err_message,
+                e.message,
                 &self.follower
             );
-            return WebType::from_errorset(e);
+            return WebType::from_api_error(e);
         }
 
         // Open Db connection
@@ -469,14 +470,14 @@ impl TagDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(tag_id) = self
@@ -487,7 +488,7 @@ impl TagDelegate {
                 &self.follower
             ))
         else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if trans
@@ -496,7 +497,7 @@ impl TagDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -557,7 +558,7 @@ impl TagDelegate {
     pub(crate) fn check_input_values(
         &self,
         add_tag_request: &AddTagRequest,
-    ) -> Result<(), &ErrorSet<'static>> {
+    ) -> Result<(), &ApiError<'static>> {
         log_info!(
             "Check the tag definition, add_tag_request=[{:?}], follower=[{}]",
             add_tag_request,
@@ -642,13 +643,13 @@ impl TagDelegate {
         Ok(())
     }
 
-    fn web_type_error<T>() -> impl Fn(&ErrorSet<'static>) -> WebType<T>
+    fn web_type_error<T>() -> impl Fn(&ApiError<'static>) -> WebType<T>
     where
         T: DeserializeOwned,
     {
         |e| {
             log_error!("💣 Error after try {:?}", e);
-            WebType::from_errorset(e)
+            WebType::from_api_error(e)
         }
     }
 }

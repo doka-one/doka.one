@@ -1,10 +1,11 @@
 use crate::error_codes::INTERNAL_TECHNICAL_ERROR;
-use crate::{ErrorSet, SimpleMessage, WebTypeBuilder};
+use crate::{SimpleMessage, WebTypeBuilder};
 use ciborium::into_writer;
 use http::header::CONTENT_TYPE;
 use http::{HeaderName, StatusCode};
 use serde::de;
 use serde::Serialize;
+use crate::api_error::ApiError;
 
 pub struct CborType<T> {
     http_code: StatusCode,
@@ -38,7 +39,7 @@ fn serialize_to_bytes<T: Serialize>(value: &T) -> bytes::Bytes {
     let mut cbor_data = Vec::new();
     match into_writer(value, &mut cbor_data) {
         Ok(_) => bytes::Bytes::from(cbor_data),
-        Err(_) => bytes::Bytes::from(INTERNAL_TECHNICAL_ERROR.err_message.as_bytes()),
+        Err(_) => bytes::Bytes::from(INTERNAL_TECHNICAL_ERROR.message.as_bytes()),
     }
 }
 
@@ -61,12 +62,12 @@ where
         }
     }
 
-    /// Convert an ErrorSet to a CborType
-    fn from_errorset(error: &ErrorSet<'static>) -> Self {
+    /// Convert an ApiError to a CborType
+    fn from_api_error(error: &ApiError<'static>) -> Self {
         Self {
             http_code: StatusCode::from_u16(error.http_error_code).unwrap(),
             result: Err(SimpleMessage {
-                message: error.err_message.to_string(),
+                message: error.message.to_string(),
             }),
         }
     }

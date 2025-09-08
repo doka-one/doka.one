@@ -1,17 +1,16 @@
 use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST};
+use axum::async_trait;
 use commons_error::tr_fwd;
 use commons_error::*;
-use dkdto::{TagType, WebType};
+use dkdto::TagType;
 use log::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use axum::async_trait;
 
-use once_cell::sync::Lazy;
 use commons_pg::sql_transaction::SQLDataSet;
 use commons_pg::sql_transaction_async::{SQLConnectionAsync, SQLQueryBlockAsync};
 use commons_services::x_request_id::Follower;
-use dkdto::error_codes::INTERNAL_DATABASE_ERROR;
+use once_cell::sync::Lazy;
 
 const EXTRA_TABLE_PREFIX: &str = "ot";
 
@@ -109,7 +108,7 @@ pub(crate) fn build_query_filter(
                     panic!("No matching conditions"); // TODO ...
                 }
                 Some((index, fc)) => {
-                    let s = format!("{}_{}_{}.value is not null", EXTRA_TABLE_PREFIX, &fc.attribute, index);
+                    let s = format!(" {}_{}_{}.value is not null ", EXTRA_TABLE_PREFIX, &fc.attribute, index);
                     content.push_str(&s);
                 }
             }
@@ -146,8 +145,8 @@ impl fmt::Display for GenerationError {
     }
 }
 
-use std::sync::Arc;
 use anyhow::Result;
+use std::sync::Arc;
 
 // Make sure Follower implements Debug (or Display).
 // #[derive(Debug)]
@@ -177,29 +176,20 @@ impl TagDefinitionInterface for TagDefinitionBuilder {
             .await
             .map_err(err_fwd!("New DB connection failed; follower={:?}", self.follower))?;
 
-        let mut trans = cnx.begin()
-            .await
-            .map_err(err_fwd!("Transaction issue; follower={:?}", self.follower))?;
+        let mut trans = cnx.begin().await.map_err(err_fwd!("Transaction issue; follower={:?}", self.follower))?;
 
         let mut params = HashMap::new();
         // params.insert("p_customer_code".to_owned(), p_customer_code);
 
         let sql_query = r#"SELECT 1 FROM dokaadmin.customer WHERE code = :p_customer_code"#.to_owned();
 
-        let query = SQLQueryBlockAsync {
-            sql_query,
-            params,
-            start: 0,
-            length: Some(1),
-        };
+        let query = SQLQueryBlockAsync { sql_query, params, start: 0, length: Some(1) };
 
-        let _sql_result: SQLDataSet = query.execute(&mut trans)
-            .await
-            .map_err(err_fwd!(
-                "Query failed [{}]; follower={:?}",
-                &query.sql_query,
-                self.follower
-            ))?;
+        let _sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
+            "Query failed [{}]; follower={:?}",
+            &query.sql_query,
+            self.follower
+        ))?;
 
         // If your transaction commit is async, keep `.await`; if not, remove it.
         trans.commit().await?;
@@ -207,7 +197,6 @@ impl TagDefinitionInterface for TagDefinitionBuilder {
         Ok(vec![])
     }
 }
-
 
 ///
 fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType) -> Result<String, GenerationError> {
@@ -356,10 +345,7 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     // Find the tag_definitions for all the tags (type, limit, default value)
     let tags_list: Vec<String> = tags.iter().cloned().collect();
 
-    let definitions = match tag_definition_builder
-        .get_tag_definition(&tags_list).await
-        .map_err(tr_fwd!())
-    {
+    let definitions = match tag_definition_builder.get_tag_definition(&tags_list).await.map_err(tr_fwd!()) {
         Ok(definitions) => definitions,
         Err(e) => {
             // TODO tracer and session id ?
@@ -522,23 +508,19 @@ mod tests {
         SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
     };
     use crate::filter::analyse_expression;
-    use crate::filter::filter_ast::{
-        to_canonical_form, ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue,
-    };
+    use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
     use crate::parser_log;
+    use axum::async_trait;
     use commons_error::*;
+    use commons_services::x_request_id::XRequestID;
     use dkdto::TagType;
     use log::*;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Once};
-    use sqlparser::parser::Parser;
+    use sqlparser::ast::{ObjectName, Query, SetExpr, Statement, TableFactor, TableWithJoins};
     use sqlparser::dialect::PostgreSqlDialect;
-    use sqlparser::ast::{Statement, SetExpr, TableFactor, TableWithJoins, Query, ObjectName};
+    use sqlparser::parser::Parser;
+    use std::collections::HashMap;
     use std::collections::HashSet;
-    use axum::async_trait;
-    use commons_services::x_request_id::{Follower, XRequestID};
-    use doka_cli::request_client::TokenType;
-    use crate::filter::filter_lexer::FilterError;
+    use std::sync::Once;
 
     static INIT_LOGGER: Once = Once::new();
 
@@ -569,7 +551,6 @@ mod tests {
         }
     }
 
-
     /// Parse the SQL and return a list of base tables used in the query.
     ///
     /// Example:
@@ -578,8 +559,7 @@ mod tests {
     /// returns ["item", "tag_value"]
     pub fn validate_my_engine_query(sql: &str) -> Result<Vec<String>, String> {
         let dialect = PostgreSqlDialect {};
-        let r_statements = Parser::parse_sql(&dialect, sql)
-            .map_err(|e| e.to_string());
+        let r_statements = Parser::parse_sql(&dialect, sql).map_err(|e| e.to_string());
 
         assert_eq!(false, r_statements.is_err());
 
@@ -594,10 +574,7 @@ mod tests {
         list.sort();
 
         // ✅ Assert that we only got the expected tables
-        assert_eq!(
-            list,
-            vec!["item".to_string(), "tag_definition".to_string(), "tag_value".to_string()]
-        );
+        assert_eq!(list, vec!["item".to_string(), "tag_definition".to_string(), "tag_value".to_string()]);
 
         Ok(list)
     }
@@ -644,12 +621,8 @@ mod tests {
     }
 
     fn objectname_last_ident(name: &ObjectName) -> String {
-        name.0
-            .last()
-            .map(|id| id.to_string())
-            .unwrap_or_default()
+        name.0.last().map(|id| id.to_string()).unwrap_or_default()
     }
-
 
     #[tokio::test]
     pub async fn test_generate_search_sql_6_conditions() {
@@ -665,7 +638,8 @@ mod tests {
             &vec!["country", "science", "is_open"],
             &vec!["country", "science", "is_open"],
             SearchSqlGenerationMode::Live,
-        ).await;
+        )
+        .await;
         let q = &query.unwrap();
         // validate and assert table names
         let _r = validate_my_engine_query(q);
@@ -700,8 +674,8 @@ mod tests {
             &vec!["lastname", "postal_code"],
             &vec!["lastname", "postal_code"],
             SearchSqlGenerationMode::Live,
-        ).await;
-
+        )
+        .await;
 
         let q = &query.unwrap();
         // validate and assert table names

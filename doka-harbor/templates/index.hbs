@@ -8,38 +8,67 @@
 <body>
 <h1>Welcome to DOKA ONE!</h1>
 <p>{{message}}</p>
-<script src="/harbor/static/script.js"></script>
+<script src="/harbor/static/neutrino.js"></script>
+<link rel="stylesheet" href="/harbor/static/search.css"/>
 
 <div>
-    <div data-component="/harbor/item_update/1234"/>
+    <div data-component="/harbor/item_update" data-object="eyAidmFsdWUxIjogIkEiLCAidmFsdWUyIjogIkIifQ=="></div>
 </div>
 
-<ul>
-    {{#each items.items}}
-        <li>
-            <h2>{{name}} (ID: {{item_id}})</h2>
-            {{#if file_ref}}
-                <p>File Reference: {{file_ref}}</p>
+<section class="search-section">
 
-                <div data-component="/harbor/image/{{file_ref}}"/>
-
-            {{else}}
-                <p>No file reference</p>
-            {{/if}}
+    <!-- Frame for search rendering -->
+    <div class="main-search-result">
 
 
+        {{#each items.items}}
+            <!-- Cartouche props + document -->
+            <div class="cartouche">
 
-            <ul>
-                {{#each properties}}
-                    <li><strong>{{key}}:</strong> {{value}}</li>
-                {{/each}}
-            </ul>
-        </li>
-    {{/each}}
-</ul>
+                <div class="search-properties">
+                    <div class="cartouche-document-name">{{name}} (ID: {{item_id}})</div>
+                    <ul>
+                        {{#each properties}}
+                            <li><strong>{{key}}:</strong> {{value}}</li>
+                        {{/each}}
+                    </ul>
+                </div>
+
+                <div class="vignette-container">
+                    {{#if file_ref}}
+                        <!--                    <div style="word-break: break-word;">File Reference: {{file_ref}}</div>-->
+                        <div class="vignette"
+                             onclick="trigger_event('viewer', '{{base_json_helper file_ref_struct}}' )"
+                             data-component="/harbor/image"
+                             data-object="{{base_json_helper file_ref_struct}}"
+                        >
+                        </div>
+                    {{else}}
+                        <p>No file reference</p>
+                    {{/if}}
+                </div>
+
+
+            </div>
+        {{/each}}
+    </div>
+
+    <!-- Side Viewer -->
+
+    <div>
+        <div id="viewer-parent" class="" style=" border: 3px solid lightcoral; margin:1rem;">
+            <div id="viewer" data-component="/harbor/image"
+                 data-object="{{base_json_helper default_document_params}}">
+            </div>
+        </div>
+    </div>
+
+</section>
+
 
 {{> footer}}
 
 </body>
 </html>
+
 

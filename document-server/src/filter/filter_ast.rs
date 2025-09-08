@@ -2,8 +2,7 @@ use std::cell::RefCell;
 use std::fmt;
 
 use crate::filter::filter_lexer::FilterErrorCode::{
-    AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected,
-    ValueExpected,
+    AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected, ValueExpected,
 };
 use crate::filter::filter_lexer::{lex3, FilterError, LogicalOperator, Token};
 use crate::filter::filter_normalizer::normalize_lexeme;
@@ -46,7 +45,7 @@ impl fmt::Display for FilterValue {
                 write!(f, "{}", i)
             }
             FilterValue::ValueString(s) => {
-                write!(f, "\"{}\"", s.as_str())
+                write!(f, "{}", s.as_str())
             }
             FilterValue::ValueBool(b) => {
                 write!(f, "{}", if *b { "TRUE" } else { "FALSE" })
@@ -66,31 +65,18 @@ pub(crate) struct FilterCondition {
 #[derive(Debug)]
 pub enum FilterExpressionAST {
     Condition(FilterCondition),
-    Logical {
-        operator: LogicalOperator,
-        leaves: Vec<Box<FilterExpressionAST>>,
-    },
+    Logical { operator: LogicalOperator, leaves: Vec<Box<FilterExpressionAST>> },
 }
 
 /**
 REF_TAG : DOKA_SEARCH_SQL
  */
 #[cfg(test)]
-pub(crate) fn to_canonical_form(
-    filter_expression: &FilterExpressionAST,
-) -> Result<String, FilterError> {
+pub(crate) fn to_canonical_form(filter_expression: &FilterExpressionAST) -> Result<String, FilterError> {
     let mut content: String = String::from("");
     match filter_expression {
-        FilterExpressionAST::Condition(FilterCondition {
-            key,
-            attribute,
-            operator,
-            value,
-        }) => {
-            let s = format!(
-                "{}{}<{:?}>{}{}",
-                COND_OPEN, attribute, operator, value, COND_CLOSE
-            );
+        FilterExpressionAST::Condition(FilterCondition { key, attribute, operator, value }) => {
+            let s = format!("{}{}<{:?}>{}{}", COND_OPEN, attribute, operator, value, COND_CLOSE);
             content.push_str(&s);
         }
         FilterExpressionAST::Logical { operator, leaves } => {
@@ -118,10 +104,7 @@ pub(crate) fn parse_tokens(tokens: &[Token]) -> Result<Box<FilterExpressionAST>,
     parse_tokens_with_index(&tokens, &index)
 }
 
-fn parse_tokens_with_index(
-    tokens: &[Token],
-    index: &RefCell<usize>,
-) -> Result<Box<FilterExpressionAST>, FilterError> {
+fn parse_tokens_with_index(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpressionAST>, FilterError> {
     // Read the fist token
     // we start at 0
     let t = tokens.get(*index.borrow());
@@ -132,46 +115,29 @@ fn parse_tokens_with_index(
                 // The expression starts with a bracket, it's a logical
                 log_debug!("found a logical at index {}", *index.borrow());
                 let logical_expression = parse_logical(tokens, &index)?;
-                log_debug!(
-                    "logical expression was [{:?}], now index is [{}]",
-                    &logical_expression,
-                    *index.borrow()
-                );
+                log_debug!("logical expression was [{:?}], now index is [{}]", &logical_expression, *index.borrow());
                 Ok(logical_expression)
             }
             Token::ConditionOpen(pt) => {
                 log_debug!("found a condition at index {}", *index.borrow());
                 let c = parse_condition(&tokens, &index)?;
-                log_debug!(
-                    "condition expression was [{:?}], now index is [{}]",
-                    &c,
-                    *index.borrow()
-                );
+                log_debug!("condition expression was [{:?}], now index is [{}]", &c, *index.borrow());
                 Ok(c)
             }
             _ => {
                 log_error!("Logical opening expected");
-                Err(FilterError {
-                    char_position: *index.borrow(),
-                    error_code: OpeningExpected,
-                })
+                Err(FilterError { char_position: *index.borrow(), error_code: OpeningExpected })
             }
         }
     } else {
         log_error!("Logical opening expected");
-        Err(FilterError {
-            char_position: *index.borrow(),
-            error_code: OpeningExpected,
-        })
+        Err(FilterError { char_position: *index.borrow(), error_code: OpeningExpected })
     }
 }
 
 /// At this point we know the tokens starting at <index>
 /// are of the form : LO EXPRESSION LOP EXPRESSION LC
-fn parse_logical(
-    tokens: &[Token],
-    index: &RefCell<usize>,
-) -> Result<Box<FilterExpressionAST>, FilterError> {
+fn parse_logical(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpressionAST>, FilterError> {
     log_debug!("parse_logical at [{}]", *index.borrow());
 
     *index.borrow_mut() += 1;
@@ -185,11 +151,7 @@ fn parse_logical(
                 // Read the Left member of the Logical Expression
                 log_debug!("found a new expression at index {}", *index.borrow());
                 let left = parse_tokens_with_index(&tokens, &index)?;
-                log_debug!(
-                    "logical expression_left was [{:?}], now index is [{}]",
-                    &left,
-                    *index.borrow()
-                );
+                log_debug!("logical expression_left was [{:?}], now index is [{}]", &left, *index.borrow());
 
                 // here we must found the LOP
                 *index.borrow_mut() += 1;
@@ -208,42 +170,24 @@ fn parse_logical(
                     }
                 } else {
                     warn!("Must be an operator");
-                    return Err(FilterError {
-                        char_position: *index.borrow(),
-                        error_code: LogicalOperatorExpected,
-                    });
+                    return Err(FilterError { char_position: *index.borrow(), error_code: LogicalOperatorExpected });
                 }
                 .clone();
 
-                log_debug!(
-                    "Found the logical operator [{:?}], index is [{}]",
-                    &operator,
-                    *index.borrow()
-                );
+                log_debug!("Found the logical operator [{:?}], index is [{}]", &operator, *index.borrow());
 
                 // and then the right expression
 
                 *index.borrow_mut() += 1;
-                log_debug!(
-                    "looking for the right expression at index {}",
-                    *index.borrow()
-                );
+                log_debug!("looking for the right expression at index {}", *index.borrow());
                 let right = parse_tokens_with_index(&tokens, &index)?;
-                log_debug!(
-                    "logical expression_right was [{:?}], now index is [{}]",
-                    &left,
-                    *index.borrow()
-                );
+                log_debug!("logical expression_right was [{:?}], now index is [{}]", &left, *index.borrow());
 
                 // then the logical closing
                 *index.borrow_mut() += 1;
                 let t = tokens.get(*index.borrow());
 
-                log_debug!(
-                    "Looking for the logical close at index {}, token=[{:?}]",
-                    *index.borrow(),
-                    &t
-                );
+                log_debug!("Looking for the logical close at index {}, token=[{:?}]", *index.borrow(), &t);
 
                 if let Some(Token::LogicalClose(_)) = t {
                     Ok(Box::new(FilterExpressionAST::Logical {
@@ -253,32 +197,20 @@ fn parse_logical(
                     }))
                 } else {
                     warn!("Expected logical closing");
-                    Err(FilterError {
-                        char_position: *index.borrow(),
-                        error_code: ClosingExpected,
-                    })
+                    Err(FilterError { char_position: *index.borrow(), error_code: ClosingExpected })
                 }
             }
-            _ => Err(FilterError {
-                char_position: *index.borrow(),
-                error_code: OpeningExpected,
-            }),
+            _ => Err(FilterError { char_position: *index.borrow(), error_code: OpeningExpected }),
         }
     } else {
         log_error!("Logical opening expected");
-        Err(FilterError {
-            char_position: *index.borrow(),
-            error_code: OpeningExpected,
-        })
+        Err(FilterError { char_position: *index.borrow(), error_code: OpeningExpected })
     }
 }
 
 /// At this point we know the tokens starting at <index>
 /// are of the form : C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
-fn parse_condition(
-    tokens: &[Token],
-    index: &RefCell<usize>,
-) -> Result<Box<FilterExpressionAST>, FilterError> {
+fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterExpressionAST>, FilterError> {
     // Here we know that the form is C_OPEN ATTRIBUTE  FOP  VALUE C_CLOSE
     //
     log_debug!("parse_condition at [{}]", *index.borrow());
@@ -300,26 +232,16 @@ fn parse_condition(
                         Token::Operator(op) => op,
                         _ => {
                             warn!("Must be an comparison operator"); // TODO NORM
-                            return Err(FilterError {
-                                char_position: *index.borrow(),
-                                error_code: OperatorExpected,
-                            });
+                            return Err(FilterError { char_position: *index.borrow(), error_code: OperatorExpected });
                         }
                     }
                 } else {
                     warn!("Must be a comparison operator"); // TODO NORM
-                    return Err(FilterError {
-                        char_position: *index.borrow(),
-                        error_code: OperatorExpected,
-                    });
+                    return Err(FilterError { char_position: *index.borrow(), error_code: OperatorExpected });
                 }
                 .clone();
 
-                log_debug!(
-                    "comparison operator [{:?}] at [{}]",
-                    &operator,
-                    *index.borrow()
-                );
+                log_debug!("comparison operator [{:?}] at [{}]", &operator, *index.borrow());
 
                 *index.borrow_mut() += 1;
                 let op_value = tokens.get(*index.borrow());
@@ -332,28 +254,18 @@ fn parse_condition(
                         Token::ValueBool(op) => FilterValue::ValueBool(op.clone().token),
                         _ => {
                             warn!("Must be a token value"); // TODO NORM
-                            return Err(FilterError {
-                                char_position: *index.borrow(),
-                                error_code: ValueExpected,
-                            });
+                            return Err(FilterError { char_position: *index.borrow(), error_code: ValueExpected });
                         }
                     }
                 } else {
                     warn!("Must be a value"); // TODO NORM
-                    return Err(FilterError {
-                        char_position: *index.borrow(),
-                        error_code: ValueExpected,
-                    });
+                    return Err(FilterError { char_position: *index.borrow(), error_code: ValueExpected });
                 };
 
                 *index.borrow_mut() += 1;
                 let op_value = tokens.get(*index.borrow());
 
-                log_debug!(
-                    "CLOSE parse_condition at [{}], token=[{:?}]",
-                    *index.borrow(),
-                    &op_value
-                );
+                log_debug!("CLOSE parse_condition at [{}], token=[{:?}]", *index.borrow(), &op_value);
                 let key = uuid8();
                 Ok(Box::new(FilterExpressionAST::Condition(FilterCondition {
                     key,
@@ -364,17 +276,11 @@ fn parse_condition(
             }
             t => {
                 warn!("Mysterious Token [{:?}]", t); // TODO NORM
-                Err(FilterError {
-                    char_position: *index.borrow(),
-                    error_code: AttributeExpected,
-                })
+                Err(FilterError { char_position: *index.borrow(), error_code: AttributeExpected })
             }
         }
     } else {
-        Err(FilterError {
-            char_position: *index.borrow(),
-            error_code: AttributeExpected,
-        })
+        Err(FilterError { char_position: *index.borrow(), error_code: AttributeExpected })
     }
 }
 
@@ -384,12 +290,11 @@ mod tests {
     //cargo test --color=always --bin document-server filter_ast::tests   -- --show-output
 
     use crate::filter::filter_ast::Token::{
-        Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen,
-        Operator, ValueInt, ValueString,
+        Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt,
+        ValueString,
     };
     use crate::filter::filter_ast::{
-        parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator, FilterError,
-        Token,
+        parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator, FilterError, Token,
     };
     use crate::filter::filter_lexer::{lex3, FilterErrorCode, PositionalToken, TokenSlice};
     use crate::filter::filter_normalizer::normalize_lexeme;
@@ -433,7 +338,7 @@ mod tests {
 
         log_debug!("canonical...{canonical1}");
 
-        let expected = "(([country<EQ>\"FR\"]AND[science<GTE>40])OR[lost_in_hell<EQ>\"TRUE\"])";
+        let expected = "(([country<EQ>FR]AND[science<GTE>40])OR[lost_in_hell<EQ>TRUE])";
         assert_eq!(expected, &canonical1);
         assert_eq!(expected, &canonical2);
         assert_eq!(expected, &canonical3);
@@ -555,15 +460,14 @@ mod tests {
         log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
-        let expected = "([age<LT>40]OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
+        let expected = "([age<LT>40]OR([age<GT>21]AND[detail<EQ>bonjour]))";
         assert_eq!(expected, s.unwrap());
     }
 
     #[test]
     pub fn global_test_6() {
         init_logger();
-        let input =
-            "age < 40 OR  birthdate >= \"2001-01-01\"  OR  age > 21 AND detail == \"bonjour\"  ";
+        let input = "age < 40 OR  birthdate >= \"2001-01-01\"  OR  age > 21 AND detail == \"bonjour\"  ";
         log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
@@ -573,15 +477,14 @@ mod tests {
         log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
-        let expected = "(([age<LT>40]OR[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
+        let expected = "(([age<LT>40]OR[birthdate<GTE>2001-01-01])OR([age<GT>21]AND[detail<EQ>bonjour]))";
         assert_eq!(expected, s.unwrap());
     }
 
     #[test]
     pub fn global_test_7() {
         init_logger();
-        let input =
-            "age < 40 AND ( birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\"";
+        let input = "age < 40 AND ( birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\"";
         log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
@@ -591,14 +494,15 @@ mod tests {
         log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
-        let expected = "(([age<LT>40]AND[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"]))";
+        let expected = "(([age<LT>40]AND[birthdate<GTE>2001-01-01])OR([age<GT>21]AND[detail<EQ>bonjour]))";
         assert_eq!(expected, s.unwrap());
     }
 
     #[test]
     pub fn global_test_8() {
         init_logger();
-        let input = " age < 40 AND (( limit == 5 OR birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\") ";
+        let input =
+            " age < 40 AND (( limit == 5 OR birthdate >= \"2001-01-01\") OR  age > 21 AND detail == \"bonjour\") ";
         log_debug!("Lexer...");
         let mut tokens = lex3(input).unwrap();
 
@@ -608,7 +512,8 @@ mod tests {
         log_debug!("Parsing...");
         let r = parse_tokens(&mut tokens);
         let s = to_canonical_form(r.unwrap().as_ref());
-        let expected = "([age<LT>40]AND(([limit<EQ>5]OR[birthdate<GTE>\"2001-01-01\"])OR([age<GT>21]AND[detail<EQ>\"bonjour\"])))";
+        let expected =
+            "([age<LT>40]AND(([limit<EQ>5]OR[birthdate<GTE>2001-01-01])OR([age<GT>21]AND[detail<EQ>bonjour])))";
         assert_eq!(expected, s.unwrap());
     }
 
@@ -617,20 +522,20 @@ mod tests {
         init_logger();
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen(PositionalToken::new((), 0)),   // {
-            LogicalOpen(PositionalToken::new((), 0)),   // {{
-            ConditionOpen(PositionalToken::new((), 0)), // {{(
-            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
-            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
-            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
-            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
-            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
-            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            LogicalOpen(PositionalToken::new((), 0)),                          // {
+            LogicalOpen(PositionalToken::new((), 0)),                          // {{
+            ConditionOpen(PositionalToken::new((), 0)),                        // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)),     // {{( attribut1
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)),         // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),                             // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)),                       // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)),               // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)),                        // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)),     // {{( attribut1 GT 10 ) AND ( attribut2
             Operator(PositionalToken::new(ComparisonOperator::EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
             ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
             ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            LogicalClose(PositionalToken::new((), 0)),   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
             BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
             ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
             Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
@@ -654,8 +559,7 @@ mod tests {
             ValueInt(PositionalToken::new(10, 0)),
             ConditionClose(PositionalToken::new((), 0)),
         ];
-        const EXPECTED: &str =
-            "(([attribut1<GT>10]AND[attribut2<EQ>\"\nbonjour\n\"])OR[attribut3<LIKE>\"den%\"])";
+        const EXPECTED: &str = "(([attribut1<GT>10]AND[attribut2<EQ>\nbonjour\n])OR[attribut3<LIKE>den%])";
         assert_eq!(EXPECTED, canonical);
     }
 
@@ -764,7 +668,7 @@ mod tests {
             }
         };
 
-        const EXPECTED: &str = "(([A<LIKE>10]OR[B<EQ>45])AND([K<EQ>\"victory\"]OR[K<LT>12]))";
+        const EXPECTED: &str = "(([A<LIKE>10]OR[B<EQ>45])AND([K<EQ>victory]OR[K<LT>12]))";
         assert_eq!(EXPECTED, canonical);
     }
 
@@ -850,8 +754,7 @@ mod tests {
         init_logger();
         // (([ attribut1 GT 10 ]  [ attribut2 EQ "bonjour" ]) OR [ attribut3 LIKE "den%" ])
 
-        let input =
-            r#"((( attribut1 > 10 )  ( attribut2 == "bonjour" )) OR ( attribut3 LIKE "den%" ))"#;
+        let input = r#"((( attribut1 > 10 )  ( attribut2 == "bonjour" )) OR ( attribut3 LIKE "den%" ))"#;
         let mut lexemes = lex3(input).unwrap();
 
         log_debug!("Lex3 : {}", TokenSlice(&lexemes));
@@ -861,20 +764,20 @@ mod tests {
         log_debug!("Normalized : {}", TokenSlice(&lexemes));
 
         let tokens = vec![
-            LogicalOpen(PositionalToken::new((), 0)),   // {
-            LogicalOpen(PositionalToken::new((), 0)),   // {{
-            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            LogicalOpen(PositionalToken::new((), 0)),                      // {
+            LogicalOpen(PositionalToken::new((), 0)),                      // {{
+            ConditionOpen(PositionalToken::new((), 0)),                    // {{(
             Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
-            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
-            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
-            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)),     // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),                         // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)),                   // {{( attribut1 GT 10 )
             // Introduce a mistake here :  BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
             ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
             Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(PositionalToken::new(EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            Operator(PositionalToken::new(EQ, 0)),      // {{( attribut1 GT 10 ) AND ( attribut2 EQ
             ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
             ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            LogicalClose(PositionalToken::new((), 0)),   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
             BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
             ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
             Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
@@ -950,20 +853,20 @@ mod tests {
         init_logger();
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )} OR ( LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen(PositionalToken::new((), 0)),   // {
-            LogicalOpen(PositionalToken::new((), 0)),   // {{
-            ConditionOpen(PositionalToken::new((), 0)), // {{(
-            Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
-            Operator(PositionalToken::new(ComparisonOperator::GT, 0)), // {{( attribut1 GT
-            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
-            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
-            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
-            Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
+            LogicalOpen(PositionalToken::new((), 0)),                          // {
+            LogicalOpen(PositionalToken::new((), 0)),                          // {{
+            ConditionOpen(PositionalToken::new((), 0)),                        // {{(
+            Attribute(PositionalToken::new(String::from("attribut1"), 0)),     // {{( attribut1
+            Operator(PositionalToken::new(ComparisonOperator::GT, 0)),         // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),                             // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)),                       // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)),               // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)),                        // {{( attribut1 GT 10 ) AND (
+            Attribute(PositionalToken::new(String::from("attribut2"), 0)),     // {{( attribut1 GT 10 ) AND ( attribut2
             Operator(PositionalToken::new(ComparisonOperator::EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
             ValueString(PositionalToken::new(String::from("\nbonjour\n"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
             ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            LogicalClose(PositionalToken::new((), 0)),   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
             BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
             ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
             // Introduce an error: Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3
@@ -996,20 +899,20 @@ mod tests {
         init_logger();
         // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3 LIKE "den%" )}
         let tokens = vec![
-            LogicalOpen(PositionalToken::new((), 0)),   // {
-            LogicalOpen(PositionalToken::new((), 0)),   // {{
-            ConditionOpen(PositionalToken::new((), 0)), // {{(
+            LogicalOpen(PositionalToken::new((), 0)),                      // {
+            LogicalOpen(PositionalToken::new((), 0)),                      // {{
+            ConditionOpen(PositionalToken::new((), 0)),                    // {{(
             Attribute(PositionalToken::new(String::from("attribut1"), 0)), // {{( attribut1
-            Operator(PositionalToken::new(GT, 0)),      // {{( attribut1 GT
-            ValueInt(PositionalToken::new(10, 0)),      // {{( attribut1 GT 10
-            ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 )
-            BinaryLogicalOperator(PositionalToken::new(AND, 0)), // {{( attribut1 GT 10 ) AND
-            ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND (
+            Operator(PositionalToken::new(GT, 0)),                         // {{( attribut1 GT
+            ValueInt(PositionalToken::new(10, 0)),                         // {{( attribut1 GT 10
+            ConditionClose(PositionalToken::new((), 0)),                   // {{( attribut1 GT 10 )
+            BinaryLogicalOperator(PositionalToken::new(AND, 0)),           // {{( attribut1 GT 10 ) AND
+            ConditionOpen(PositionalToken::new((), 0)),                    // {{( attribut1 GT 10 ) AND (
             Attribute(PositionalToken::new(String::from("attribut2"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2
-            Operator(PositionalToken::new(EQ, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ
+            Operator(PositionalToken::new(EQ, 0)),                         // {{( attribut1 GT 10 ) AND ( attribut2 EQ
             ValueString(PositionalToken::new(String::from("bonjour"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour"
             ConditionClose(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )
-            LogicalClose(PositionalToken::new((), 0)), // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
+            LogicalClose(PositionalToken::new((), 0)),   // {( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )}
             BinaryLogicalOperator(PositionalToken::new(OR, 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR
             ConditionOpen(PositionalToken::new((), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR (
             Attribute(PositionalToken::new(String::from("attribut3"), 0)), // {{( attribut1 GT 10 ) AND ( attribut2 EQ "bonjour" )) OR ( attribut3

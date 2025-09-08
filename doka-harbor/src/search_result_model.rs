@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use serde_derive::{Deserialize, Serialize};
 
+use crate::ImageRequest;
 use dkdto::{EnumTagValue, GetItemReply, ItemElement, TagValueElement};
 
 #[derive(Serialize)]
@@ -30,6 +31,7 @@ pub struct ItemHarbor {
     pub item_id: i64,
     pub name: String,
     pub file_ref: Option<String>,
+    pub file_ref_struct: Option<ImageRequest>,
     pub properties: Vec<KeyValue>,
 }
 
@@ -41,13 +43,7 @@ pub struct KeyValue {
 
 impl MapToHarbor<SearchResultHarbor> for GetItemReply {
     fn map_to_harbor(&self, context: &HarborContext) -> SearchResultHarbor {
-        SearchResultHarbor {
-            items: self
-                .items
-                .iter()
-                .map(|x| x.map_to_harbor(&context))
-                .collect(),
-        }
+        SearchResultHarbor { items: self.items.iter().map(|x| x.map_to_harbor(&context)).collect() }
     }
 }
 
@@ -62,28 +58,21 @@ impl MapToHarbor<ItemHarbor> for ItemElement {
             Some(props) => props.iter().map(|x| x.map_to_harbor(&context)).collect(),
         };
 
-        key_values.push(KeyValue {
-            key: "Nom".to_string(),
-            value: Some(self.name.clone()),
-        });
+        key_values.push(KeyValue { key: "Nom".to_string(), value: Some(self.name.clone()) });
 
-        key_values.push(KeyValue {
-            key: "Date de création".to_string(),
-            value: Some(datetime_format_fn(&self.created, 1)),
-        });
+        key_values
+            .push(KeyValue { key: "Date de création".to_string(), value: Some(datetime_format_fn(&self.created, 1)) });
 
         key_values.push(KeyValue {
             key: "Date de modification".to_string(),
-            value: self
-                .last_modified
-                .as_ref()
-                .map(|v| datetime_format_fn(v, 1)),
+            value: self.last_modified.as_ref().map(|v| datetime_format_fn(v, 1)),
         });
 
         ItemHarbor {
             item_id: self.item_id,
             name: self.name.clone(),
             file_ref: self.file_ref.clone(),
+            file_ref_struct: self.file_ref.clone().map(|r| ImageRequest { file_ref: r }),
             properties: key_values,
         }
     }
@@ -91,10 +80,7 @@ impl MapToHarbor<ItemHarbor> for ItemElement {
 
 impl MapToHarbor<KeyValue> for TagValueElement {
     fn map_to_harbor(&self, context: &HarborContext) -> KeyValue {
-        KeyValue {
-            key: self.tag_name.clone(),
-            value: self.value.map_to_harbor(&context),
-        }
+        KeyValue { key: self.tag_name.clone(), value: self.value.map_to_harbor(&context) }
     }
 }
 
@@ -142,13 +128,7 @@ pub struct TagValueElementForComponent1 {
 
 impl MapToHarbor<GetItemReplyForSearchResult> for GetItemReply {
     fn map_to_harbor(&self, context: &HarborContext) -> GetItemReplyForSearchResult {
-        GetItemReplyForSearchResult {
-            items: self
-                .items
-                .iter()
-                .map(|x| x.map_to_harbor(&context))
-                .collect(),
-        }
+        GetItemReplyForSearchResult { items: self.items.iter().map(|x| x.map_to_harbor(&context)).collect() }
     }
 }
 
@@ -163,14 +143,8 @@ impl MapToHarbor<ItemElementForComponent1> for ItemElement {
             created_formatted: datetime_format_fn(&self.created, 1),
             last_modified_iso: self.last_modified.clone(),
             // Map the last_modified field if it's Some, else return None
-            last_modified_formatted: self
-                .last_modified
-                .as_ref()
-                .map(|x| datetime_format_fn(x, 1)),
-            properties: self
-                .properties
-                .as_ref()
-                .map(|x| x.iter().map(|y| y.map_to_harbor(&context)).collect()),
+            last_modified_formatted: self.last_modified.as_ref().map(|x| datetime_format_fn(x, 1)),
+            properties: self.properties.as_ref().map(|x| x.iter().map(|y| y.map_to_harbor(&context)).collect()),
         }
     }
 }

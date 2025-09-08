@@ -109,7 +109,7 @@ pub(crate) fn build_query_filter(
                     panic!("No matching conditions"); // TODO ...
                 }
                 Some((index, fc)) => {
-                    let s = format!(" {}_{}_{}.value is not null ", EXTRA_TABLE_PREFIX, &fc.attribute, index);
+                    let s = format!("{}_{}_{}.value is not null", EXTRA_TABLE_PREFIX, &fc.attribute, index);
                     content.push_str(&s);
                 }
             }
@@ -224,15 +224,13 @@ fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType
     let tag_value_filter = match tag_type {
         TagType::Text => {
             //unaccent_lower((tv.value_string)::text) LIKE unaccent_lower('ab%')
-            format!(
-                "unaccent_lower((tv.value_string)::text) {0} unaccent_lower('{1}')",
-                &sql_op, &filter_condition.value
-            )
+            let value = &filter_condition.value.to_string();
+            dbg!(&value);
+            format!("unaccent_lower((tv.value_string)::text) {0} unaccent_lower('{1}')", &sql_op, value)
         }
         TagType::Bool => {
             // science = true
             let value = filter_condition.value.to_string().to_lowercase();
-            dbg!(&value);
             if filter_condition.operator == ComparisonOperator::EQ && value == "true" {
                 "tv.value_boolean".to_string()
             } else {
@@ -427,12 +425,12 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     dbg!(&query_filter);
 
     // build the order columns
-    let order_columns = build_order_column(order_tags, &map_of_tags_with_occurrence).join(", ");
+    let order_columns = build_order_column(order_tags, &map_of_tags_with_occurrence).join(",\n    ");
 
     dbg!(&order_columns);
 
     // build the tag_columns
-    let tag_columns = build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(", ");
+    let tag_columns = build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(",\n    ");
 
     dbg!(&tag_columns);
 
@@ -451,31 +449,53 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
 
     // Build the final SQL
 
-    let mut final_sql = String::from("SELECT i.id,");
+    let mut final_sql = String::from(
+        r#"SELECT i.id,
+    name,
+    file_ref,
+    created_gmt,
+    last_modified_gmt,"#,
+    );
+
+    final_sql.push_str("\n    ");
     final_sql.push_str(&tag_columns);
 
+    final_sql.push_str("\n");
+    final_sql.push_str("FROM item i");
     final_sql.push_str(" FROM item i ");
 
-    final_sql.push_str(&list_of_query_tags.join(" "));
+    final_sql.push_str("\n");
+    final_sql.push_str(&list_of_query_tags.join("\n"));
 
+    final_sql.push_str("\n");
+    final_sql.push_str("WHERE");
     final_sql.push_str(" WHERE ");
 
+    final_sql.push_str("\n    ");
     final_sql.push_str(query_filter.as_str());
 
+    final_sql.push_str("\n");
+    final_sql.push_str("ORDER BY");
     final_sql.push_str(" ORDER BY ");
 
+    final_sql.push_str("\n    ");
     final_sql.push_str(order_columns.as_str());
+    final_sql.push_str("\n");
 
     // generate the DOKA search sql
     Ok(final_sql.to_string())
 }
 
+/// tag_value_filter and tag_super_filter are side by side to avoid a blank line
+/// in the case of there isn't any tag_super_filter
 const QUERY_FILTER_TEMPLATE: &str = r#"LEFT OUTER JOIN (
-                                        SELECT tv.item_id, tv.{{value_column_name}} as value
-                                        FROM tag_definition td
-                                        JOIN tag_value tv ON tv.tag_id = td.id 
-                                        AND td."name" = '{{tag_name}}' {{tag_value_filter}} {{tag_super_filter}}
-                                    ) ot_{{tag_name}}_{{occurence}} ON ot_{{tag_name}}_{{occurence}}.item_id = i.id"#;
+    SELECT tv.item_id, tv.{{value_column_name}} as value
+    FROM tag_definition td
+    JOIN tag_value tv ON
+        tv.tag_id = td.id
+        AND td."name" = '{{tag_name}}'
+        {{tag_value_filter}}{{tag_super_filter}}
+) ot_{{tag_name}}_{{occurence}} ON ot_{{tag_name}}_{{occurence}}.item_id = i.id"#;
 
 fn build_query_tag(
     filter_condition: &FilterCondition,
@@ -672,9 +692,7 @@ mod tests {
     pub async fn test_generate_search_sql_3_conditions() {
         init_logger();
         let input = r#"lastname LIKE "%ab%" OR (postal_code == 30099  AND  lastname LIKE "%h%")"#;
-
         let filter_expression_ast = analyse_expression(input).unwrap();
-
         let tag_definition_builder = TagDefinitionBuilderMock2 {};
         let query = generate_search_sql(
             &filter_expression_ast,
@@ -683,6 +701,7 @@ mod tests {
             &vec!["lastname", "postal_code"],
             SearchSqlGenerationMode::Live,
         ).await;
+
 
         let q = &query.unwrap();
         // validate and assert table names

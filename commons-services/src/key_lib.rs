@@ -2,12 +2,13 @@ use log::error;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use doka_cli::async_request_client::KeyManagerClientAsync;
 
-use crate::COMMON_EDIBLE_KEY_PROPERTY;
-use crate::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use crate::x_request_id::Follower;
+use crate::COMMON_EDIBLE_KEY_PROPERTY;
 
 ///
 /// Find the customer key if any
@@ -38,7 +39,8 @@ pub async fn fetch_customer_key(
             // The key we receive from the Key manager is master-encrypted
             let cek = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(tr_fwd!())?;
 
-            let clear_customer_key = DkEncrypt::decrypt_str(&customer_key, &cek)
+            let clear_customer_key = DkEncrypt::new(CC20)
+                .decrypt_str(&customer_key, &cek)
                 .map_err(err_fwd!("Cannot decrypt the customer key"))?;
 
             Ok(clear_customer_key)

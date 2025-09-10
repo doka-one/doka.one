@@ -132,7 +132,11 @@ lazy_static! {
 }
 
 pub fn read_props() -> HashMap<String, String> {
-    read_config("doka-test", &read_doka_env("DOKA_UT_ENV"))
+    read_config(
+        "doka-test",
+        &read_doka_env("DOKA_UT_ENV"),
+        &Some("DOKA_CLUSTER_PROFILE".to_string()),
+    )
 }
 
 pub fn init_test(test_name: &str, props: &HashMap<String, String>) {

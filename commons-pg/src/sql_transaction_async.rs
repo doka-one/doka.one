@@ -21,13 +21,11 @@ lazy_static! {
 
 pub async fn init_db_pool_async(connect_string: &str, pool_size: u32) -> anyhow::Result<()> {
     if SQL_POOL_ASYNC.get().is_none() {
-        let pool = match SQLPoolAsync::new(connect_string, pool_size)
-            .await
-            .map_err(err_fwd!("Cannot create the DB pool"))
-        {
-            Ok(p) => p,
-            Err(_) => return Err(anyhow!("_")),
-        };
+        let pool =
+            match SQLPoolAsync::new(connect_string, pool_size).await.map_err(err_fwd!("Cannot create the DB pool")) {
+                Ok(p) => p,
+                Err(_) => return Err(anyhow!("_")),
+            };
         match SQL_POOL_ASYNC.set(pool) {
             Ok(_) => {}
             Err(_) => return Err(anyhow!("Impossible to set the pool")),
@@ -47,8 +45,6 @@ pub(crate) fn parse_query_async<'a>(
     let mut new_sql_string = string_template.to_string();
     let mut v_params: Vec<CellValue> = vec![];
 
-    dbg!(&new_sql_string);
-
     for p in params {
         let param_name = p.0;
         let param_value = p.1;
@@ -61,8 +57,6 @@ pub(crate) fn parse_query_async<'a>(
         counter = counter + 1;
     }
 
-    dbg!(&new_sql_string);
-
     (new_sql_string, v_params)
 }
 
@@ -74,13 +68,15 @@ impl SQLPoolAsync {
     pub async fn new(connect_string: &str, pool_size: u32) -> anyhow::Result<Self> {
         // connect_string :  "postgres://doka:doka@localhost:5432/ad_test_03";
 
+        log_info!("********** Creating SQL pool with connect string [{}]", connect_string);
+
         // Configure le pool de connexions
+        // TODO use the pool_size parameter
         let pool = PgPoolOptions::new()
-            .min_connections(1) // Taille minimale du pool
-            .max_connections(pool_size) // Taille maximale du pool
-            .idle_timeout(Duration::from_secs(30)) // Timeout pour se connecter
-            .idle_timeout(Some(Duration::from_secs(10 * 60))) // Timeout d'inactivité des connexions
-            .max_lifetime(Some(Duration::from_secs(2 * 60 * 60))) // Durée de vie maximale d'une connexion
+            .min_connections(7) // Taille minimale du pool
+            .max_connections(50) // Taille maximale du pool
+            .idle_timeout(Some(Duration::from_secs(300))) // Timeout d'inactivité des connexions
+            .max_lifetime(Some(Duration::from_secs(3600 * 6))) // Durée de vie maximale d'une connexion
             .connect(connect_string)
             .await?;
 
@@ -100,13 +96,14 @@ pub struct SQLConnectionAsync {
 
 impl SQLConnectionAsync {
     pub async fn new(connect_string: &str) -> anyhow::Result<Self> {
+        log_info!("********** OTHER Creating SQL pool with connect string [{}]", connect_string);
+
         // Configure le pool de connexions
         let pool = PgPoolOptions::new()
-            .min_connections(1) // Taille minimale du pool
-            .max_connections(1) // Taille maximale du pool
-            .idle_timeout(Duration::from_secs(30)) // Timeout pour se connecter
-            .idle_timeout(Some(Duration::from_secs(10))) // Timeout d'inactivité des connexions
-            .max_lifetime(Some(Duration::from_secs(300))) // Durée de vie maximale d'une connexion
+            .min_connections(7) // Taille minimale du pool
+            .max_connections(50) // Taille maximale du pool
+            .idle_timeout(Some(Duration::from_secs(300))) // Timeout d'inactivité des connexions
+            .max_lifetime(Some(Duration::from_secs(3600 * 6))) // Durée de vie maximale d'une connexion
             .connect(connect_string)
             .await?;
         let cnx = pool.acquire().await?;
@@ -124,9 +121,7 @@ impl SQLConnectionAsync {
 
     pub async fn begin<'a>(&'a mut self) -> anyhow::Result<SQLTransactionAsync<'a>> {
         let t = self.client.begin().await?;
-        Ok(SQLTransactionAsync {
-            inner_transaction: t,
-        })
+        Ok(SQLTransactionAsync { inner_transaction: t })
     }
 }
 
@@ -178,10 +173,8 @@ fn bind_cell_to_query<'q>(
                     // Convertir la durée en secondes
                     let seconds = duration_since_epoch.as_secs();
                     // Convertir les secondes en NaiveDateTime
-                    let naive_datetime = NaiveDateTime::from_timestamp(
-                        seconds as i64,
-                        duration_since_epoch.subsec_nanos(),
-                    );
+                    let naive_datetime =
+                        NaiveDateTime::from_timestamp(seconds as i64, duration_since_epoch.subsec_nanos());
                     Some(naive_datetime)
                 }
             };
@@ -192,13 +185,9 @@ fn bind_cell_to_query<'q>(
 
 impl SQLQueryBlockAsync {
     /// Main routine to perform a select query
-    pub async fn execute(
-        &self,
-        sql_transaction: &mut SQLTransactionAsync<'_>,
-    ) -> anyhow::Result<SQLDataSet> {
+    pub async fn execute(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<SQLDataSet> {
         let null_str = "".to_owned();
-        let (mut new_sql_string, v_params) =
-            parse_query_async(self.sql_query.as_str(), &self.params, &null_str);
+        let (mut new_sql_string, v_params) = parse_query_async(self.sql_query.as_str(), &self.params, &null_str);
 
         match self.length {
             None => {
@@ -208,9 +197,6 @@ impl SQLQueryBlockAsync {
                 new_sql_string.push_str(format!(" OFFSET {} LIMIT {}", self.start, l).as_str());
             }
         }
-
-        dbg!(&new_sql_string);
-        dbg!(&self.params);
 
         let mut query_builder = sqlx::query(new_sql_string.as_str());
 
@@ -235,59 +221,51 @@ impl SQLQueryBlockAsync {
                 // To handle more types, take a look at the PgType enum
                 match ty.as_str() {
                     "int2" => {
-                        let db_value: Option<i16> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<i16> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::Int16(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "int4" => {
-                        let db_value: Option<i32> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<i32> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::Int32(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "int8" => {
-                        let db_value: Option<i64> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<i64> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::Int(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "float8" => {
-                        let db_value: Option<f64> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<f64> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::Double(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "bool" => {
-                        let db_value: Option<bool> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<bool> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::Bool(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "varchar" | "bpchar" | "char" | "text" => {
-                        let db_value: Option<&str> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<&str> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::from_opt_str(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "date" => {
-                        let db_value: Option<chrono::NaiveDate> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<chrono::NaiveDate> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let option_cell = CellValue::from_opt_naivedate(db_value);
                         my_row.insert(name.to_owned(), option_cell);
                     }
                     "timestamp" => {
                         // TODO use a NativeDateTime instead of a SystemTime
-                        let db_value: Option<NaiveDateTime> = row
-                            .try_get(name)
-                            .map_err(err_fwd!("Error reading column: {}", name))?;
+                        let db_value: Option<NaiveDateTime> =
+                            row.try_get(name).map_err(err_fwd!("Error reading column: {}", name))?;
                         let systime = naive_datetime_to_system_time(db_value);
                         let option_cell = CellValue::from_opt_systemtime(systime);
                         my_row.insert(name.to_owned(), option_cell);
@@ -300,10 +278,7 @@ impl SQLQueryBlockAsync {
             result.push(my_row);
         }
 
-        Ok(SQLDataSet {
-            position: 0,
-            data: Box::new(result),
-        })
+        Ok(SQLDataSet { position: 0, data: Box::new(result) })
     }
 }
 
@@ -321,10 +296,7 @@ impl SQLChangeAsync {
             .inner_transaction
             .execute(self.sql_query.as_str())
             .await
-            .map_err(err_fwd!(
-                "Batch execution failed, sql [{}]",
-                self.sql_query.as_str()
-            ))?;
+            .map_err(err_fwd!("Batch execution failed, sql [{}]", self.sql_query.as_str()))?;
 
         Ok(())
     }
@@ -332,63 +304,45 @@ impl SQLChangeAsync {
     /// Base routine for update, insert and delete
     async fn change(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<()> {
         let null_str = "".to_owned();
-        let (new_sql_string, v_params) =
-            parse_query_async(self.sql_query.as_str(), &self.params, &null_str);
+        let (new_sql_string, v_params) = parse_query_async(self.sql_query.as_str(), &self.params, &null_str);
         let mut query_builder = sqlx::query(new_sql_string.as_str());
         let v_params_debug = v_params.clone();
         for param in v_params {
             query_builder = bind_cell_to_query(param, query_builder);
         }
-        let _ = query_builder
-            .execute(&mut *sql_transaction.inner_transaction)
-            .await
-            .map_err(err_fwd!(
-                "Query failed : {}, Params : {:?}",
-                new_sql_string.as_str(),
-                v_params_debug
-            ))?;
+        let _ = query_builder.execute(&mut *sql_transaction.inner_transaction).await.map_err(err_fwd!(
+            "Query failed : {}, Params : {:?}",
+            new_sql_string.as_str(),
+            v_params_debug
+        ))?;
 
         Ok(())
     }
 
     /// Return the id of the new row if success
-    pub async fn insert(
-        &self,
-        sql_transaction: &mut SQLTransactionAsync<'_>,
-    ) -> anyhow::Result<i64> {
+    pub async fn insert(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<i64> {
         let _ = self.change(sql_transaction).await?;
         let sql = format!("SELECT currval('{}')", self.sequence_name);
 
         let query_builder = sqlx::query(&sql);
-        let result = query_builder
-            .fetch_one(&mut *sql_transaction.inner_transaction)
-            .await?;
+        let result = query_builder.fetch_one(&mut *sql_transaction.inner_transaction).await?;
 
         let pk: i64 = result.try_get(0)?;
         log_debug!("Primary key : [{}]", &pk);
         Ok(pk)
     }
 
-    pub async fn insert_no_pk(
-        &self,
-        sql_transaction: &mut SQLTransactionAsync<'_>,
-    ) -> anyhow::Result<()> {
+    pub async fn insert_no_pk(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<()> {
         let insert_info = self.change(sql_transaction).await?;
         Ok(insert_info)
     }
 
-    pub async fn update(
-        &self,
-        sql_transaction: &mut SQLTransactionAsync<'_>,
-    ) -> anyhow::Result<()> {
+    pub async fn update(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<()> {
         let update_info = self.change(sql_transaction).await?;
         Ok(update_info)
     }
 
-    pub async fn delete(
-        &self,
-        sql_transaction: &mut SQLTransactionAsync<'_>,
-    ) -> anyhow::Result<()> {
+    pub async fn delete(&self, sql_transaction: &mut SQLTransactionAsync<'_>) -> anyhow::Result<()> {
         let delete_info = self.change(sql_transaction).await?;
         Ok(delete_info)
     }
@@ -410,8 +364,7 @@ mod tests {
 
     use crate::sql_transaction::CellValue;
     use crate::sql_transaction_async::{
-        init_db_pool_async, SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync,
-        SQLTransactionAsync,
+        init_db_pool_async, SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
     };
 
     /// ```sql
@@ -438,8 +391,7 @@ mod tests {
     fn init() {
         INIT.call_once(|| {
             let log_config: String =
-                "/mnt/blob/installation_test_03/doka-configs/test_03/doka-test/config/log4rs.yaml"
-                    .to_string();
+                "/mnt/blob/installation_test_03/doka-configs/test_03/doka-test/config/log4rs.yaml".to_string();
             let log_config_path = Path::new(&log_config);
 
             match log4rs::init_file(&log_config_path, Default::default()) {
@@ -518,8 +470,7 @@ mod tests {
 
     async fn create_book(trans: &mut SQLTransactionAsync<'_>, title: &str) -> anyhow::Result<()> {
         let query = SQLQueryBlockAsync {
-            sql_query:
-            "INSERT INTO public.book (id, title) VALUES(nextval('book_id_seq'), 'L''aventurier')"
+            sql_query: "INSERT INTO public.book (id, title) VALUES(nextval('book_id_seq'), 'L''aventurier')"
                 .to_string(),
             start: 0,
             length: None,
@@ -623,18 +574,12 @@ mod tests {
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_title".to_owned(),
-            CellValue::from_raw_str("Game of Thrones"),
-        );
+        params.insert("p_title".to_owned(), CellValue::from_raw_str("Game of Thrones"));
         params.insert("p_isbn".to_owned(), CellValue::from_opt_str(None));
 
         let dt = NaiveDate::from_ymd(2024, 8, 15);
         params.insert("p_created_dt".to_owned(), CellValue::from_raw_naivedate(dt));
-        params.insert(
-            "p_precision_time".to_owned(),
-            CellValue::from_raw_systemtime(SystemTime::now()),
-        );
+        params.insert("p_precision_time".to_owned(), CellValue::from_raw_systemtime(SystemTime::now()));
 
         let query = SQLQueryBlockAsync {
             sql_query:
@@ -664,24 +609,18 @@ mod tests {
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_title".to_owned(),
-            CellValue::from_raw_str("Game of Thrones"),
-        );
+        params.insert("p_title".to_owned(), CellValue::from_raw_str("Game of Thrones"));
         params.insert("p_isbn".to_owned(), CellValue::from_opt_str(None));
 
         let dt = NaiveDate::from_ymd(2024, 8, 15);
         params.insert("p_created_dt".to_owned(), CellValue::from_raw_naivedate(dt));
-        params.insert(
-            "p_precision_time".to_owned(),
-            CellValue::from_raw_systemtime(SystemTime::now()),
-        );
+        params.insert("p_precision_time".to_owned(), CellValue::from_raw_systemtime(SystemTime::now()));
 
         let query = SQLChangeAsync {
             sql_query:
-            "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
+                "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
              :p_title, :p_isbn, :p_created_dt, :p_precision_time)"
-                .to_string(),
+                    .to_string(),
             params: params,
             sequence_name: "book_id_seq".to_string(),
         };
@@ -779,8 +718,9 @@ mod tests {
         params.insert("p_title".to_owned(), CellValue::from_raw_str("Game"));
 
         let query = SQLQueryBlockAsync {
-            sql_query: "SELECT idd, title, isbn, created_dt, precision_time FROM public.book WHERE title LIKE ':p_title%' "
-                .to_string(),
+            sql_query:
+                "SELECT idd, title, isbn, created_dt, precision_time FROM public.book WHERE title LIKE ':p_title%' "
+                    .to_string(),
             start: 0,
             length: None,
             params: params,
@@ -803,24 +743,18 @@ mod tests {
         let mut trans = cnx.begin().await?;
 
         let mut params = HashMap::new();
-        params.insert(
-            "p_title".to_owned(),
-            CellValue::from_raw_str(format!("{} All games", thread_number).as_str()),
-        );
+        params.insert("p_title".to_owned(), CellValue::from_raw_str(format!("{} All games", thread_number).as_str()));
         params.insert("p_isbn".to_owned(), CellValue::from_opt_str(None));
 
         let dt = NaiveDate::from_ymd(2024, 8, 15);
         params.insert("p_created_dt".to_owned(), CellValue::from_raw_naivedate(dt));
-        params.insert(
-            "p_precision_time".to_owned(),
-            CellValue::from_raw_systemtime(SystemTime::now()),
-        );
+        params.insert("p_precision_time".to_owned(), CellValue::from_raw_systemtime(SystemTime::now()));
 
         let query = SQLChangeAsync {
             sql_query:
-            "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
+                "INSERT INTO public.book (id, title, isbn, created_dt, precision_time) VALUES(nextval('book_id_seq'),\
              :p_title, :p_isbn, :p_created_dt, :p_precision_time)"
-                .to_string(),
+                    .to_string(),
             params: params,
             sequence_name: "book_id_seq".to_string(),
         };

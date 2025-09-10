@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
 use commons_error::*;
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 
 use crate::ft_tokenizer::WordType::WordToEncrypt;
@@ -321,7 +322,8 @@ fn encrypt_words(
 ) -> anyhow::Result<HashMap<u64, String>> {
     let mut encrypted_words = HashMap::<u64, String>::new();
     for (k, w) in words_to_encrypt {
-        let encrypted_word = DkEncrypt::encrypt_str(&w, customer_key)
+        let encrypted_word = DkEncrypt::new(CC20)
+            .encrypt_str(&w, customer_key)
             .map_err(err_fwd!("Cannot encrypt the word: [{}]", w))?;
         encrypted_words.insert(*k, encrypted_word);
     }
@@ -334,7 +336,7 @@ fn encrypt_words(
 // fn encrypt_words_rayon(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
 //     let encrypted_words: anyhow::Result<HashMap<u64, String>> = words_to_encrypt.par_iter()
 //         .map(|(key, value)| {
-//             let encrypted_value = DkEncrypt::encrypt_str(value, &customer_key)
+//             let encrypted_value = DkEncrypt::new(CC20).encrypt_str(value, &customer_key)
 //                 .map_err( err_fwd!("Cannot encrypt the word: [{}]", value))?;
 //             Ok((*key, encrypted_value))
 //         }).collect();

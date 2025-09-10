@@ -11,12 +11,12 @@ use commons_pg::sql_transaction::CellValue;
 use commons_pg::sql_transaction_async::{
     SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
 };
-use commons_services::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY,
-};
+
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
+use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{
     INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK, INVALID_TOKEN,
@@ -63,15 +63,18 @@ impl LoginDelegate {
             "💣 Cannot read the cek, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INVALID_CEK);
+            return WebType::from_api_error(&INVALID_CEK);
         };
 
         // let-else
-        let Ok(session_id) = DkEncrypt::encrypt_str(&clear_session_id, &cek).map_err(err_fwd!(
-            "💣 Cannot encrypt the session id, follower=[{}]",
-            &self.follower
-        )) else {
-            return WebType::from_errorset(&INVALID_TOKEN);
+        let Ok(session_id) = DkEncrypt::new(CC20)
+            .encrypt_str(&clear_session_id, &cek)
+            .map_err(err_fwd!(
+                "💣 Cannot encrypt the session id, follower=[{}]",
+                &self.follower
+            ))
+        else {
+            return WebType::from_api_error(&INVALID_TOKEN);
         };
 
         // The follower the an easiest way to pass the information
@@ -92,7 +95,7 @@ impl LoginDelegate {
                 &login_request.login,
                 &self.follower
             );
-            return WebType::from_errorset(&SESSION_LOGIN_DENIED);
+            return WebType::from_api_error(&SESSION_LOGIN_DENIED);
         }
 
         log_info!("😎 Password verified, follower=[{}]", &self.follower);
@@ -104,7 +107,7 @@ impl LoginDelegate {
                 "💣 Session Manager Client creation failed, follower=[{}]",
                 &self.follower
             );
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
 
         log_info!(
@@ -183,14 +186,14 @@ impl LoginDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok((open_session_request, password_hash)) =
@@ -201,7 +204,7 @@ impl LoginDelegate {
                 &login_request.login,
                 &self.follower
             );
-            return WebResponse::from_errorset(&SESSION_LOGIN_DENIED);
+            return WebResponse::from_api_error(&SESSION_LOGIN_DENIED);
         };
 
         if trans
@@ -210,7 +213,7 @@ impl LoginDelegate {
             .map_err(err_fwd!("💣 Commit failed"))
             .is_err()
         {
-            return WebResponse::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         WebResponse::from_item(

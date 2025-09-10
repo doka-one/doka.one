@@ -22,6 +22,7 @@ bcrypt = { workspace = true }
 sha2 = "^0.10"
 ring = "^0.16"
 orion = "0.17.4"
+aes-gcm = "^0.10"
 
 commons-error = {path="../commons-error"}
 

@@ -2,12 +2,13 @@ use log::error;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
-use dkdto::{EntrySession, ErrorSet};
+use dkdto::{EntrySession};
+use dkdto::api_error::ApiError;
 use doka_cli::async_request_client::SessionManagerClientAsync;
 use doka_cli::request_client::TokenType;
 
-use crate::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use crate::token_lib::SessionToken;
 use crate::x_request_id::Follower;
 
@@ -29,7 +30,7 @@ pub async fn fetch_entry_session(sid: &str) -> anyhow::Result<EntrySession> {
         }
         Err(e) => {
             log_error!("Session Manager failed with status [{:?}]", e);
-            return Err(anyhow::anyhow!("{} - {}", e.http_error_code, e.message));
+            Err(anyhow::anyhow!("{} - {}", e.http_error_code, e.message))
         }
     }
 }
@@ -37,29 +38,25 @@ pub async fn fetch_entry_session(sid: &str) -> anyhow::Result<EntrySession> {
 pub async fn valid_sid_get_session(
     session_token: &SessionToken,
     follower: &mut Follower,
-) -> Result<EntrySession, &'static ErrorSet<'static>> {
-    // Check if the token is valid
+) -> Result<EntrySession, &'static ApiError<'static>> {
     if !session_token.is_valid() {
         log_error!(
             "💣 Invalid session token, token=[{:?}], follower=[{}]",
             &session_token,
             &follower
         );
-        return Err(&INVALID_TOKEN);
+        return Err(&*INVALID_TOKEN); // no clone, no alloc
     }
 
     follower.token_type = TokenType::Sid(session_token.0.clone());
 
-    // Read the session information
-    let Ok(entry_session) = fetch_entry_session(&follower.token_type.value())
-        .await
-        .map_err(err_fwd!(
-            "💣 Session Manager failed, follower=[{}]",
-            &follower
-        ))
-    else {
-        return Err(&INTERNAL_TECHNICAL_ERROR);
+    let entry_session = match fetch_entry_session(&follower.token_type.value()).await {
+        Ok(es) => es,
+        Err(e) => {
+            log_error!("💣 Session Manager failed, follower=[{}], err={e}", &follower);
+            return Err(&*INTERNAL_TECHNICAL_ERROR); // no clone, no alloc
+        }
     };
-    //let customer_code = entry_session.customer_code.as_str();
+
     Ok(entry_session)
 }

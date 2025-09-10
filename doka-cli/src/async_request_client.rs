@@ -2,18 +2,21 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use commons_error::*;
+use log::*;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use reqwest::{Client, RequestBuilder};
+use reqwest::{multipart, Client, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde::{de, Serialize};
 use url::Url;
 
-use dkdto::error_codes::HTTP_CLIENT_ERROR;
+use dkdto::error_codes::{HTTP_CLIENT_ERROR, INTERNAL_TECHNICAL_ERROR, URL_PARSING_ERROR};
 use dkdto::{
-    AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
-    AddTagReply, AddTagRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply,
-    FullTextRequest, GetItemReply, GetTagReply, OpenSessionReply, OpenSessionRequest, SessionReply,
-    SimpleMessage, TikaMeta, TikaParsing, WebResponse, WebTypeBuilder,
+    AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply,
+    AddTagRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply,
+    GetFileInfoShortReply, GetItemReply, GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply, MediaBytes,
+    OpenSessionReply, OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse,
+    WebTypeBuilder,
 };
 
 use crate::request_client::TokenType::{Sid, Token};
@@ -29,27 +32,17 @@ pub struct KeyManagerClientAsync {
 
 impl KeyManagerClientAsync {
     pub fn new(server_name: &str, port: u16) -> Self {
-        Self {
-            server: WebServerAsync::new(server_name, port, "key-manager"),
-        }
+        Self { server: WebServerAsync::new(server_name, port, "key-manager") }
     }
 
     ///
     /// It is not supposed to return an error, so let's return the Reply directly
     ///
-    pub async fn add_key(
-        &self,
-        request: &AddKeyRequest,
-        token: &TokenType,
-    ) -> WebResponse<AddKeyReply> {
+    pub async fn add_key(&self, request: &AddKeyRequest, token: &TokenType) -> WebResponse<AddKeyReply> {
         //let url = format!("http://{}:{}/{}/key", &self.server.server_name, self.server.port, self.server.context);
         let url = self.server.build_url("key");
 
-        let headers = CustomHeaders {
-            token_type: token.clone(),
-            x_request_id: None,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: token.clone(), x_request_id: None, cek: None };
 
         self.server.post_data_retry(&url, request, &headers).await
     }
@@ -57,9 +50,7 @@ impl KeyManagerClientAsync {
     pub async fn get_key(&self, customer_code: &str, token: &str) -> WebResponse<CustomerKeyReply> {
         // http://localhost:{{PORT}}/key-manager/key/f1248fab
         let url = self.server.build_url_with_refcode("key", customer_code);
-        self.server
-            .get_data_retry(&url, &Token(token.to_string()))
-            .await
+        self.server.get_data_retry(&url, &Token(token.to_string())).await
     }
 }
 
@@ -70,9 +61,7 @@ pub struct SessionManagerClientAsync {
 
 impl SessionManagerClientAsync {
     pub fn new(server_name: &str, port: u16) -> Self {
-        Self {
-            server: WebServerAsync::new(server_name, port, "session-manager"),
-        }
+        Self { server: WebServerAsync::new(server_name, port, "session-manager") }
     }
 
     pub async fn open_session(
@@ -84,11 +73,7 @@ impl SessionManagerClientAsync {
         //let url = format!("http://{}:{}/session-manager/session", &self.server.server_name, self.server.port);
         let url = self.server.build_url("session");
 
-        let headers = CustomHeaders {
-            token_type: Token(token.to_string()),
-            x_request_id,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: Token(token.to_string()), x_request_id, cek: None };
 
         self.server.post_data_retry(&url, request, &headers).await
     }
@@ -96,13 +81,8 @@ impl SessionManagerClientAsync {
     pub async fn get_session(&self, sid: &str, token: &str) -> WebResponse<SessionReply> {
         // let url = format!("http://{}:{}/session-manager/session/{}", &self.server.server_name, self.server.port,
         //                   Uri::percent_encode(sid) );
-        let url = self.server.build_url_with_refcode(
-            "session",
-            utf8_percent_encode(sid, NON_ALPHANUMERIC).to_string(),
-        );
-        self.server
-            .get_data_retry(&url, &Token(token.to_string()))
-            .await
+        let url = self.server.build_url_with_refcode("session", utf8_percent_encode(sid, NON_ALPHANUMERIC).to_string());
+        self.server.get_data_retry(&url, &Token(token.to_string())).await
     }
 }
 
@@ -115,28 +95,18 @@ pub struct DocumentServerClientAsync {
 
 impl DocumentServerClientAsync {
     pub fn new(server_name: &str, port: u16) -> Self {
-        Self {
-            server: WebServerAsync::new(server_name, port, "document-server"),
-        }
+        Self { server: WebServerAsync::new(server_name, port, "document-server") }
     }
 
     pub fn read_info(&self) -> (String, u16) {
         (self.server.server_name.clone(), self.server.port)
     }
 
-    pub async fn create_item(
-        &self,
-        request: &AddItemRequest,
-        sid: &str,
-    ) -> WebResponse<AddItemReply> {
+    pub async fn create_item(&self, request: &AddItemRequest, sid: &str) -> WebResponse<AddItemReply> {
         // let url = format!("http://{}:{}/document-server/item", &self.server.server_name, self.server.port);
         let url = self.server.build_url("item");
 
-        let headers = CustomHeaders {
-            token_type: TokenType::Sid(sid.to_string()),
-            x_request_id: None,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: TokenType::Sid(sid.to_string()), x_request_id: None, cek: None };
 
         self.server.post_data_retry(&url, request, &headers).await
     }
@@ -148,10 +118,7 @@ impl DocumentServerClientAsync {
         // let url = format!("http://{}:{}/document-server/item/{}", &self.server.server_name, self.server.port,
         //                   item_id );
         let url = self.server.build_url_with_refcode("item", item_id);
-        let reply: WebResponse<GetItemReply> = self
-            .server
-            .get_data_retry(&url, &Sid(sid.to_string()))
-            .await;
+        let reply: WebResponse<GetItemReply> = self.server.get_data_retry(&url, &Sid(sid.to_string())).await;
         reply
     }
 
@@ -169,11 +136,7 @@ impl DocumentServerClientAsync {
         let end_point = format!("item/{0}/tags", item_id);
         let url = self.server.build_url(&end_point);
 
-        let headers = CustomHeaders {
-            token_type: Sid(sid.to_string()),
-            x_request_id: None,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: Sid(sid.to_string()), x_request_id: None, cek: None };
 
         self.server.post_data_retry(&url, request, &headers).await
     }
@@ -181,18 +144,11 @@ impl DocumentServerClientAsync {
     ///
     /// TODO perform URL escaping
     ///
-    pub async fn delete_item_tag(
-        &self,
-        item_id: i64,
-        tag_names: &[String],
-        sid: &str,
-    ) -> WebResponse<SimpleMessage> {
+    pub async fn delete_item_tag(&self, item_id: i64, tag_names: &[String], sid: &str) -> WebResponse<SimpleMessage> {
         // http://{}:{}/document-server/item/<item_id>/tags?tag_names=<tag_names>
         let end_point = format!("item/{0}/tags?tag_names={1}", item_id, tag_names.join(","));
         let url = self.server.build_url(&end_point);
-        self.server
-            .delete_data_retry(&url, &Sid(sid.to_owned()))
-            .await
+        self.server.delete_data_retry(&url, &Sid(sid.to_owned())).await
     }
 
     ///
@@ -202,9 +158,7 @@ impl DocumentServerClientAsync {
         // let url = format!("http://{}:{}/document-server/item/", &self.server.server_name, self.server.port,
         //                   item_id );
         let url = self.server.build_url("item");
-        self.server
-            .get_data_retry(&url, &Sid(sid.to_string()))
-            .await
+        self.server.get_data_retry(&url, &Sid(sid.to_string())).await
     }
 
     ///
@@ -214,11 +168,7 @@ impl DocumentServerClientAsync {
         // let url = format!("http://{}:{}/document-server/tag", &self.server.server_name, self.server.port);
         let url = self.server.build_url("tag");
 
-        let headers = CustomHeaders {
-            token_type: TokenType::Sid(sid.to_string()),
-            x_request_id: None,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: TokenType::Sid(sid.to_string()), x_request_id: None, cek: None };
 
         self.server.post_data_retry(&url, request, &headers).await
     }
@@ -229,18 +179,14 @@ impl DocumentServerClientAsync {
     pub async fn get_all_tag(&self, sid: &str) -> WebResponse<GetTagReply> {
         //let url = format!("http://{}:{}/document-server/tag", &self.server.server_name, self.server.port);
         let url = self.server.build_url("tag");
-        self.server
-            .get_data_retry(&url, &Sid(sid.to_string()))
-            .await
+        self.server.get_data_retry(&url, &Sid(sid.to_string())).await
     }
 
     ///
     ///
     ///
     pub async fn delete_tag(&self, tag_id: i64, sid: &str) -> WebResponse<SimpleMessage> {
-        self.server
-            .delete_for_url(tag_id, "tag", &Sid(sid.to_owned()))
-            .await
+        self.server.delete_for_url(tag_id, "tag", &Sid(sid.to_owned())).await
     }
 
     ///
@@ -258,34 +204,80 @@ impl DocumentServerClientAsync {
             file_ref: file_ref.to_owned(),
             raw_text: raw_text.to_owned(),
         };
-        dbg!(&request);
         let url = self.server.build_url("fulltext_indexing");
-        let headers = CustomHeaders {
-            token_type: TokenType::Sid(sid.to_string()),
-            x_request_id: None,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: TokenType::Sid(sid.to_string()), x_request_id: None, cek: None };
         self.server.post_data_retry(&url, &request, &headers).await
     }
 
     ///
     ///
     ///
-    pub async fn delete_text_indexing(
-        &self,
-        file_ref: &str,
-        sid: &str,
-    ) -> WebResponse<SimpleMessage> {
-        let request = DeleteFullTextRequest {
-            file_ref: file_ref.to_owned(),
-        };
+    pub async fn delete_text_indexing(&self, file_ref: &str, sid: &str) -> WebResponse<SimpleMessage> {
+        let request = DeleteFullTextRequest { file_ref: file_ref.to_owned() };
         let url = self.server.build_url("delete_text_indexing");
-        let headers = CustomHeaders {
-            token_type: TokenType::Sid(sid.to_string()),
-            x_request_id: None,
-            cek: None,
-        };
+        let headers = CustomHeaders { token_type: TokenType::Sid(sid.to_string()), x_request_id: None, cek: None };
         self.server.post_data_retry(&url, &request, &headers).await
+    }
+}
+
+/// File Server
+
+pub struct FileServerClientAsync {
+    server: WebServerAsync,
+}
+
+impl FileServerClientAsync {
+    pub fn new(server_name: &str, port: u16) -> Self {
+        Self { server: WebServerAsync::new(server_name, port, "file-server") }
+    }
+
+    pub async fn upload(&self, item_info: &str, request: Vec<u8>, sid: &str) -> WebResponse<UploadReply> {
+        // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("upload2", item_info);
+
+        self.server
+            .post_bytes(&url, request, &Sid(sid.to_owned()))
+            .await
+            .map_err(|e| e.into_owned())
+    }
+
+    pub async fn download(&self, file_reference: &str, sid: &str) -> WebResponse<MediaBytes> /*WebResponse<( String, bytes::Bytes, StatusCode )>*/
+    {
+        // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
+        let url = self.server.build_url_with_refcode("download", file_reference);
+
+        self.server.get_binary_data(&url, &Sid(sid.to_string())).await.unwrap_or_else(|e| {
+            println!("😎 Cannot download the binary content");
+            // log_error!("Cannot download the binary content");
+            WebResponse::from_api_error(&INTERNAL_TECHNICAL_ERROR)
+        })
+    }
+
+    pub async fn info(&self, file_ref: &str, sid: &str) -> WebResponse<GetFileInfoReply> {
+        // let url = format!("http://{}:{}/file-server/info/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("info", &file_ref);
+        // let url = self.server.build_url("info/1ABH234");
+        self.server.get_data_retry(&url, &Sid(sid.to_string())).await
+    }
+
+    pub async fn stats(&self, file_ref: &str, sid: &str) -> WebResponse<GetFileInfoShortReply> {
+        // let url = format!("http://{}:{}/file-server/stats/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("stats", &file_ref);
+        // let url = self.server.build_url("stats/1ABH234");
+        self.server.get_data_retry(&url, &Sid(sid.to_string())).await
+    }
+
+    pub async fn loading(&self, sid: &str) -> WebResponse<ListOfUploadInfoReply> {
+        // let url = format!("http://{}:{}/file-server/loading/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url("loading");
+        self.server.get_data_retry(&url, &Sid(sid.to_string())).await
+    }
+
+    pub async fn list(&self, pattern: &str, sid: &str) -> WebResponse<ListOfFileInfoReply> {
+        // let url = format!("http://{}:{}/file-server/stats/{}", &self.server.server_name, self.server.port);
+        let url = self.server.build_url_with_refcode("list", &pattern);
+        // let url = self.server.build_url("stats/1ABH234");
+        self.server.get_data_retry(&url, &Sid(sid.to_string())).await
     }
 }
 
@@ -298,9 +290,7 @@ pub struct TikaServerClientAsync {
 
 impl TikaServerClientAsync {
     pub fn new(server_name: &str, port: u16) -> Self {
-        Self {
-            server: WebServerAsync::new(server_name, port, ""),
-        }
+        Self { server: WebServerAsync::new(server_name, port, "") }
     }
 
     pub async fn parse_data(&self, request: &Vec<u8>) -> anyhow::Result<TikaParsing> {
@@ -346,11 +336,7 @@ struct WebServerAsync {
 
 impl WebServerAsync {
     pub fn new(server_name: &str, port: u16, context: &str) -> Self {
-        Self {
-            server_name: server_name.to_owned(),
-            port,
-            context: context.to_owned(),
-        }
+        Self { server_name: server_name.to_owned(), port, context: context.to_owned() }
     }
 
     // async fn retry<F, T>(&self, mut operation: F) -> anyhow::Result<T>
@@ -372,24 +358,16 @@ impl WebServerAsync {
     //     }
     // }
 
-    async fn get_data_retry<V: de::DeserializeOwned>(
-        &self,
-        url: &str,
-        token: &TokenType,
-    ) -> WebResponse<V> {
+    async fn get_data_retry<V: de::DeserializeOwned>(&self, url: &str, token: &TokenType) -> WebResponse<V> {
         // let get_data = || -> anyhow::Result<WebResponse<V>> { self.get_data(url, token) };
         /*        self.retry(get_data)
-        .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR)).await*/
+        .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR)).await*/
         // FIXME we bypass the retry routine because we cannot figure out the right signature
         //          for the retry
         self.get_data(&url, &token).await?
     }
 
-    async fn get_data<V: de::DeserializeOwned>(
-        &self,
-        url: &str,
-        token: &TokenType,
-    ) -> anyhow::Result<WebResponse<V>> {
+    async fn get_data<V: de::DeserializeOwned>(&self, url: &str, token: &TokenType) -> anyhow::Result<WebResponse<V>> {
         let client = Client::new();
         let url = Url::parse(url)?;
         let request_builder = client.get(url).timeout(TIMEOUT);
@@ -422,10 +400,7 @@ impl WebServerAsync {
         // FIXME we bypass the retry routine because we cannot figure out the right signature
         //          for the retry
 
-        match /*self.retry(post_data).await*/ ret {
-            Ok(response) => response,
-            Err(_) => WebResponse::from_errorset(&HTTP_CLIENT_ERROR),
-        }
+        ret.unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     async fn post_data<U: Serialize, V: de::DeserializeOwned>(
@@ -434,9 +409,6 @@ impl WebServerAsync {
         request: &U,
         headers: &CustomHeaders,
     ) -> anyhow::Result<WebResponse<V>> {
-        dbg!(&url);
-        dbg!(&headers);
-
         let client = Client::new();
         let url = Url::parse(url)?;
         let request_builder = client.post(url).timeout(TIMEOUT);
@@ -456,6 +428,52 @@ impl WebServerAsync {
         Self::send_request_builder(request_builder).await
     }
 
+    /// Generic routine to post a binary content
+    async fn post_bytes<V: de::DeserializeOwned>(
+        &self,
+        url: &str,
+        request: Vec<u8>,
+        token: &TokenType,
+    ) -> WebResponse<V> {
+        let client = Client::new();
+
+        let my_url = match Url::parse(url) {
+            Ok(parsed_url) => parsed_url, // Parsed URL is valid
+            Err(_) => {
+                return WebResponse::from_api_error(&URL_PARSING_ERROR); // Return an error response on failure
+            }
+        };
+
+        let request_builder = client.post(my_url).timeout(TIMEOUT);
+
+        let form =
+            multipart::Form::new().part("data", multipart::Part::bytes(request).file_name("111-Bright_Snow.jpg"));
+
+        let request_builder_2 = Self::add_header(request_builder, &token);
+        Self::send_request_builder(request_builder_2.multipart(form)).await?
+    }
+
+    /// Returns the media type and the binary content and the status code
+    async fn get_binary_data(&self, url: &str, token: &TokenType) -> anyhow::Result<WebResponse<MediaBytes>> {
+        let client = Client::new();
+        let my_url = Url::parse(url).map_err(tr_fwd!())?;
+        let request_builder = client.get(my_url).timeout(TIMEOUT);
+
+        //dbg!(&token);
+        let request_builder_2 = match token {
+            Token(token_value) => request_builder.header("token", token_value.clone()),
+            Sid(sid_value) => request_builder.header("sid", sid_value.clone()),
+            TokenType::None => request_builder,
+        };
+
+        println!("About to request the binary data");
+        let response = request_builder_2.send().await.map_err(tr_fwd!())?;
+        let status_code = response.status();
+        let mime_type = response.headers().get("content-type").ok_or(anyhow!("No content-type"))?.to_str()?;
+        let mb = MediaBytes { media_type: mime_type.to_string(), data: response.bytes().await.map_err(tr_fwd!())? };
+        Ok(WebResponse::from_item(status_code.as_u16(), mb))
+    }
+
     ///
     /// Put
     ///
@@ -463,11 +481,7 @@ impl WebServerAsync {
     ///
     /// This PUT is for the TikaServer only, so no security token
     ///
-    async fn put_bytes<V: de::DeserializeOwned>(
-        &self,
-        url: &str,
-        request: Vec<u8>,
-    ) -> anyhow::Result<V> {
+    async fn put_bytes<V: de::DeserializeOwned>(&self, url: &str, request: Vec<u8>) -> anyhow::Result<V> {
         let client = Client::new();
         let url = Url::parse(url)?;
         let request_builder = client.put(url).timeout(TIMEOUT);
@@ -482,11 +496,7 @@ impl WebServerAsync {
         }
     }
 
-    async fn put_bytes_retry<V: de::DeserializeOwned>(
-        &self,
-        url: &str,
-        request: &Vec<u8>,
-    ) -> anyhow::Result<V> {
+    async fn put_bytes_retry<V: de::DeserializeOwned>(&self, url: &str, request: &Vec<u8>) -> anyhow::Result<V> {
         let clone_request = request.clone(); // TODO find a way not to clone the array
         self.put_bytes(url, clone_request).await
     }
@@ -501,23 +511,13 @@ impl WebServerAsync {
                     let value: Result<SimpleMessage, reqwest::Error> = v.json().await;
                     match value {
                         Ok(v_value) => WebResponse::from_simple(status_code.as_u16(), v_value),
-                        Err(e) => {
-                            return Err(anyhow!(
-                                "Failed to parse error response: {}",
-                                e.to_string()
-                            ))
-                        }
+                        Err(e) => return Err(anyhow!("Failed to parse error response: {}", e.to_string())),
                     }
                 } else {
                     let value: Result<V, reqwest::Error> = v.json().await;
                     match value {
                         Ok(v_value) => WebResponse::from_item(status_code.as_u16(), v_value),
-                        Err(e) => {
-                            return Err(anyhow!(
-                                "Failed to parse successful response: {}",
-                                e.to_string()
-                            ))
-                        }
+                        Err(e) => return Err(anyhow!("Failed to parse successful response: {}", e.to_string())),
                     }
                 }
             }
@@ -542,18 +542,12 @@ impl WebServerAsync {
         Self::send_request_builder(Self::add_header(request_builder, &token)).await
     }
 
-    async fn delete_data_retry<V: de::DeserializeOwned>(
-        &self,
-        url: &str,
-        token: &TokenType,
-    ) -> WebResponse<V> {
-        self.delete_data(url, token)
-            .await
-            .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+    async fn delete_data_retry<V: de::DeserializeOwned>(&self, url: &str, token: &TokenType) -> WebResponse<V> {
+        self.delete_data(url, token).await.unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
 
         // let delete_data = || -> anyhow::Result<WebResponse<V>> { self.delete_data(url, token) };
         // self.retry(delete_data)
-        //     .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+        //     .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     ///
@@ -561,12 +555,7 @@ impl WebServerAsync {
     /// url_path : ex : admin-server/tag
     /// refcode : "eb65e" or 125
     ///
-    async fn delete_for_url<T>(
-        &self,
-        refcode: T,
-        end_point: &str,
-        token: &TokenType,
-    ) -> WebResponse<SimpleMessage>
+    async fn delete_for_url<T>(&self, refcode: T, end_point: &str, token: &TokenType) -> WebResponse<SimpleMessage>
     where
         T: Display,
     {
@@ -580,10 +569,7 @@ impl WebServerAsync {
     /// end_point , ex : "key", "tag"
     ///
     fn build_url(&self, end_point: &str) -> String {
-        format!(
-            "http://{}:{}/{}/{}",
-            &self.server_name, self.port, self.context, end_point
-        )
+        format!("http://{}:{}/{}/{}", &self.server_name, self.port, self.context, end_point)
     }
 
     ///
@@ -593,10 +579,7 @@ impl WebServerAsync {
     where
         T: Display,
     {
-        format!(
-            "http://{}:{}/{}/{}/{}",
-            &self.server_name, self.port, self.context, end_point, ref_code
-        )
+        format!("http://{}:{}/{}/{}/{}", &self.server_name, self.port, self.context, end_point, ref_code)
     }
 
     fn add_header(request_builder: RequestBuilder, token: &TokenType) -> RequestBuilder {

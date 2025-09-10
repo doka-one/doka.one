@@ -10,14 +10,14 @@ use log::*;
 
 use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
 use commons_pg::sql_transaction_async::init_db_pool_async;
-use commons_services::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkconfig::property_name::{
+    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
+};
 use dkdto::{
     CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType,
 };
@@ -87,10 +87,27 @@ pub async fn delete_customer(
     x_request_id: XRequestID,
     Path(customer_code): Path<String>,
 ) -> WebType<SimpleMessage> {
-    let delegate = CustomerDelegate::new(security_token, x_request_id);
+    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.delete_customer(&customer_code).await
 }
 
+/// 🔑 Purge integration tests customer
+/// **NORM
+///
+/// #[delete("/customer/integration_tests")]
+pub async fn delete_integration_tests_customer(
+    security_token: SecurityToken,
+    x_request_id: XRequestID,
+) -> WebType<SimpleMessage> {
+    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
+    delegate.delete_integration_tests_customer().await
+}
+
+/// Accept parameters from the commande line
+/// * --doka-env [optional] : the path to the .doka-config.json file (or from the DOKA_ENV environment variable)
+/// * --cluster-profile : the name of the cluster profile
+///
+/// By default, the program will look for the .doka-config.json file in the user's base folder
 #[tokio::main]
 async fn main() {
     const PROGRAM_NAME: &str = "Admin Server";
@@ -106,8 +123,11 @@ async fn main() {
         PROJECT_CODE, VAR_NAME
     );
 
-    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME));
-
+    let props = read_config(
+        PROJECT_CODE,
+        &read_doka_env(&VAR_NAME),
+        &Some("DOKA_CLUSTER_PROFILE".to_string()),
+    );
     set_prop_values(props);
 
     let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
@@ -168,6 +188,10 @@ async fn main() {
         .route("/login", post(login))
         .route("/customer", post(create_customer))
         .route("/customer/:customer_code", delete(delete_customer))
+        .route(
+            "/customer/integration_tests",
+            delete(delete_integration_tests_customer),
+        )
         .route(
             "/customer/removable/:customer_code",
             patch(set_removable_flag_customer),

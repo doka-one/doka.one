@@ -6,14 +6,15 @@ const TEST_TO_RUN: &[&str] = &["t10_login_ok", "t20_login_fail", "t30_login_fail
 
 #[cfg(test)]
 pub mod api_login_tests {
-    use dkdto::{ErrorMessage, LoginRequest};
+    use dkdto::api_error::ApiError;
+    use dkdto::LoginRequest;
     use doka_cli::request_client::AdminServerClient;
 
     use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
 
     #[test]
-    fn t10_login_ok() -> Result<(), ErrorMessage> {
+    fn t10_login_ok() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t10_login_ok", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
         eprintln!("props {:?}", &props);
@@ -28,15 +29,13 @@ pub mod api_login_tests {
     }
 
     #[test]
-    fn t20_login_fail() -> Result<(), ErrorMessage> {
+    fn t20_login_fail() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t20_login_fail", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: props.get("login").unwrap().to_owned(),
-            password: "dokatece3.WRONG".to_string(),
-        };
+        let login_request =
+            LoginRequest { login: props.get("login").unwrap().to_owned(), password: "dokatece3.WRONG".to_string() };
         let login_reply = admin_server.login(&login_request);
 
         assert_eq!(true, login_reply.is_err());
@@ -49,15 +48,13 @@ pub mod api_login_tests {
     }
 
     #[test]
-    fn t30_login_fail() -> Result<(), ErrorMessage> {
+    fn t30_login_fail() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t30_login_fail", TEST_TO_RUN); // auto dropping
         let props = lookup.props();
 
         let admin_server = AdminServerClient::new("localhost", 30060);
-        let login_request = LoginRequest {
-            login: "inconnu@doka.com".to_string(),
-            password: props.get("password").unwrap().to_owned(),
-        };
+        let login_request =
+            LoginRequest { login: "inconnu@doka.com".to_string(), password: props.get("password").unwrap().to_owned() };
         let login_reply = admin_server.login(&login_request);
 
         assert_eq!(true, login_reply.is_err());

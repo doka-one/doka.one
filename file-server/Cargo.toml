@@ -28,13 +28,13 @@ bytes = "^1.5"
 tokio-util = { version = "0.7.10", features = ["io"] }
 axum-extra = "0.9.3"
 
-commons-pg = {path="../commons-pg"}
-commons-error = {path="../commons-error"}
-dkconfig = {path="../dkconfig"}
-dkcrypto = {path="../dkcrypto"}
-commons-services = {path= "../commons-services" }
-dkdto = {path="../dkdto"}
-doka-cli = {path="../doka-cli"}
+commons-pg = { path = "../commons-pg" }
+commons-error = { path = "../commons-error" }
+dkconfig = { path = "../dkconfig" }
+dkcrypto = { path = "../dkcrypto" }
+commons-services = { path = "../commons-services" }
+dkdto = { path = "../dkdto" }
+doka-cli = { path = "../doka-cli" }
 futures = { version = "0.3.30", features = [] }
 
 

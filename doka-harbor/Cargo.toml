@@ -1,0 +1,42 @@
+[package]
+name = "doka-harbor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_derive = { workspace = true }
+rs-uuid = { workspace = true }
+log = { workspace = true }
+log4rs = { workspace = true }
+okapi = { workspace = true }
+java-properties = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+
+ciborium = "^0.2"
+tower = "0.4.13"
+hyper = "1.4.1"
+bytes = { version = "^1.5", features = [] }
+async-nats = "^0.38"
+image = { version = "0.24.9" }
+rayon = "^1.7"
+handlebars = "^5"
+#fast_image_resize = "^5.0"
+
+commons-error = { path = "../commons-error" }
+dkdto = { path = "../dkdto" }
+dkcrypto = { path = "../dkcrypto" }
+doka-cli = { path = "../doka-cli" } # TODO should not be imported, it's only here to get the API stubs
+dkconfig = { path = "../dkconfig" }
+commons-services = { path = "../commons-services" }
+
+
+

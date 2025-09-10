@@ -4,24 +4,26 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use log::warn;
-use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest::blocking::{multipart, RequestBuilder};
 use reqwest::StatusCode;
 use serde::{de, Serialize};
 use url::Url;
 
 use commons_error::*;
+use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use dkdto::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest,
     AddTagReply, AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply,
-    DeleteFullTextRequest, ErrorMessage, FullTextReply, FullTextRequest, GetFileInfoReply,
+    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply,
     GetFileInfoShortReply, GetItemReply, GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply,
     LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply,
     SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
 };
-use dkdto::error_codes::HTTP_CLIENT_ERROR;
-
+use dkdto::api_error::ApiError;
 use crate::request_client::TokenType::{Sid, Token};
+
+/// TODO This file should be in Dkdto, so we could reuse it without the doka-cli module  
 
 const TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const MAX_HTTP_RETRY: u32 = 5;
@@ -91,7 +93,7 @@ impl WebServer {
     ) -> WebResponse<V> {
         let get_data = || -> anyhow::Result<WebResponse<V>> { self.get_data(url, token) };
         self.retry(get_data)
-            .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+            .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     fn get_data<V: de::DeserializeOwned>(
@@ -112,14 +114,14 @@ impl WebServer {
     ) -> anyhow::Result<WebResponse<V>> {
         let wt = match request_builder.send() {
             Ok(v) => {
-                dbg!(&v);
+                // dbg!(&v);
                 let status_code = v.status();
-                dbg!(&status_code);
+                // dbg!(&status_code);
                 let wt = if status_code.as_u16() >= 300 {
-                    Err(ErrorMessage {
-                        http_error_code: status_code.as_u16(),
-                        message: HTTP_CLIENT_ERROR.err_message.to_string(),
-                    })
+                    Err(ApiError::borrowed(
+                        status_code.as_u16(),
+                        HTTP_CLIENT_ERROR.message.as_ref(), // reuse the static message
+                    ))
                 } else {
                     let value: Result<V, reqwest::Error> = v.json(); // TODO
                     let v_value = value.unwrap();
@@ -168,7 +170,7 @@ impl WebServer {
         let get_binary_data =
             || -> anyhow::Result<WebResponse<MediaBytes>> { self.get_binary_data(url, token) };
         self.retry(get_binary_data)
-            .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+            .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     ///
@@ -210,7 +212,7 @@ impl WebServer {
         let post_data =
             || -> anyhow::Result<WebResponse<V>> { self.post_data(url, request, headers) };
         self.retry(post_data)
-            .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+            .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     fn post_bytes_retry<V: de::DeserializeOwned>(
@@ -305,7 +307,7 @@ impl WebServer {
     ) -> WebResponse<V> {
         let patch_data = || -> anyhow::Result<WebResponse<V>> { self.patch_data(url, &token) };
         self.retry(patch_data)
-            .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+            .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     ///
@@ -330,7 +332,7 @@ impl WebServer {
     ) -> WebResponse<V> {
         let delete_data = || -> anyhow::Result<WebResponse<V>> { self.delete_data(url, token) };
         self.retry(delete_data)
-            .unwrap_or_else(|_| WebResponse::from_errorset(&HTTP_CLIENT_ERROR))
+            .unwrap_or_else(|_| WebResponse::from_api_error(&HTTP_CLIENT_ERROR))
     }
 
     ///

@@ -21,17 +21,20 @@ rayon = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 
-regex = "1.10.2"
+once_cell = "^1.19"
+regex = "^1.10"
 
-commons-pg = {path="../commons-pg"}
-commons-error = {path="../commons-error"}
-dkconfig = {path="../dkconfig"}
-dkcrypto = {path="../dkcrypto"}
-commons-services = {path= "../commons-services" }
-dkdto = {path="../dkdto"}
-doka-cli = {path="../doka-cli"}
+commons-pg = { path = "../commons-pg" }
+commons-error = { path = "../commons-error" }
+dkconfig = { path = "../dkconfig" }
+dkcrypto = { path = "../dkcrypto" }
+commons-services = { path = "../commons-services" }
+dkdto = { path = "../dkdto" }
+doka-cli = { path = "../doka-cli" }
 
 
+[dev-dependencies]
+sqlparser = "^0.58"   # or the latest version
 
 # For API client
 #reqwest = { version = "0.11", features = ["blocking", "json"] }

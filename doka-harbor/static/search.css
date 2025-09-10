@@ -1,0 +1,63 @@
+
+.search-properties {
+    /* positioning */
+    margin: 1rem;
+    padding: 0.4rem;
+
+    /* styling */
+    border: 1px solid lightblue;
+    background-color: rgba(211, 211, 211, 0.5);
+}
+
+.vignette {
+    max-width: 150px;
+
+    margin: 10px;
+    padding: 10px;
+    border: 1px solid purple;
+}
+
+.vignette-container {
+    /*border: 1px solid yellow;*/
+    /*border-radius: 1rem;*/
+    /*margin: 1rem;*/
+}
+
+.main-search-result {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: flex-start;
+    padding: 1rem;
+    width: 80vw;
+}
+
+.cartouche {
+
+    display: flex;
+    flex-direction: row;
+    flex: 1 1 500px; /* allows responsiveness */
+    width: 40vw;
+    margin: 0; /* remove margin — handled by gap */
+
+
+    border: 1px solid lightgray;
+    border-radius: 1rem;
+    box-sizing: border-box;
+
+    /* tests */
+    margin: 1rem;
+}
+
+.cartouche-document-name {
+    background-color: orange;
+}
+
+.fine {
+    background-color: orange;
+}
+
+.search-section {
+    display: flex;
+    flex-direction: row;
+}

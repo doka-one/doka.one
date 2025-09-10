@@ -1,0 +1,4 @@
+# rustfmt.toml
+
+max_width = 120  # or any value you prefer, default is 100
+use_small_heuristics = "Max"

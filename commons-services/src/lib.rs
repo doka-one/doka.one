@@ -6,14 +6,12 @@ use log::error;
 use commons_error::*;
 use dkconfig::conf_reader::cek_read_once;
 use dkconfig::properties::{get_prop_value, set_prop_value};
-
-use crate::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
 
 pub mod session_lib;
 pub mod token_lib;
 pub mod database_lib;
 pub mod key_lib;
-pub mod property_name;
 pub mod x_request_id;
 
 #[macro_export]

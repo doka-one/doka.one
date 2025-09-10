@@ -8,14 +8,12 @@ use log::{error, info};
 
 use commons_error::*;
 use commons_pg::sql_transaction_async::init_db_pool_async;
-use commons_services::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
 
 use crate::key::KeyDelegate;
@@ -24,20 +22,17 @@ mod all_tests;
 mod key;
 
 ///
-/// ✨ Read the key for a specific customer code [customer_code]
+/// 🌟 Read the key for a specific customer code [customer_code]
 /// ** NORM
 ///
 // #[get("/key/<customer_code>")]
-async fn read_key(
-    Path(customer_code): Path<String>,
-    security_token: SecurityToken,
-) -> WebType<CustomerKeyReply> {
+async fn read_key(Path(customer_code): Path<String>, security_token: SecurityToken) -> WebType<CustomerKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
     delegate.read_key(&customer_code).await
 }
 
 ///
-/// ✨ Read all the keys
+/// 🌟 Read all the keys
 /// ** NORM
 ///
 // #[get("/key")]
@@ -47,14 +42,11 @@ async fn key_list(security_token: SecurityToken) -> WebType<CustomerKeyReply> {
 }
 
 ///
-/// ✨ Add a key for customer code [customer]
+/// 🌟 Add a key for customer code [customer]
 /// ** NORM
 ///
 // #[post("/key", format = "application/json", data = "<customer>")]
-async fn add_key(
-    security_token: SecurityToken,
-    customer: Json<AddKeyRequest>,
-) -> WebType<AddKeyReply> {
+async fn add_key(security_token: SecurityToken, customer: Json<AddKeyRequest>) -> WebType<AddKeyReply> {
     let mut delegate = KeyDelegate::new(security_token, XRequestID::from_value(None));
     delegate.add_key(customer).await
 }
@@ -74,18 +66,12 @@ async fn main() {
     let doka_env = read_doka_env(&VAR_NAME);
 
     // Read the application config's file
-    println!(
-        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
-        PROJECT_CODE, VAR_NAME
-    );
+    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, &doka_env);
+    let props = read_config(PROJECT_CODE, &doka_env, &Some("DOKA_CLUSTER_PROFILE".to_string()));
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
-        .unwrap_or("".to_string())
-        .parse::<u16>()
-    else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -113,25 +99,21 @@ async fn main() {
 
     // Init DB pool
     log_info!("😎 Init DB pool");
-    let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information"))
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{:?}", e);
-            exit(-64);
-        }
-    };
+    let (connect_string, db_pool_size) =
+        match get_prop_pg_connect_string().map_err(err_fwd!("Cannot read the database connection information")) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("{:?}", e);
+                exit(-64);
+            }
+        };
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
-    log_info!(
-        "😎 The CEK was correctly read : [{}]",
-        format!("{}...", &cek[0..5])
-    );
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
@@ -169,8 +151,6 @@ mod test {
             .json(&new_post)
             .send()?
             .json()?;
-
-        dbg!(&reply);
 
         Ok(())
     }

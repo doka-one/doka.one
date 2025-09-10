@@ -13,10 +13,10 @@ use commons_pg::sql_transaction::{CellValue, SQLDataSet};
 use commons_pg::sql_transaction_async::{
     SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
 };
-use commons_services::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkconfig::properties::get_prop_value;
+use dkconfig::property_name::{KEY_MANAGER_HOSTNAME_PROPERTY, KEY_MANAGER_PORT_PROPERTY};
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{
     CUSTOMER_NAME_ALREADY_TAKEN, CUSTOMER_NOT_REMOVABLE, INTERNAL_DATABASE_ERROR,
@@ -169,7 +169,7 @@ impl CustomerDelegate {
         // Check if the token is valid
         if !self.security_token.is_valid() {
             log_error!("💣 Invalid security token, follower=[{}]", &self.follower);
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_api_error(&INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
@@ -184,7 +184,7 @@ impl CustomerDelegate {
                 "💣 Password breaks the syntax rules, follower=[{}]",
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_PASSWORD);
+            return WebType::from_api_error(&INVALID_PASSWORD);
         };
 
         log_info!(
@@ -197,14 +197,14 @@ impl CustomerDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Verify if the customer name is not taken
@@ -217,7 +217,7 @@ impl CustomerDelegate {
                 "The customer name is already taken, follower=[{}]",
                 &self.follower
             );
-            return WebType::from_errorset(&CUSTOMER_NAME_ALREADY_TAKEN);
+            return WebType::from_api_error(&CUSTOMER_NAME_ALREADY_TAKEN);
         };
 
         log_info!(
@@ -236,7 +236,7 @@ impl CustomerDelegate {
                 "The customer name is already taken, follower=[{}]",
                 &self.follower
             );
-            return WebType::from_errorset(&USER_NAME_ALREADY_TAKEN);
+            return WebType::from_api_error(&USER_NAME_ALREADY_TAKEN);
         };
 
         log_info!(
@@ -262,7 +262,7 @@ impl CustomerDelegate {
                     &self.follower
                 ))
             else {
-                return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+                return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
             };
 
             if not_taken {
@@ -286,7 +286,7 @@ impl CustomerDelegate {
                 &self.follower
             );
             trans.rollback().await;
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -303,7 +303,7 @@ impl CustomerDelegate {
             );
             trans.rollback().await;
             let _ = warning_cs_schema(&customer_code);
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -322,7 +322,7 @@ impl CustomerDelegate {
             .map_err(err_fwd!("Cannot read the key manager hostname"))
         else {
             log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
         let Ok(km_port) = get_prop_value(KEY_MANAGER_PORT_PROPERTY)
             .unwrap_or("".to_string())
@@ -330,7 +330,7 @@ impl CustomerDelegate {
             .map_err(err_fwd!("Cannot read the key manager port"))
         else {
             log_error!("💣 Create customer failed, follower=[{}]", &self.follower);
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         };
         let kmc = KeyManagerClientAsync::new(&km_host, km_port);
         let response = kmc
@@ -345,7 +345,7 @@ impl CustomerDelegate {
             );
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return WebType::from_errorset(&INTERNAL_TECHNICAL_ERROR);
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
         }
 
         log_info!(
@@ -387,7 +387,7 @@ impl CustomerDelegate {
         )) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -442,7 +442,7 @@ impl CustomerDelegate {
         )) else {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         log_info!(
@@ -460,7 +460,7 @@ impl CustomerDelegate {
         {
             let _ = warning_cs_schema(&customer_code);
             let _ = warning_fs_schema(&customer_code);
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -573,7 +573,7 @@ impl CustomerDelegate {
     /// If the customer is "removable",
     /// this routine drops all the cs_{} and fs_{} and also delete the customer from the db
     // TODO implement a backup procedure for the customer
-    pub async fn delete_customer(mut self, customer_code: &str) -> WebType<SimpleMessage> {
+    pub async fn delete_customer(&mut self, customer_code: &str) -> WebType<SimpleMessage> {
         log_info!(
             "🚀 Start delete_customer api, customer_code=[{}], follower=[{}]",
             customer_code,
@@ -587,7 +587,7 @@ impl CustomerDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_api_error(&INVALID_TOKEN);
         }
 
         // Change the token type to "Token"
@@ -597,14 +597,14 @@ impl CustomerDelegate {
             "💣 Connection issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         // Check if the customer is removable (flag is_removable)
@@ -628,7 +628,7 @@ impl CustomerDelegate {
                         ))
                         .is_err()
                     {
-                        return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+                        return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
                     }
 
                     log_info!(
@@ -645,7 +645,7 @@ impl CustomerDelegate {
                         ))
                         .is_err()
                     {
-                        return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+                        return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
                     }
 
                     log_info!("😎 We removed the customer, follower=[{}]", &self.follower);
@@ -654,7 +654,7 @@ impl CustomerDelegate {
                         "💣 The customer is not removable, follower=[{}]",
                         &self.follower
                     );
-                    return WebType::from_errorset(&CUSTOMER_NOT_REMOVABLE);
+                    return WebType::from_api_error(&CUSTOMER_NOT_REMOVABLE);
                 }
             }
             Err(_) => {
@@ -677,7 +677,7 @@ impl CustomerDelegate {
             .is_err()
         {
             trans.rollback().await;
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         if self
@@ -690,7 +690,7 @@ impl CustomerDelegate {
             .is_err()
         {
             trans.rollback().await;
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         // Close the transaction
@@ -700,7 +700,7 @@ impl CustomerDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(
@@ -902,6 +902,104 @@ impl CustomerDelegate {
         Ok(true)
     }
 
+    /// Delete the integration tests customer
+    /// This routine is used to clean up the database after integration tests
+    pub async fn delete_integration_tests_customer(mut self) -> WebType<SimpleMessage> {
+        // Query the AD database to find the integration tests customer
+
+        log_info!(
+            "🚀 Start delete_integration_tests_customer api, follower=[{}]",
+            &self.follower
+        );
+
+        // Check if the token is valid
+        if !self.security_token.is_valid() {
+            log_error!(
+                "💣 Invalid security token, token=[{:?}], follower=[{}]",
+                &self.security_token,
+                &self.follower
+            );
+            return WebType::from_api_error(&INVALID_TOKEN);
+        }
+        self.follower.token_type = TokenType::Token(self.security_token.0.clone());
+        log_info!("😎 Security token is valid, follower=[{}]", &self.follower);
+
+        // Open Db connection
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
+            "💣 New Db connection failed, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        };
+
+        // Get a transaction
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
+            "💣 Transaction issue, follower=[{}]",
+            &self.follower
+        )) else {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        };
+        // The first step will be to extract the customer code that are related to integration tests. The customer full name for one of them starts with "doo_" followed by a long uuid.
+        let mut params = HashMap::new();
+        params.insert(
+            "p_customer_name".to_owned(),
+            CellValue::from_raw_string("doo_%".to_string()),
+        );
+        let query = SQLQueryBlockAsync {
+            sql_query: r"SELECT c.code FROM dokaadmin.customer c INNER JOIN dokaadmin.appuser u ON c.id = u.customer_id
+                            WHERE c.full_name LIKE :p_customer_name AND u.login LIKE :p_customer_name"
+                .to_string(),
+            params,
+            start: 0,
+            length: None,
+        };
+
+        let mut sql_result: SQLDataSet = query
+            .execute(&mut trans)
+            .await
+            .map_err(err_fwd!(
+                "Query failed, [{}], follower=[{}]",
+                &query.sql_query,
+                &self.follower
+            ))
+            .unwrap();
+
+        while sql_result.next() {
+            let customer_code = sql_result
+                .get_string("code")
+                .ok_or_else(|| {
+                    log_error!(
+                        "💣 Cannot find the customer code in the result, follower=[{}]",
+                        &self.follower
+                    );
+                    anyhow::anyhow!("Customer code not found")
+                })
+                .unwrap();
+
+            log_info!(
+                "Found integration tests customer code=[{}], follower=[{}]",
+                customer_code,
+                &self.follower
+            );
+
+            let r = self.delete_customer(customer_code.as_str()).await;
+
+            log_info!(" 😎 Deleted customer result: {:?}", &r)
+        }
+
+        log_info!(
+            "🏁 End delete_integration_tests_customer, follower=[{}]",
+            &self.follower
+        );
+
+        WebType::from_item(
+            StatusCode::OK.as_u16(),
+            SimpleMessage {
+                message: "Ok".to_string(),
+            },
+        )
+    }
+
     ///
     /// 🔑 Set the flag to removable on a customer
     ///
@@ -922,7 +1020,7 @@ impl CustomerDelegate {
                 &self.security_token,
                 &self.follower
             );
-            return WebType::from_errorset(&INVALID_TOKEN);
+            return WebType::from_api_error(&INVALID_TOKEN);
         }
 
         self.follower.token_type = TokenType::Token(self.security_token.0.clone());
@@ -932,14 +1030,14 @@ impl CustomerDelegate {
             "💣 New Db connection failed, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!(
             "💣 Transaction issue, follower=[{}]",
             &self.follower
         )) else {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         if set_removable_flag_customer_from_db(&mut trans, &customer_code)
@@ -950,7 +1048,7 @@ impl CustomerDelegate {
             ))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         // Close the transaction
@@ -960,7 +1058,7 @@ impl CustomerDelegate {
             .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
             .is_err()
         {
-            return WebType::from_errorset(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
         log_info!(

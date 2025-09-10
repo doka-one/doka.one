@@ -27,46 +27,46 @@ mod test {
     //
     // }
 
-    #[test]
-    fn export_doka() {
-        let target = r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#;
-
-        let paths =
-            fs::read_dir(r#"C:\Users\denis\wks-tools\doka-export\data\denis_file\"#).unwrap();
-        let mut f: Option<File> = None;
-        let mut reference_base = String::from("");
-        for path in paths {
-            println!("Start : {:?}", &path);
-            // extract the file number, last 10 chars
-            let p = &path.unwrap();
-            let name = p.file_name();
-            let len = name.len();
-            let string_name = name.into_string().unwrap().clone();
-            let short = &string_name[len - 10..len];
-            let base = &string_name[0..len - 10];
-
-            if reference_base != base {
-                // we have a new base !!!
-                let target_file = format!("{}{}.pdf", target, base);
-                f = Some(File::create(&target_file).expect("💣 WOOOOOOW !!"));
-                reference_base = base.to_owned().clone();
-            }
-
-            // Write the part
-            let s0 = DkEncrypt::decrypt_file(
-                p.path().to_str().unwrap(), /*&string_name[..]*/
-                "ZMBy1nxeze7dv59OCSeCoDayVijUQD96HyLev3YvhqM",
-            );
-            let b0 = &s0.unwrap()[..];
-
-            if let Some(ff) = f.as_mut() {
-                dbg!(&ff);
-                let _ = ff.write_all(b0);
-            }
-
-            println!("End: {}", p.path().display())
-        }
-    }
+    // #[test]
+    // fn export_doka() {
+    //     let target = r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#;
+    //
+    //     let paths =
+    //         fs::read_dir(r#"C:\Users\denis\wks-tools\doka-export\data\denis_file\"#).unwrap();
+    //     let mut f: Option<File> = None;
+    //     let mut reference_base = String::from("");
+    //     for path in paths {
+    //         println!("Start : {:?}", &path);
+    //         // extract the file number, last 10 chars
+    //         let p = &path.unwrap();
+    //         let name = p.file_name();
+    //         let len = name.len();
+    //         let string_name = name.into_string().unwrap().clone();
+    //         let short = &string_name[len - 10..len];
+    //         let base = &string_name[0..len - 10];
+    //
+    //         if reference_base != base {
+    //             // we have a new base !!!
+    //             let target_file = format!("{}{}.pdf", target, base);
+    //             f = Some(File::create(&target_file).expect("💣 WOOOOOOW !!"));
+    //             reference_base = base.to_owned().clone();
+    //         }
+    //
+    //         // Write the part
+    //         let s0 = DkEncrypt::decrypt_file(
+    //             p.path().to_str().unwrap(), /*&string_name[..]*/
+    //             "ZMBy1nxeze7dv59OCSeCoDayVijUQD96HyLev3YvhqM",
+    //         );
+    //         let b0 = &s0.unwrap()[..];
+    //
+    //         if let Some(ff) = f.as_mut() {
+    //             dbg!(&ff);
+    //             let _ = ff.write_all(b0);
+    //         }
+    //
+    //         println!("End: {}", p.path().display())
+    //     }
+    // }
 
     #[derive(Deserialize)]
     struct Record {

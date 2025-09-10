@@ -2,17 +2,17 @@ use anyhow::anyhow;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
-use dkdto::CreateCustomerRequest;
+use dkdto::web_types::CreateCustomerRequest;
 use doka_cli::request_client::AdminServerClient;
 
 use crate::token_commands::read_security_token;
 
 ///
-pub (crate) fn create_customer(customer_name: &str, email : &str, admin_password : &str) -> anyhow::Result<()> {
+pub(crate) fn create_customer(customer_name: &str, email: &str, admin_password: &str) -> anyhow::Result<()> {
     println!("👶 Create a customer...");
 
     let server_host = get_prop_value("server.host")?;
-    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
+    let admin_server_port: u16 = get_prop_value("as.port")?.parse()?;
     println!("Admin server port : {}", admin_server_port);
     let client = AdminServerClient::new(&server_host, admin_server_port);
     let create_customer_request = CreateCustomerRequest {
@@ -28,18 +28,16 @@ pub (crate) fn create_customer(customer_name: &str, email : &str, admin_password
             println!("😎 Customer successfully created, customer code : {} ", create_customer_reply.customer_code);
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
 }
 
 // disable customer
-pub (crate) fn disable_customer(customer_code: &str) -> anyhow::Result<()> {
+pub(crate) fn disable_customer(customer_code: &str) -> anyhow::Result<()> {
     println!("💧 Disable a customer...");
 
     let server_host = get_prop_value("server.host")?;
-    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
+    let admin_server_port: u16 = get_prop_value("as.port")?.parse()?;
     println!("Admin server port : {}", admin_server_port);
     let client = AdminServerClient::new(&server_host, admin_server_port);
 
@@ -51,20 +49,16 @@ pub (crate) fn disable_customer(customer_code: &str) -> anyhow::Result<()> {
             println!("😎 Customer successfully disabled, customer code : {} ", &customer_code);
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
-
 }
 
-
 // disable customer
-pub (crate) fn delete_customer(customer_code: &str) -> anyhow::Result<()> {
+pub(crate) fn delete_customer(customer_code: &str) -> anyhow::Result<()> {
     println!("🔥 Delete a customer...");
 
     let server_host = get_prop_value("server.host")?;
-    let admin_server_port : u16 = get_prop_value("as.port")?.parse()?;
+    let admin_server_port: u16 = get_prop_value("as.port")?.parse()?;
     println!("Admin server port : {}", admin_server_port);
     let client = AdminServerClient::new(&server_host, admin_server_port);
 
@@ -73,12 +67,12 @@ pub (crate) fn delete_customer(customer_code: &str) -> anyhow::Result<()> {
 
     match wr_reply {
         Ok(message) => {
-            println!("😎 Customer successfully deleted, customer code : [{}], message : [{:?}] ", &customer_code, &message);
+            println!(
+                "😎 Customer successfully deleted, customer code : [{}], message : [{:?}] ",
+                &customer_code, &message
+            );
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
-
 }

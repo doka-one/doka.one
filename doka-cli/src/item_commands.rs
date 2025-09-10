@@ -7,7 +7,7 @@ use regex::Regex;
 
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
-use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
+use dkdto::web_types::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
 use doka_cli::request_client::{DocumentServerClient, FileServerClient};
 
 use crate::item_commands::DisplayFormat::{INLINE, JSON};
@@ -80,10 +80,7 @@ fn show_items(items: &GetItemReply, display_format: DisplayFormat) -> anyhow::Re
                 };
                 let default_value = "none".to_string();
                 let file_ref = item.file_ref.as_ref().unwrap_or(&default_value);
-                println!(
-                    "id:{}\tname:{}\tfile_ref:{}\t{}",
-                    item.item_id, item.name, file_ref, prop_str
-                );
+                println!("id:{}\tname:{}\tfile_ref:{}\t{}", item.item_id, item.name, file_ref, prop_str);
             }
         }
         DisplayFormat::JSON => {
@@ -124,11 +121,7 @@ fn parse_property(prop: &str) -> anyhow::Result<(String, Option<String>, Option<
         1 => {
             let separator = prop.find(":").unwrap_or(prop.len());
             let (name, value) = prop.split_at(separator);
-            (
-                name.to_owned(),
-                Some(value.replace(":", "").trim_matches('\'').to_owned()),
-                None,
-            )
+            (name.to_owned(), Some(value.replace(":", "").trim_matches('\'').to_owned()), None)
         }
         _ => {
             let (opt_name, opt_value, opt_type) = extract_parts(prop).unwrap();
@@ -158,20 +151,13 @@ fn build_item_tag(param_value: &str) -> anyhow::Result<AddTagValue> {
             match r {
                 Ok(v) => v,
                 Err(_e) => {
-                    return Err(anyhow!(
-                        "Property type and value does not match: {}",
-                        param_value
-                    ));
+                    return Err(anyhow!("Property type and value does not match: {}", param_value));
                 }
             }
         }
     };
 
-    Ok(AddTagValue {
-        tag_id: None,
-        tag_name: Some(tag_name),
-        value: enum_tag_value,
-    })
+    Ok(AddTagValue { tag_id: None, tag_name: Some(tag_name), value: enum_tag_value })
 }
 
 ///
@@ -239,11 +225,7 @@ pub(crate) fn create_item(
         }
     };
 
-    let add_item_request = AddItemRequest {
-        name: item_name.to_owned(),
-        file_ref,
-        properties: Some(properties),
-    };
+    let add_item_request = AddItemRequest { name: item_name.to_owned(), file_ref, properties: Some(properties) };
 
     // dbg!(&add_item_request);
     let wt_create_item_reply = document_server_client.create_item(&add_item_request, &sid);
@@ -271,11 +253,8 @@ pub fn item_tag_update(id: &str, o_add_props: Option<&str>) -> anyhow::Result<()
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
 
     let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
-    let add_item_tag_request = AddItemTagRequest {
-        /*item_id,*/ properties,
-    };
-    let r_add_item_tag =
-        document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
+    let add_item_tag_request = AddItemTagRequest { /*item_id,*/ properties };
+    let r_add_item_tag = document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
 
     match r_add_item_tag {
         Ok(_reply) => {
@@ -292,11 +271,7 @@ pub fn item_tag_delete(id: &str, o_delete_props: Option<&str>) -> anyhow::Result
     let item_id: i64 = id.parse()?;
     // dbg!(&o_delete_props);
 
-    let tag_names: Vec<String> = o_delete_props
-        .unwrap_or("")
-        .split(',')
-        .map(|tag| tag.to_string())
-        .collect();
+    let tag_names: Vec<String> = o_delete_props.unwrap_or("").split(',').map(|tag| tag.to_string()).collect();
 
     dbg!(&tag_names);
 

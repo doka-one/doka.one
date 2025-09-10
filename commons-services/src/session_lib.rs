@@ -3,9 +3,9 @@ use log::error;
 use commons_error::*;
 use dkconfig::properties::get_prop_value;
 use dkconfig::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
-use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
-use dkdto::{EntrySession};
 use dkdto::api_error::ApiError;
+use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
+use dkdto::web_types::EntrySession;
 use doka_cli::async_request_client::SessionManagerClientAsync;
 use doka_cli::request_client::TokenType;
 
@@ -14,17 +14,13 @@ use crate::x_request_id::Follower;
 
 pub async fn fetch_entry_session(sid: &str) -> anyhow::Result<EntrySession> {
     let sm_host = get_prop_value(SESSION_MANAGER_HOSTNAME_PROPERTY).map_err(tr_fwd!())?;
-    let sm_port: u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?
-        .parse()
-        .map_err(tr_fwd!())?;
+    let sm_port: u16 = get_prop_value(SESSION_MANAGER_PORT_PROPERTY)?.parse().map_err(tr_fwd!())?;
     let smc = SessionManagerClientAsync::new(&sm_host, sm_port);
     // For now the token is the sid itself
     match smc.get_session(sid, sid).await {
         Ok(session_reply) => {
-            let ref_entry_session: &EntrySession = session_reply
-                .sessions
-                .get(0)
-                .ok_or(anyhow::anyhow!("Cannot find the session"))?;
+            let ref_entry_session: &EntrySession =
+                session_reply.sessions.get(0).ok_or(anyhow::anyhow!("Cannot find the session"))?;
             let entry_session = ref_entry_session.clone();
             Ok(entry_session)
         }
@@ -40,11 +36,7 @@ pub async fn valid_sid_get_session(
     follower: &mut Follower,
 ) -> Result<EntrySession, &'static ApiError<'static>> {
     if !session_token.is_valid() {
-        log_error!(
-            "💣 Invalid session token, token=[{:?}], follower=[{}]",
-            &session_token,
-            &follower
-        );
+        log_error!("💣 Invalid session token, token=[{:?}], follower=[{}]", &session_token, &follower);
         return Err(&*INVALID_TOKEN); // no clone, no alloc
     }
 

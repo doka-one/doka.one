@@ -20,7 +20,9 @@ use dkdto::error_codes::{
     INCORRECT_DEFAULT_LINK_LENGTH, INCORRECT_DEFAULT_STRING_LENGTH, INCORRECT_LENGTH_TAG_NAME, INCORRECT_TAG_TYPE,
     INTERNAL_DATABASE_ERROR, STILL_IN_USE,
 };
-use dkdto::{AddTagReply, AddTagRequest, GetTagReply, SimpleMessage, TagElement, TagType, WebType, WebTypeBuilder};
+use dkdto::web_types::{
+    AddTagReply, AddTagRequest, GetTagReply, SimpleMessage, TagElement, TagType, WebType, WebTypeBuilder,
+};
 use doka_cli::request_client::TokenType;
 
 use crate::char_lib::has_not_printable_char;
@@ -84,6 +86,16 @@ impl TagDelegate {
         WebType::from_item(StatusCode::OK.as_u16(), GetTagReply { tags })
     }
 
+    #[inline]
+    fn map_current_row_to_tag(sql_result: &SQLDataSet) -> anyhow::Result<TagElement> {
+        let id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
+        let name: String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
+        let tag_type = sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
+        let default_value = sql_result.get_string("default_value"); // optional
+
+        Ok(TagElement { tag_id: id, name, tag_type, default_value })
+    }
+
     /// Search items by id
     /// If no item id provided, return all existing items
     pub(crate) async fn search_tag_by_id(
@@ -122,22 +134,71 @@ impl TagDelegate {
 
         let mut tags = vec![];
         while sql_result.next() {
-            let id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong id"))?;
-            let name: String = sql_result.get_string("name").ok_or(anyhow!("Wrong name"))?;
-            let tag_type = sql_result.get_string("type").ok_or(anyhow!("Wrong tag_type"))?;
-            // optional
-
-            let default_value = sql_result.get_string("default_value");
-
-            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", id, &name, &self.follower);
-
-            let item = TagElement { tag_id: id, name, tag_type, default_value };
-            let _ = &tags.push(item);
+            let tag = Self::map_current_row_to_tag(&sql_result)?;
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", tag.tag_id, &tag.name, &self.follower);
+            tags.push(tag);
         }
 
         Ok(tags)
     }
 
+    /// Search tags by a list of names (no paging).
+    /// If `tag_names` is empty, returns **all** tags.
+    pub(crate) async fn search_tags_by_names(
+        &self,
+        mut trans: &mut SQLTransactionAsync<'_>,
+        tag_names: &[String],
+        customer_code: &str,
+    ) -> anyhow::Result<Vec<TagElement>> {
+        let mut params = HashMap::new();
+
+        // Build a dynamic IN(:p_name_0, :p_name_1, ...)
+        let (where_clause, _bound_count) = if tag_names.is_empty() {
+            (String::new(), 0usize)
+        } else {
+            let mut placeholders = Vec::with_capacity(tag_names.len());
+            for (i, name) in tag_names.iter().enumerate() {
+                let key = format!("p_name_{}", i);
+                // Use the appropriate CellValue variant for text/string in your project:
+                params.insert(key.clone(), CellValue::String(Some(name.clone())));
+                placeholders.push(format!(":{}", key));
+            }
+            (format!(" ({}) ", placeholders.join(", ")), placeholders.len())
+        };
+
+        let sql_query = format!(
+            r#"SELECT id, name, type, string_tag_length, default_value
+                   FROM cs_{0}.tag_definition
+                   WHERE name IN {1}
+                   ORDER BY name"#,
+            customer_code, where_clause
+        );
+
+        let query = SQLQueryBlockAsync {
+            sql_query,
+            start: 0,
+            length: None, // no paging
+            params,
+        };
+
+        let mut sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
+            "Query failed, sql=[{}], follower=[{}]",
+            &query.sql_query,
+            &self.follower
+        ))?;
+
+        let mut tags = Vec::new();
+        while sql_result.next() {
+            let tag = Self::map_current_row_to_tag(&sql_result)?;
+            log_debug!("Found tag, tag id=[{}], tag_name=[{}], follower=[{}]", tag.tag_id, &tag.name, &self.follower);
+            tags.push(tag);
+        }
+
+        Ok(tags)
+    }
+
+    /// Deprecated : Should use search_tags_by_names
+    ///
     /// Search items by name
     pub(crate) async fn search_tag_by_name(
         &self,

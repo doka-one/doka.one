@@ -37,7 +37,7 @@ use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::api_error::ApiError;
 use dkdto::error_codes::{FILE_INFO_NOT_FOUND, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
-use dkdto::{
+use dkdto::web_types::{
     DownloadReply, EntrySession, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply,
     UploadInfoReply, UploadReply, WebType, WebTypeBuilder,
 };

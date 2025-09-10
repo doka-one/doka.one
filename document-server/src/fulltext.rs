@@ -17,9 +17,9 @@ use dkconfig::properties::get_prop_value;
 use dkconfig::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
-use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
-use dkdto::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
 use dkdto::api_error::ApiError;
+use dkdto::error_codes::{INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR};
+use dkdto::web_types::{DeleteFullTextRequest, FullTextReply, FullTextRequest, SimpleMessage, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::TikaServerClientAsync;
 use doka_cli::request_client::TokenType;
 

@@ -7,9 +7,7 @@ use log::*;
 
 use commons_error::*;
 use commons_pg::sql_transaction::{CellValue, SQLDataSet};
-use commons_pg::sql_transaction_async::{
-    SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync,
-};
+use commons_pg::sql_transaction_async::{SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync};
 use commons_services::token_lib::SecurityToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
@@ -18,10 +16,9 @@ use dkconfig::property_name::COMMON_EDIBLE_KEY_PROPERTY;
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::error_codes::{
-    CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK,
-    INVALID_TOKEN,
+    CUSTOMER_KEY_ALREADY_EXISTS, INTERNAL_DATABASE_ERROR, INTERNAL_TECHNICAL_ERROR, INVALID_CEK, INVALID_TOKEN,
 };
-use dkdto::{
+use dkdto::web_types::{
     AddKeyReply, AddKeyRequest, CustomerKeyReply, EntryReply, WebResponse, WebType, WebTypeBuilder,
 };
 use doka_cli::request_client::TokenType;
@@ -37,10 +34,7 @@ impl KeyDelegate {
     pub fn new(security_token: SecurityToken, x_request_id: XRequestID) -> Self {
         Self {
             security_token,
-            follower: Follower {
-                x_request_id: x_request_id.new_if_null(),
-                token_type: TokenType::None,
-            },
+            follower: Follower { x_request_id: x_request_id.new_if_null(), token_type: TokenType::None },
         }
     }
 
@@ -48,28 +42,19 @@ impl KeyDelegate {
     /// 🌟 Add a key for customer code [customer]
     ///
     pub async fn add_key(&mut self, customer: Json<AddKeyRequest>) -> WebType<AddKeyReply> {
-        log_info!(
-            "🚀 Start add_key api, customer_code=[{}], follower=[{}]",
-            &customer.customer_code,
-            &self.follower
-        );
+        log_info!("🚀 Start add_key api, customer_code=[{}], follower=[{}]", &customer.customer_code, &self.follower);
 
         if !self.security_token.is_valid() {
-            log_error!(
-                "💣 Invalid security token, token=[{:?}], follower=[{}]",
-                &self.security_token,
-                &self.follower
-            );
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return WebType::from_api_error(&&INVALID_TOKEN);
         }
 
         self.follower.token_type = Token(self.security_token.0.clone());
 
         // Generate the new customer key
-        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY).map_err(err_fwd!(
-            "💣 Cannot read the cek, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY)
+            .map_err(err_fwd!("💣 Cannot read the cek, follower=[{}]", &self.follower))
+        else {
             return WebType::from_api_error(&&INVALID_CEK);
         };
 
@@ -77,66 +62,45 @@ impl KeyDelegate {
 
         let Ok(enc_password) = DkEncrypt::new(CC20)
             .encrypt_str(&new_customer_key, &cek)
-            .map_err(err_fwd!(
-                "💣 Cannot encrypt the new key, follower=[{}]",
-                &self.follower
-            ))
+            .map_err(err_fwd!("💣 Cannot encrypt the new key, follower=[{}]", &self.follower))
         else {
             return WebType::from_api_error(&&INTERNAL_TECHNICAL_ERROR);
         };
 
-        let key_id = try_or_return!(
-            self.create_customer_key(&customer.customer_code, &enc_password)
-                .await,
-            |e| WebType::from(e)
-        );
+        let key_id =
+            try_or_return!(self.create_customer_key(&customer.customer_code, &enc_password).await, |e| WebType::from(
+                e
+            ));
 
-        let ret = AddKeyReply {
-            status: "Ok".to_string(),
-        };
+        let ret = AddKeyReply { status: "Ok".to_string() };
 
-        log_info!(
-            "😎 Committed. Key created with success, key id=[{}], follower=[{}]",
-            key_id,
-            &self.follower
-        );
+        log_info!("😎 Committed. Key created with success, key id=[{}], follower=[{}]", key_id, &self.follower);
 
         log_info!("🏁 End add_key, follower=[{}]", &self.follower);
 
         WebType::from_item(StatusCode::OK.as_u16(), ret)
     }
 
-    async fn create_customer_key(
-        &self,
-        customer_code: &str,
-        enc_password: &str,
-    ) -> WebResponse<i64> {
-        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
-            "💣 Open connection error, follower=[{}]",
-            &self.follower
-        )) else {
+    async fn create_customer_key(&self, customer_code: &str, enc_password: &str) -> WebResponse<i64> {
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool()
+            .await
+            .map_err(err_fwd!("💣 Open connection error, follower=[{}]", &self.follower))
+        else {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let mut trans = try_or_return!(
-            cnx.begin().await.map_err(err_fwd!(
-                "💣 Open transaction error, follower=[{}]",
-                &self.follower
-            )),
+            cnx.begin().await.map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower)),
             |_| WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR)
         );
 
         // Verify if the key already exists for the customer code
 
-        let Ok(entries) = self
-            .search_key_by_customer_code(&mut trans, Some(customer_code))
-            .await
-            .map_err(err_fwd!(
-                "💣 Search failed, customer code=[{}], follower=[{}]",
-                customer_code,
-                &self.follower
-            ))
-        else {
+        let Ok(entries) = self.search_key_by_customer_code(&mut trans, Some(customer_code)).await.map_err(err_fwd!(
+            "💣 Search failed, customer code=[{}], follower=[{}]",
+            customer_code,
+            &self.follower
+        )) else {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
@@ -149,21 +113,19 @@ impl KeyDelegate {
             return WebResponse::from_api_error(&CUSTOMER_KEY_ALREADY_EXISTS);
         }
 
-        log_info!("😎 The customer code has no existing key in the system, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+        log_info!(
+            "😎 The customer code has no existing key in the system, customer_code=[{}], follower=[{}]",
+            customer_code,
+            &self.follower
+        );
 
         let sql_insert = r#"INSERT INTO keymanager.customer_keys(
                             customer_code, ciphered_key)
                             VALUES (:p_customer_code, :p_ciphered_key)"#;
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
-        params.insert(
-            "p_customer_code".to_owned(),
-            CellValue::from_raw_string(customer_code.to_owned()),
-        );
-        params.insert(
-            "p_ciphered_key".to_owned(),
-            CellValue::from_raw_str(enc_password),
-        );
+        params.insert("p_customer_code".to_owned(), CellValue::from_raw_string(customer_code.to_owned()));
+        params.insert("p_ciphered_key".to_owned(), CellValue::from_raw_str(enc_password));
 
         let query = SQLChangeAsync {
             sql_query: sql_insert.to_string(),
@@ -171,19 +133,13 @@ impl KeyDelegate {
             sequence_name: "keymanager.customer_keys_id_seq".to_string(),
         };
 
-        let Ok(key_id) = query.insert(&mut trans).await.map_err(err_fwd!(
-            "💣 Cannot insert the key, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(key_id) =
+            query.insert(&mut trans).await.map_err(err_fwd!("💣 Cannot insert the key, follower=[{}]", &self.follower))
+        else {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        if trans
-            .commit()
-            .await
-            .map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower))
-            .is_err()
-        {
+        if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
@@ -211,29 +167,18 @@ impl KeyDelegate {
             params,
         };
 
-        let mut sql_result: SQLDataSet = query
-            .execute(&mut trans)
-            .await
-            .map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
+        let mut sql_result: SQLDataSet =
+            query.execute(&mut trans).await.map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
 
         let mut entries = HashMap::new();
         while sql_result.next() {
-            let id: i64 = sql_result
-                .get_int("id")
-                .ok_or(anyhow!("Wrong column: id"))?;
-            let customer_code: String = sql_result
-                .get_string("customer_code")
-                .ok_or(anyhow!("Wrong column: customer_code"))?;
-            let ciphered_key: String = sql_result
-                .get_string("ciphered_key")
-                .ok_or(anyhow!("Wrong column: ciphered_key"))?;
+            let id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wrong column: id"))?;
+            let customer_code: String =
+                sql_result.get_string("customer_code").ok_or(anyhow!("Wrong column: customer_code"))?;
+            let ciphered_key: String =
+                sql_result.get_string("ciphered_key").ok_or(anyhow!("Wrong column: ciphered_key"))?;
 
-            let key_info = EntryReply {
-                key_id: id,
-                customer_code,
-                ciphered_key,
-                active: true,
-            };
+            let key_info = EntryReply { key_id: id, customer_code, ciphered_key, active: true };
 
             let _ = &entries.insert(key_info.customer_code.clone(), key_info);
         }
@@ -245,19 +190,11 @@ impl KeyDelegate {
     /// 🌟 Read the key for a specific customer code [customer_code]
     ///
     pub async fn read_key(&mut self, customer_code: &str) -> WebType<CustomerKeyReply> {
-        log_info!(
-            "🚀 Start read_key api, customer_code=[{}], follower=[{}]",
-            customer_code,
-            &self.follower
-        );
+        log_info!("🚀 Start read_key api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
-            log_error!(
-                "💣 Invalid security token, token=[{:?}], follower=[{}]",
-                &self.security_token,
-                &self.follower
-            );
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return WebType::from_api_error(&&INVALID_TOKEN);
         }
 
@@ -267,7 +204,11 @@ impl KeyDelegate {
         let customer_key_reply = match self.read_entries(Some(customer_code)).await {
             Ok(reply) => reply,
             Err(e) => {
-                log_error!("💣 We were not able to read the entries for the customer_code=[{}], follower=[{}]", customer_code, &self.follower);
+                log_error!(
+                    "💣 We were not able to read the entries for the customer_code=[{}], follower=[{}]",
+                    customer_code,
+                    &self.follower
+                );
                 return WebType::from(e);
             }
         };
@@ -277,11 +218,7 @@ impl KeyDelegate {
             customer_key_reply.keys.len(),
             &self.follower
         );
-        log_info!(
-            "🏁 End read_key api, customer_code=[{}], follower=[{}]",
-            customer_code,
-            &self.follower
-        );
+        log_info!("🏁 End read_key api, customer_code=[{}], follower=[{}]", customer_code, &self.follower);
         WebType::from_item(StatusCode::OK.as_u16(), customer_key_reply)
     }
 
@@ -293,11 +230,7 @@ impl KeyDelegate {
 
         // Check if the token is valid
         if !self.security_token.is_valid() {
-            log_error!(
-                "💣 Invalid security token, token=[{:?}], follower=[{}]",
-                &self.security_token,
-                &self.follower
-            );
+            log_error!("💣 Invalid security token, token=[{:?}], follower=[{}]", &self.security_token, &self.follower);
             return WebType::from_api_error(&&INVALID_TOKEN);
         }
 
@@ -307,10 +240,7 @@ impl KeyDelegate {
         let customer_key_reply = match self.read_entries(None).await {
             Ok(reply) => reply,
             Err(e) => {
-                log_error!(
-                    "💣 We were not able to read the entries, follower=[{}]",
-                    &self.follower
-                );
+                log_error!("💣 We were not able to read the entries, follower=[{}]", &self.follower);
                 return WebType::from(e);
             }
         };
@@ -325,18 +255,15 @@ impl KeyDelegate {
     }
 
     async fn read_entries(&self, customer_code: Option<&str>) -> WebResponse<CustomerKeyReply> {
-        let Ok(mut cnx) = SQLConnectionAsync::from_pool().await.map_err(err_fwd!(
-            "💣 Open connection error, follower=[{}]",
-            &self.follower
-        )) else {
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool()
+            .await
+            .map_err(err_fwd!("💣 Open connection error, follower=[{}]", &self.follower))
+        else {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
         let mut trans = try_or_return!(
-            cnx.begin().await.map_err(err_fwd!(
-                "💣 Open transaction error, follower=[{}]",
-                &self.follower
-            )),
+            cnx.begin().await.map_err(err_fwd!("💣 Open transaction error, follower=[{}]", &self.follower)),
             |_| WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR)
         );
 
@@ -348,20 +275,11 @@ impl KeyDelegate {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         };
 
-        if trans
-            .commit()
-            .await
-            .map_err(err_fwd!("Commit failed"))
-            .is_err()
-        {
+        if trans.commit().await.map_err(err_fwd!("Commit failed")).is_err() {
             return WebResponse::from_api_error(&INTERNAL_DATABASE_ERROR);
         }
 
-        log_info!(
-            "Number of key found, number of keys=[{}], follower=[{}]",
-            entries.len(),
-            &self.follower
-        );
+        log_info!("Number of key found, number of keys=[{}], follower=[{}]", entries.len(), &self.follower);
 
         WebResponse::from_item(StatusCode::OK.as_u16(), CustomerKeyReply { keys: entries })
     }

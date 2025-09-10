@@ -1,11 +1,11 @@
+use crate::api_error::ApiError;
 use crate::error_codes::INTERNAL_TECHNICAL_ERROR;
-use crate::{SimpleMessage, WebTypeBuilder};
+use crate::web_types::{SimpleMessage, WebTypeBuilder};
 use ciborium::into_writer;
 use http::header::CONTENT_TYPE;
 use http::{HeaderName, StatusCode};
 use serde::de;
 use serde::Serialize;
-use crate::api_error::ApiError;
 
 pub struct CborType<T> {
     http_code: StatusCode,
@@ -26,9 +26,7 @@ where
     fn into(self) -> CborBytes {
         let binary = match self.result {
             Ok(value) => serialize_to_bytes(&value),
-            Err(error) => serialize_to_bytes(&SimpleMessage {
-                message: error.message.to_string(),
-            }),
+            Err(error) => serialize_to_bytes(&SimpleMessage { message: error.message.to_string() }),
         };
 
         (self.http_code, [(CONTENT_TYPE, "application/cbor")], binary)
@@ -48,27 +46,19 @@ where
     T: de::DeserializeOwned + Serialize,
 {
     fn from_simple(code: u16, simple: SimpleMessage) -> Self {
-        Self {
-            http_code: StatusCode::from_u16(code).unwrap(),
-            result: Err(simple),
-        }
+        Self { http_code: StatusCode::from_u16(code).unwrap(), result: Err(simple) }
     }
 
     /// Convert an item to a CborType
     fn from_item(code: u16, item: T) -> Self {
-        Self {
-            http_code: StatusCode::from_u16(code).unwrap(),
-            result: Ok(item),
-        }
+        Self { http_code: StatusCode::from_u16(code).unwrap(), result: Ok(item) }
     }
 
     /// Convert an ApiError to a CborType
     fn from_api_error(error: &ApiError<'static>) -> Self {
         Self {
             http_code: StatusCode::from_u16(error.http_error_code).unwrap(),
-            result: Err(SimpleMessage {
-                message: error.message.to_string(),
-            }),
+            result: Err(SimpleMessage { message: error.message.to_string() }),
         }
     }
 }

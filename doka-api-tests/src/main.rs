@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkdto::api_error::ApiError;
-use dkdto::{LoginReply, LoginRequest, UploadReply};
+use dkdto::web_types::{LoginReply, LoginRequest, UploadReply};
 use doka_api_tests::{read_test_env, Lookup, TestEnv};
 use doka_cli::request_client::{AdminServerClient, FileServerClient};
 

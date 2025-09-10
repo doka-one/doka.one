@@ -23,7 +23,7 @@ use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::api_error::ApiError;
 use dkdto::cbor_type::CborType;
 use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
-use dkdto::{GetItemReply, WebType, WebTypeBuilder};
+use dkdto::web_types::{GetItemReply, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
 use doka_cli::request_client::TokenType;
 

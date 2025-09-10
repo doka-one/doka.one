@@ -1,13 +1,11 @@
-use crate::filter::filter_ast::{
-    parse_tokens, ComparisonOperator, FilterCondition, FilterExpressionAST,
-};
+use crate::filter::filter_ast::{parse_tokens, ComparisonOperator, FilterCondition, FilterExpressionAST};
 use crate::filter::filter_lexer::FilterErrorCode::EmptyCondition;
 use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode, LogicalOperator};
 use crate::filter::filter_normalizer::normalize_lexeme;
 use crate::parser_log;
 use chrono::format::Numeric::Second;
 use commons_error::*;
-use dkdto::{ClearTextReply, TagElement, TagType};
+use dkdto::web_types::{ClearTextReply, TagElement, TagType};
 use log::*;
 use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
@@ -17,9 +15,7 @@ pub(crate) mod filter_ast;
 pub(crate) mod filter_lexer;
 pub(crate) mod filter_normalizer;
 
-pub(crate) fn analyse_expression(
-    expression: &str,
-) -> Result<Box<FilterExpressionAST>, FilterError> {
+pub(crate) fn analyse_expression(expression: &str) -> Result<Box<FilterExpressionAST>, FilterError> {
     parser_log!("Analysing the expression : {:?}", expression; 5);
 
     match lex3(expression) {
@@ -37,12 +33,7 @@ pub(crate) fn analyse_expression(
 pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<String, FilterError> {
     let mut content: String = String::from("");
     match filter_expression {
-        FilterExpressionAST::Condition(FilterCondition {
-            key,
-            attribute,
-            operator,
-            value,
-        }) => {
+        FilterExpressionAST::Condition(FilterCondition { key, attribute, operator, value }) => {
             let sql_op = match operator {
                 ComparisonOperator::EQ => "=",
                 ComparisonOperator::NEQ => "<>",
@@ -113,10 +104,7 @@ mod tests {
             Err(e) => {
                 let e_msg = e.human_error_message();
                 log_debug!("Error : {}", &e_msg);
-                assert_eq!(
-                    "The value in the condition is not a valid number at position 9",
-                    e_msg
-                );
+                assert_eq!("The value in the condition is not a valid number at position 9", e_msg);
             }
         }
     }
@@ -151,10 +139,7 @@ mod tests {
             Err(e) => {
                 let e_msg = e.human_error_message();
                 log_debug!("Error : {}", &e_msg);
-                assert_eq!(
-                    "The value in the condition is not a valid number at position 5",
-                    e_msg
-                );
+                assert_eq!("The value in the condition is not a valid number at position 5", e_msg);
             }
         }
     }

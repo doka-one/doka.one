@@ -13,10 +13,8 @@ use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
-use dkdto::{OpenSessionReply, OpenSessionRequest, SessionReply, WebType};
+use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
+use dkdto::web_types::{OpenSessionReply, OpenSessionRequest, SessionReply, WebType};
 
 use crate::session::SessionDelegate;
 
@@ -60,23 +58,13 @@ async fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!(
-        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
-        PROJECT_CODE, VAR_NAME
-    );
+    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(
-        PROJECT_CODE,
-        &read_doka_env(&VAR_NAME),
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
-        .unwrap_or("".to_string())
-        .parse::<u16>()
-    else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -105,21 +93,17 @@ async fn main() {
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
-    log_info!(
-        "😎 The CEK was correctly read : [{}]",
-        format!("{}...", &cek[0..5])
-    );
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     // Init DB pool
-    let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information"))
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{:?}", e);
-            exit(-64);
-        }
-    };
+    let (connect_string, db_pool_size) =
+        match get_prop_pg_connect_string().map_err(err_fwd!("Cannot read the database connection information")) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("{:?}", e);
+                exit(-64);
+            }
+        };
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
@@ -127,9 +111,8 @@ async fn main() {
 
     // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
-    let key_routes = Router::new()
-        .route("/session/:session_id", get(read_session))
-        .route("/session", post(open_session));
+    let key_routes =
+        Router::new().route("/session/:session_id", get(read_session)).route("/session", post(open_session));
 
     let app = Router::new().nest(&base_url, key_routes);
 

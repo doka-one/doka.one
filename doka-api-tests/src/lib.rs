@@ -4,7 +4,7 @@ use std::sync::{Mutex, MutexGuard};
 use lazy_static::*;
 use rs_uuid::iso::uuid_v4;
 
-use dkdto::CreateCustomerRequest;
+use dkdto::web_types::CreateCustomerRequest;
 use doka_cli::request_client::AdminServerClient;
 
 pub enum TestStatus {
@@ -15,18 +15,14 @@ pub enum TestStatus {
 #[allow(dead_code)]
 pub struct Lookup<'a> {
     test_name: String,
-    test_to_run :  &'a[&'a str],
+    test_to_run: &'a [&'a str],
     token: String,
 }
 
-impl  <'a> Lookup <'a> {
-    pub fn new(test_name : &str, test_to_run: &'a [&'a str], dev_token: &str) -> Self {
+impl<'a> Lookup<'a> {
+    pub fn new(test_name: &str, test_to_run: &'a [&'a str], dev_token: &str) -> Self {
         init_test(test_name, &dev_token);
-        Lookup {
-            test_name: test_name.to_string(),
-            test_to_run,
-            token: dev_token.to_string(),
-        }
+        Lookup { test_name: test_name.to_string(), test_to_run, token: dev_token.to_string() }
     }
 
     pub fn close(&self) {
@@ -36,18 +32,17 @@ impl  <'a> Lookup <'a> {
 
 /// The Lookup struct will run this code as soon as it goes out of scope.
 /// It ensure the database will be cleared of data after the UT ends.
-impl <'a> Drop for Lookup<'a> {
+impl<'a> Drop for Lookup<'a> {
     fn drop(&mut self) {
         // close_test(&self.test_name, self.test_to_run);
         eprintln!("Dropping MyStruct with data: {}", self.test_name);
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TestEnv {
     pub token: String,
-    pub customer_code : String,
+    pub customer_code: String,
     pub login: String,
     pub password: String,
 }
@@ -60,7 +55,7 @@ pub fn read_test_env() -> TestEnv {
 }
 
 lazy_static! {
-    static ref TEST_ENV: Mutex<TestEnv> = Mutex::new(TestEnv{
+    static ref TEST_ENV: Mutex<TestEnv> = Mutex::new(TestEnv {
         token: "".to_string(),
         customer_code: "".to_string(),
         login: "".to_string(),
@@ -73,25 +68,21 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref IS_INIT_MUT : Mutex<bool> = Mutex::new(
-        {
-            false
-        });
+    static ref IS_INIT_MUT: Mutex<bool> = Mutex::new({ false });
 }
 
-pub fn init_test(test_name : &str, dev_token: &str) {
+pub fn init_test(test_name: &str, dev_token: &str) {
     {
         let mut test_list = TEST_LIST.lock().unwrap();
         test_list.insert(test_name.to_string(), TestStatus::INIT); // means the test has started
 
         eprintln!();
-        eprintln!("🔨 ****** Register the test : {} (Test present [{}])", test_name, test_list.len() );
+        eprintln!("🔨 ****** Register the test : {} (Test present [{}])", test_name, test_list.len());
         eprintln!();
     }
 
     let mut is_init = IS_INIT_MUT.lock().unwrap();
     if *is_init == false {
-
         eprintln!();
         eprintln!("🚀 ****** Start the init tests process");
         eprintln!();
@@ -113,7 +104,7 @@ pub fn init_test(test_name : &str, dev_token: &str) {
         let request = CreateCustomerRequest {
             customer_name: "doo@inc.com".to_string(),
             email: format!("doo_{}@inc.com", login_id),
-            admin_password: "dokatece3.XXX".to_string()
+            admin_password: "dokatece3.XXX".to_string(),
         };
         let wr_reply = admin_server.create_customer(&request, dev_token);
 
@@ -145,12 +136,9 @@ pub fn init_test(test_name : &str, dev_token: &str) {
         }
     }
     *is_init = true;
-
 }
 
-
-pub fn close_test(test_name : &str, test_to_run: &[&str]) {
-
+pub fn close_test(test_name: &str, test_to_run: &[&str]) {
     use commons_error::*;
     use log::*;
 
@@ -174,7 +162,7 @@ pub fn close_test(test_name : &str, test_to_run: &[&str]) {
         let reply = admin_server.delete_customer(&test_env.customer_code, &test_env.token);
 
         if let Err(_e) = reply {
-            log_error!("Error while deleting the schema, schema=[{}]", &test_env.customer_code );
+            log_error!("Error while deleting the schema, schema=[{}]", &test_env.customer_code);
             // dbg!(&e);
         }
 
@@ -184,17 +172,14 @@ pub fn close_test(test_name : &str, test_to_run: &[&str]) {
         eprintln!("🏁 ****** End the close tests process");
         eprintln!();
     }
-
 }
 
-fn is_all_terminated(list : MutexGuard<HashMap<String, TestStatus>>, test_to_run: &[&str]) -> bool {
+fn is_all_terminated(list: MutexGuard<HashMap<String, TestStatus>>, test_to_run: &[&str]) -> bool {
     // Vérifier si tous les éléments de la map sont à "DONE"
-    if list.values().all(|status|
-        match status {
-            TestStatus::DONE => true,
-            _ => false,
-    })
-    {
+    if list.values().all(|status| match status {
+        TestStatus::DONE => true,
+        _ => false,
+    }) {
         // Vérifier si tous les éléments de test_to_run sont dans la map
         let all_tests_present = test_to_run.iter().all(|test| list.contains_key(*test));
         all_tests_present
@@ -202,4 +187,3 @@ fn is_all_terminated(list : MutexGuard<HashMap<String, TestStatus>>, test_to_run
         false
     }
 }
-

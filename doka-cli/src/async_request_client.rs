@@ -11,7 +11,7 @@ use serde::{de, Serialize};
 use url::Url;
 
 use dkdto::error_codes::{HTTP_CLIENT_ERROR, INTERNAL_TECHNICAL_ERROR, URL_PARSING_ERROR};
-use dkdto::{
+use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply,
     AddTagRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply,
     GetFileInfoShortReply, GetItemReply, GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply, MediaBytes,
@@ -235,10 +235,7 @@ impl FileServerClientAsync {
         // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
         let url = self.server.build_url_with_refcode("upload2", item_info);
 
-        self.server
-            .post_bytes(&url, request, &Sid(sid.to_owned()))
-            .await
-            .map_err(|e| e.into_owned())
+        self.server.post_bytes(&url, request, &Sid(sid.to_owned())).await.map_err(|e| e.into_owned())
     }
 
     pub async fn download(&self, file_reference: &str, sid: &str) -> WebResponse<MediaBytes> /*WebResponse<( String, bytes::Bytes, StatusCode )>*/

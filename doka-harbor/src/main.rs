@@ -20,7 +20,7 @@ use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_value, set_prop_values};
 use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY};
 use dkdto::cbor_type::CborBytes;
-use dkdto::{WebType, WebTypeBuilder};
+use dkdto::web_types::{WebType, WebTypeBuilder};
 use handlebars::{Context, Handlebars, Helper, HelperResult, Output, RenderContext, RenderError, RenderErrorReason};
 use log::*;
 use serde_derive::{Deserialize, Serialize};

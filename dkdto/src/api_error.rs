@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use serde::{Serialize, Deserialize};
 use std::fmt::{Display, Formatter};
+use http::StatusCode;
 
 /// Replacement for ErrorSet and ErrorMessage
 
@@ -31,6 +32,6 @@ impl<'a> ApiError<'a> {
 
 impl From<anyhow::Error> for ApiError<'static> {
     fn from(e: anyhow::Error) -> Self {
-        ApiError::owned(500, e.to_string())
+        ApiError::owned(StatusCode::INTERNAL_SERVER_ERROR.as_u16(), e.to_string())
     }
 }

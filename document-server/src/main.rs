@@ -15,7 +15,7 @@ use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
-use dkdto::{
+use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest,
     DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType,
     WebTypeBuilder, WebTypeWithContext,
@@ -63,7 +63,10 @@ pub struct SearchQuery {
 /// **NORM
 ///
 /// #[get("/search?<start_page>&<page_size>&<filters>")]
-pub async fn search_item(Query(page): Query<SearchQuery>, session_token: SessionToken) -> WebType<GetItemReply> {
+pub async fn search_item(
+    Query(page): Query<SearchQuery>,
+    session_token: SessionToken,
+) -> WebTypeWithContext<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
 
     delegate.search_item(page.start_page, page.page_size, page.filters).await

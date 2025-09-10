@@ -5,7 +5,7 @@ use lazy_static::*;
 use rs_uuid::iso::uuid_v4;
 
 use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkdto::{CreateCustomerRequest, LoginRequest};
+use dkdto::web_types::{CreateCustomerRequest, LoginRequest};
 use doka_cli::request_client::AdminServerClient;
 
 pub enum TestStatus {
@@ -23,11 +23,7 @@ impl<'a> Lookup<'a> {
     pub fn new(test_name: &str, test_to_run: &'a [&'a str]) -> Self {
         let props = read_props();
         init_test(test_name, &props);
-        Lookup {
-            test_name: test_name.to_string(),
-            test_to_run,
-            props,
-        }
+        Lookup { test_name: test_name.to_string(), test_to_run, props }
     }
     // TODO REF_TAG : UNIFORMIZE_INIT
     pub fn props(&self) -> HashMap<String, String> {
@@ -60,11 +56,7 @@ impl<'a> Lookup<'a> {
             // test_list.remove(&test_name.to_owned());
             test_list.insert(self.test_name.to_string(), TestStatus::DONE);
             eprintln!();
-            eprintln!(
-                "⚪️ ****** Unregister the test : {} (Test left [{}])",
-                &self.test_name,
-                test_list.len()
-            );
+            eprintln!("⚪️ ****** Unregister the test : {} (Test left [{}])", &self.test_name, test_list.len());
             eprintln!();
         }
 
@@ -82,10 +74,7 @@ impl<'a> Lookup<'a> {
             );
 
             if let Err(_e) = reply {
-                log_error!(
-                    "Error while deleting the schema, schema=[{}]",
-                    &test_env.customer_code
-                );
+                log_error!("Error while deleting the schema, schema=[{}]", &test_env.customer_code);
                 // dbg!(&e);
             }
 
@@ -116,11 +105,8 @@ pub struct TestEnv {
 }
 
 lazy_static! {
-    static ref TEST_ENV: Mutex<TestEnv> = Mutex::new(TestEnv {
-        customer_code: "".to_string(),
-        login: "".to_string(),
-        password: "".to_string(),
-    });
+    static ref TEST_ENV: Mutex<TestEnv> =
+        Mutex::new(TestEnv { customer_code: "".to_string(), login: "".to_string(), password: "".to_string() });
 }
 
 lazy_static! {
@@ -132,11 +118,7 @@ lazy_static! {
 }
 
 pub fn read_props() -> HashMap<String, String> {
-    read_config(
-        "doka-test",
-        &read_doka_env("DOKA_UT_ENV"),
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    )
+    read_config("doka-test", &read_doka_env("DOKA_UT_ENV"), &Some("DOKA_CLUSTER_PROFILE".to_string()))
 }
 
 pub fn init_test(test_name: &str, props: &HashMap<String, String>) {
@@ -145,11 +127,7 @@ pub fn init_test(test_name: &str, props: &HashMap<String, String>) {
         test_list.insert(test_name.to_string(), TestStatus::INIT); // means the test has started
 
         eprintln!();
-        eprintln!(
-            "🔨 ****** Register the test : {} (Test present [{}])",
-            test_name,
-            test_list.len()
-        );
+        eprintln!("🔨 ****** Register the test : {} (Test present [{}])", test_name, test_list.len());
         eprintln!();
     }
 
@@ -219,8 +197,5 @@ fn is_all_terminated(list: MutexGuard<HashMap<String, TestStatus>>, test_to_run:
 }
 
 pub fn get_login_request(props: &HashMap<String, String>) -> LoginRequest {
-    LoginRequest {
-        login: props.get("login").unwrap().to_owned(),
-        password: props.get("password").unwrap().to_owned(),
-    }
+    LoginRequest { login: props.get("login").unwrap().to_owned(), password: props.get("password").unwrap().to_owned() }
 }

@@ -16,7 +16,7 @@ use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkconfig::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
-use dkdto::{
+use dkdto::web_types::{
     DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply, UploadReply,
     WebType,
 };

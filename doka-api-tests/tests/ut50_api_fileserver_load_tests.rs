@@ -9,7 +9,7 @@ mod api_fileserver_load_tests {
     use base64::Engine;
     use core::time::Duration;
     use dkdto::api_error::ApiError;
-    use dkdto::UploadReply;
+    use dkdto::web_types::UploadReply;
     use doka_cli::request_client::{AdminServerClient, FileServerClient};
     use std::thread;
 

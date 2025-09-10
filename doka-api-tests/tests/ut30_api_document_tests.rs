@@ -9,7 +9,7 @@ mod api_document_tests {
     use rand::Rng;
 
     use dkdto::api_error::ApiError;
-    use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
+    use dkdto::web_types::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
     use doka_cli::request_client::{AdminServerClient, DocumentServerClient};
 
     use crate::test_lib::{get_login_request, Lookup};

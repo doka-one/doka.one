@@ -7,7 +7,7 @@ const TEST_TO_RUN: &[&str] = &["t10_login_ok", "t20_login_fail", "t30_login_fail
 #[cfg(test)]
 pub mod api_login_tests {
     use dkdto::api_error::ApiError;
-    use dkdto::LoginRequest;
+    use dkdto::web_types::LoginRequest;
     use doka_cli::request_client::AdminServerClient;
 
     use crate::test_lib::{get_login_request, Lookup};

@@ -2,15 +2,15 @@ use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpre
 use axum::async_trait;
 use commons_error::tr_fwd;
 use commons_error::*;
-use dkdto::TagType;
-use log::*;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-
 use commons_pg::sql_transaction::SQLDataSet;
 use commons_pg::sql_transaction_async::{SQLConnectionAsync, SQLQueryBlockAsync};
-use commons_services::x_request_id::Follower;
+use commons_services::x_request_id::{Follower, XRequestID};
+use dkdto::web_types::TagType;
+use log::*;
 use once_cell::sync::Lazy;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::str::FromStr;
 
 const EXTRA_TABLE_PREFIX: &str = "ot";
 
@@ -145,56 +145,55 @@ impl fmt::Display for GenerationError {
     }
 }
 
+use crate::tag::TagDelegate;
 use anyhow::Result;
-use std::sync::Arc;
+use commons_services::token_lib::SessionToken;
 
-// Make sure Follower implements Debug (or Display).
-// #[derive(Debug)]
-// pub struct Follower { /* ... */ }
-
+#[derive(Debug)]
 pub(crate) struct TagDefinitionBuilder {
-    follower: Follower,
+    pub session_token: SessionToken,
+    pub follower: Follower,
 }
 
 impl TagDefinitionBuilder {
-    pub fn new(follower: Follower) -> Self {
-        Self { follower }
+    pub fn new(session_token: SessionToken, follower: Follower) -> Self {
+        Self { session_token, follower }
     }
 }
 
 #[async_trait]
 trait TagDefinitionInterface {
-    /// Prefer slices over &Vec<T>
-    async fn get_tag_definition(&self, tag_name: &[String]) -> Result<Vec<TagDefinition>>;
+    /// Returns the definition of the given tags for the given customer
+    async fn get_tag_definition(&self, tag_names: &[String], customer_code: &str) -> Result<Vec<TagDefinition>>;
 }
 
 #[async_trait]
 impl TagDefinitionInterface for TagDefinitionBuilder {
-    async fn get_tag_definition(&self, _tag_name: &[String]) -> Result<Vec<TagDefinition>> {
-        // Example: include follower in every error path
+    async fn get_tag_definition(&self, tag_names: &[String], customer_code: &str) -> Result<Vec<TagDefinition>> {
         let mut cnx = SQLConnectionAsync::from_pool()
             .await
-            .map_err(err_fwd!("New DB connection failed; follower={:?}", self.follower))?;
+            .map_err(err_fwd!("New DB connection failed; follower={}", &self.follower))?;
 
-        let mut trans = cnx.begin().await.map_err(err_fwd!("Transaction issue; follower={:?}", self.follower))?;
+        let mut trans = cnx.begin().await.map_err(err_fwd!("Transaction issue; follower={}", &self.follower))?;
 
-        let mut params = HashMap::new();
-        // params.insert("p_customer_code".to_owned(), p_customer_code);
+        let tag_delegate = TagDelegate::new(self.session_token.clone(), self.follower.x_request_id.clone());
 
-        let sql_query = r#"SELECT 1 FROM dokaadmin.customer WHERE code = :p_customer_code"#.to_owned();
+        let r_defs = tag_delegate
+            .search_tags_by_names(&mut trans, tag_names, customer_code)
+            .await
+            .map_err(err_fwd!("search_tags_by_names failed; follower={}", &self.follower));
 
-        let query = SQLQueryBlockAsync { sql_query, params, start: 0, length: Some(1) };
-
-        let _sql_result: SQLDataSet = query.execute(&mut trans).await.map_err(err_fwd!(
-            "Query failed [{}]; follower={:?}",
-            &query.sql_query,
-            self.follower
-        ))?;
-
-        // If your transaction commit is async, keep `.await`; if not, remove it.
         trans.commit().await?;
 
-        Ok(vec![])
+        // Convert to TagDefiniton and return the list
+        r_defs.map(|defs| {
+            defs.into_iter()
+                .map(|def| TagDefinition {
+                    tag_names: def.name,
+                    tag_type: TagType::from_str(&def.tag_type).unwrap_or(TagType::Text),
+                })
+                .collect()
+        })
     }
 }
 
@@ -330,6 +329,7 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     select_tags: &[&str],
     order_tags: &[&str],
     generation_mode: SearchSqlGenerationMode,
+    customer_code: &str,
 ) -> Result<String, GenerationError> {
     // Get all the final nodes (leaves), for instance, == (lastname, "a%" )
     let filter_conditions = extract_all_conditions(&filter_expression_ast).map_err(tr_fwd!())?;
@@ -345,14 +345,15 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     // Find the tag_definitions for all the tags (type, limit, default value)
     let tags_list: Vec<String> = tags.iter().cloned().collect();
 
-    let definitions = match tag_definition_builder.get_tag_definition(&tags_list).await.map_err(tr_fwd!()) {
-        Ok(definitions) => definitions,
-        Err(e) => {
-            // TODO tracer and session id ?
-            log_error!("Error while getting tag definitions: {:?}", e);
-            return Err(GenerationError::TagSearchError("Error in tag search".to_string()));
-        }
-    };
+    let definitions =
+        match tag_definition_builder.get_tag_definition(&tags_list, customer_code).await.map_err(tr_fwd!()) {
+            Ok(definitions) => definitions,
+            Err(e) => {
+                // TODO tracer and session id ?
+                log_error!("Error while getting tag definitions: {:?}", e);
+                return Err(GenerationError::TagSearchError("Error in tag search".to_string()));
+            }
+        };
 
     dbg!(&definitions);
 
@@ -447,7 +448,7 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     final_sql.push_str(&tag_columns);
 
     final_sql.push_str("\n");
-    final_sql.push_str(" FROM item i ");
+    final_sql.push_str(" FROM {customer_schema}.item i ");
 
     final_sql.push_str("\n");
     final_sql.push_str(&list_of_query_tags.join("\n"));
@@ -465,16 +466,16 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     final_sql.push_str(order_columns.as_str());
     final_sql.push_str("\n");
 
-    // generate the DOKA search sql
-    Ok(final_sql.to_string())
+    let sql_query = final_sql.to_string().replace("{customer_schema}", format!("cs_{}", customer_code).as_str());
+    Ok(sql_query)
 }
 
 /// tag_value_filter and tag_super_filter are side by side to avoid a blank line
 /// in the case of there isn't any tag_super_filter
 const QUERY_FILTER_TEMPLATE: &str = r#"LEFT OUTER JOIN (
     SELECT tv.item_id, tv.{{value_column_name}} as value
-    FROM tag_definition td
-    JOIN tag_value tv ON
+    FROM {customer_schema}.tag_definition td
+    JOIN {customer_schema}.tag_value tv ON
         tv.tag_id = td.id
         AND td."name" = '{{tag_name}}'
         {{tag_value_filter}}{{tag_super_filter}}
@@ -510,7 +511,7 @@ mod tests {
     use axum::async_trait;
     use commons_error::*;
     use commons_services::x_request_id::XRequestID;
-    use dkdto::TagType;
+    use dkdto::web_types::TagType;
     use log::*;
     use sqlparser::ast::{ObjectName, Query, SetExpr, Statement, TableFactor, TableWithJoins};
     use sqlparser::dialect::PostgreSqlDialect;
@@ -537,7 +538,11 @@ mod tests {
 
     #[async_trait]
     impl TagDefinitionInterface for TagDefinitionBuilderMock {
-        async fn get_tag_definition(&self, tag_name: &[String]) -> anyhow::Result<Vec<TagDefinition>> {
+        async fn get_tag_definition(
+            &self,
+            tag_name: &[String],
+            _customer_code: &str,
+        ) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
             let tag_definitions = vec![
                 TagDefinition { tag_names: "country".to_string(), tag_type: TagType::Text },
@@ -635,6 +640,7 @@ mod tests {
             &vec!["country", "science", "is_open"],
             &vec!["country", "science", "is_open"],
             SearchSqlGenerationMode::Live,
+            "cs_123456",
         )
         .await;
         let q = &query.unwrap();
@@ -646,7 +652,11 @@ mod tests {
     struct TagDefinitionBuilderMock2 {}
     #[async_trait]
     impl TagDefinitionInterface for TagDefinitionBuilderMock2 {
-        async fn get_tag_definition(&self, tag_name: &[String]) -> anyhow::Result<Vec<TagDefinition>> {
+        async fn get_tag_definition(
+            &self,
+            tag_name: &[String],
+            _customer_code: &str,
+        ) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
             let tag_definitions = vec![
                 TagDefinition { tag_names: "lastname".to_string(), tag_type: TagType::Text },
@@ -671,12 +681,11 @@ mod tests {
             &vec!["lastname", "postal_code"],
             &vec!["lastname", "postal_code"],
             SearchSqlGenerationMode::Live,
+            "cs_123456",
         )
         .await;
 
         let q = &query.unwrap();
-
-        log_info!("FINAL QUERY : {}", &q);
 
         // validate and assert table names
         let _r = validate_my_engine_query(q);

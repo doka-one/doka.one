@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::anyhow;
@@ -24,17 +23,18 @@ use dkdto::api_error::ApiError;
 use dkdto::error_codes::{
     BAD_TAG_FOR_ITEM, INCORRECT_TAG_TYPE, INTERNAL_DATABASE_ERROR, MISSING_ITEM, MISSING_TAG_FOR_ITEM,
 };
-use dkdto::{
+use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagRequest, AddTagValue, ContextMessage,
-    EnumTagValue, GetItemReply, ItemElement, SimpleMessage, TagType, TagValueElement, WebTypeBuilder,
-    WebTypeWithContext,
+    EnumTagValue, GetItemReply, IntoWebTypeWithContext, ItemElement, SimpleMessage, TagType, TagValueElement, WebType,
+    WebTypeBuilder, WebTypeWithContext,
 };
 use doka_cli::request_client::TokenType;
 
-use crate::engine::generator::{generate_search_sql, SearchSqlGenerationMode, TagDefinitionBuilder};
+use crate::engine::generator::{generate_search_sql, GenerationError, SearchSqlGenerationMode, TagDefinitionBuilder};
 use crate::filter::filter_ast::FilterExpressionAST;
+use crate::filter::filter_lexer::FilterError;
 use crate::filter::{analyse_expression, to_sql_form};
-use crate::{TagDelegate, WebType};
+use crate::TagDelegate;
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
@@ -57,9 +57,9 @@ impl ItemDelegate {
         start_page: Option<u32>,
         page_size: Option<u32>,
         filter_expression: Option<String>,
-    ) -> WebType<GetItemReply> {
+    ) -> WebTypeWithContext<GetItemReply> {
         log_info!(
-            "🚀 Start get_all_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]",
+            "🚀 Start search_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]",
             start_page,
             page_size,
             &self.follower
@@ -67,85 +67,74 @@ impl ItemDelegate {
 
         let entry_session = try_or_return!(
             valid_sid_get_session(&self.session_token, &mut self.follower).await,
-            Self::web_type_error()
+            Self::web_type_error_ctx()
         );
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
         let filter_expression_ast: Box<FilterExpressionAST> =
-            match analyse_expression(&filter_expression.unwrap_or("()".to_owned())) {
-                Ok(v) => v,
-                Err(e) => {
-                    // TODO
-                    //     Here we can use a ContextMessage to keep the error colum name
-                    // let c = ContextMessage {
-                    //     message: e.human_error_message(),
-                    //     context: vec![String::from(e.char_position)],
-                    // };
-                    // Err(WebType {})
-                    panic!()
-                }
-            };
+            try_or_return!(analyse_expression(filter_expression.as_deref().unwrap_or("()")), |e: FilterError| {
+                // Keep the column/char position in the context
+                let c = ContextMessage { message: e.human_error_message(), context: vec![e.char_position.to_string()] };
+                // Early return 400 with context
+                WebTypeWithContext::from_simple(StatusCode::BAD_REQUEST.as_u16(), c)
+            });
 
-        let tag_definition_builder = TagDefinitionBuilder::new(self.follower.clone());
+        // session_token: SessionToken, follower: Follower, x_request_id: XRequestID
+        let tag_definition_builder = TagDefinitionBuilder::new(self.session_token.clone(), self.follower.clone());
         let select_tags = &vec!["lastname", "postal_code"];
         let order_tags = &vec!["lastname", "postal_code"];
 
         // We use a tag definition interface,because we don't know which tags
         //      we want the definition for, because they are in the filter's conditions.
-        let r = generate_search_sql(
-            &filter_expression_ast,
-            &tag_definition_builder,
-            select_tags,
-            order_tags,
-            SearchSqlGenerationMode::Live,
-        )
-        .await;
+        let sql_query = try_or_return!(
+            generate_search_sql(
+                &filter_expression_ast,
+                &tag_definition_builder,
+                select_tags,
+                order_tags,
+                SearchSqlGenerationMode::Live,
+                &entry_session.customer_code,
+            )
+            .await,
+            |e: GenerationError| {
+                let msg = SimpleMessage::from(e.to_string()); //TODO verify the message we must output in this case
+                WebType::from_simple(StatusCode::BAD_REQUEST.as_u16(), msg).into_with_context()
+            }
+        );
 
-        let s = to_sql_form(&filter_expression_ast.deref()).unwrap(); // TODO
-        log_info!("sql = {}", &s);
+        log_info!("sql = {}", &sql_query);
 
-        // Open Db connection
         let Ok(mut cnx) = SQLConnectionAsync::from_pool()
             .await
             .map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower))
         else {
-            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
         };
 
         let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower))
         else {
-            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
         };
 
-        let Ok(items) = self
-            .search_item_with_filter(
-                &mut trans,
-                &filter_expression_ast.deref(),
-                start_page,
-                page_size,
-                &entry_session.customer_code,
-            )
-            .await
-        else {
+        let Ok(items) = self.search_item_from_query(&mut trans, &sql_query, start_page, page_size).await else {
             log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
-            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
         };
 
         log_info!("😎 We found the items, item count=[{}], follower=[{}]", items.len(), &self.follower);
 
         if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
-            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
         }
 
-        log_info!("🏁 End get_all_item, follower=[{}]", &self.follower);
+        log_info!("🏁 End search_item, follower=[{}]", &self.follower);
 
-        WebType::from_api_error(&INTERNAL_DATABASE_ERROR)
+        WebTypeWithContext::from_item(StatusCode::OK.as_u16(), GetItemReply { items })
     }
 
     /// Deprecated - replace it with search_item
     /// 🌟 Find all the items at page [start_page]
-    ///
     pub async fn get_all_item(mut self, start_page: Option<u32>, page_size: Option<u32>) -> WebType<GetItemReply> {
         // Already done in the delegate constructor : self.follower.x_request_id = self.follower.x_request_id.new_if_null();
 
@@ -196,46 +185,63 @@ impl ItemDelegate {
         WebType::from_item(StatusCode::OK.as_u16(), GetItemReply { items })
     }
 
-    /// Search items from the filter given
-    /// If no item id provided, return all existing items
-    /// TODO Merge the main query with the property query in order to reduce the number of SQL queries
-    async fn search_item_with_filter(
+    /// Search items from the standard engine sql query REF_TAG: DOKA_ENGINE
+    async fn search_item_from_query(
         &self,
         mut trans: &mut SQLTransactionAsync<'_>,
-        filters: &FilterExpressionAST,
+        sql_query: &str,
         start_page: Option<u32>,
         page_size: Option<u32>,
-        customer_code: &str,
     ) -> anyhow::Result<Vec<ItemElement>> {
-        let sql_condition = match to_sql_form(&filters) {
-            Ok(sq) => sq,
-            Err(e) => {
-                log_error!("Syntax error in {:?}", e);
-                return Err(anyhow!("Impossible to parse the filters")); // TODO find a way to inform the client about the detail of the error
-            }
-        };
-
         let params = HashMap::new();
 
-        let sql_query = format!(
-            r"SELECT id, name, file_ref, created_gmt, last_modified_gmt
-                    FROM cs_{0}.item INNER JOIN   cs_{0}.property prop
-                    WHERE  ({1})
-                    ORDER BY prop.col1 ",
-            customer_code, sql_condition
-        );
-
         let query = SQLQueryBlockAsync {
-            sql_query,
+            sql_query: sql_query.to_string(),
             start: start_page.unwrap_or(0) * page_size.unwrap_or(0),
             length: page_size,
             params,
         };
 
-        let mut _sql_result: SQLDataSet =
+        let mut sql_result: SQLDataSet =
             query.execute(&mut trans).await.map_err(err_fwd!("Query failed, [{}]", &query.sql_query))?;
 
-        Ok(vec![])
+        let mut items = vec![];
+        while sql_result.next() {
+            let id: i64 = sql_result.get_int("id").ok_or(anyhow!("Wring id"))?;
+            let name: String = sql_result.get_string("name").unwrap_or("".to_owned());
+            let o_file_ref: Option<String> = sql_result.get_string("file_ref"); // .unwrap_or("".to_owned());
+            let created_gmt = sql_result
+                .get_timestamp_as_datetime("created_gmt")
+                .ok_or(anyhow::anyhow!("Wrong created gmt"))
+                .map_err(tr_fwd!())?;
+
+            // Optional
+            let last_modified_gmt =
+                sql_result.get_timestamp_as_datetime("last_modified_gmt").as_ref().map(|x| date_time_to_iso(x));
+
+            let lastname: String = sql_result.get_string("lastname").unwrap_or("".to_owned());
+
+            let tv = TagValueElement {
+                tag_value_id: 0,
+                item_id: 0,
+                tag_id: 0,
+                tag_name: "lastname".to_string(),
+                value: EnumTagValue::Text(Some(lastname.to_string())),
+            };
+
+            let item = ItemElement {
+                item_id: id,
+                name,
+                file_ref: o_file_ref,
+                created: date_time_to_iso(&created_gmt),
+                last_modified: last_modified_gmt,
+                properties: Some(vec![tv]), // fill it with the extra fields
+            };
+
+            let _ = &items.push(item);
+        }
+
+        Ok(items)
     }
 
     /// ! Deprecated - user search_with_filter instead
@@ -981,8 +987,7 @@ impl ItemDelegate {
     ) -> anyhow::Result<i64> {
         // Find tag by name
         let session_token = self.session_token.clone();
-        let x_request_id = self.follower.x_request_id.clone();
-        let tag_delegate = TagDelegate::new(session_token, x_request_id);
+        let tag_delegate = TagDelegate::new(session_token, self.follower.x_request_id.clone());
 
         let tags = tag_delegate
             .search_tag_by_id(trans, Some(tag_id), None, None, customer_code)
@@ -1020,8 +1025,7 @@ impl ItemDelegate {
 
         // Find tag by name
         let session_token = self.session_token.clone();
-        let x_request_id = self.follower.x_request_id.clone();
-        let tag_delegate = TagDelegate::new(session_token, x_request_id);
+        let tag_delegate = TagDelegate::new(session_token, self.follower.x_request_id.clone());
         let tag_id = match tag_delegate.search_tag_by_name(trans, tag_name.as_str(), customer_code).await {
             Ok(tag) => {
                 // We found the tag by it's name
@@ -1175,5 +1179,13 @@ impl ItemDelegate {
             log_error!("💣 Error after try {:?}", e);
             WebType::from_api_error(e)
         }
+    }
+
+    fn web_type_error_ctx<T>() -> impl Fn(&ApiError<'static>) -> WebTypeWithContext<T>
+    where
+        T: DeserializeOwned,
+    {
+        let f = Self::web_type_error::<T>();
+        move |e| f(e).into_with_context()
     }
 }

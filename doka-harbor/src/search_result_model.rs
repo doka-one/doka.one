@@ -2,7 +2,7 @@ use bytes::Bytes;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::ImageRequest;
-use dkdto::{EnumTagValue, GetItemReply, ItemElement, TagValueElement};
+use dkdto::web_types::{EnumTagValue, GetItemReply, ItemElement, TagValueElement};
 
 #[derive(Serialize)]
 struct CborFile {

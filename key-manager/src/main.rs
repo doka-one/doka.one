@@ -14,7 +14,7 @@ use commons_services::x_request_id::XRequestID;
 use dkconfig::conf_reader::{read_config, read_doka_env};
 use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
 use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
-use dkdto::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
+use dkdto::web_types::{AddKeyReply, AddKeyRequest, CustomerKeyReply, WebType};
 
 use crate::key::KeyDelegate;
 
@@ -135,8 +135,8 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
-    use dkdto::AddKeyReply;
-    use dkdto::AddKeyRequest;
+    use dkdto::web_types::AddKeyReply;
+    use dkdto::web_types::AddKeyRequest;
 
     #[test]
     fn http_post_add_key() -> anyhow::Result<()> {

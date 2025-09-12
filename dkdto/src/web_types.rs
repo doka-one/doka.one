@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Display;
 use std::str::FromStr;
 
 use crate::api_error::ApiError;

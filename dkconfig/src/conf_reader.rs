@@ -5,7 +5,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow};
 use commons_error::*;
 use java_properties::read;
 use serde_derive::Deserialize;

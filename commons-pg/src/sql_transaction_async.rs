@@ -65,7 +65,7 @@ pub struct SQLPoolAsync {
 }
 
 impl SQLPoolAsync {
-    pub async fn new(connect_string: &str, pool_size: u32) -> anyhow::Result<Self> {
+    pub async fn new(connect_string: &str, _pool_size: u32) -> anyhow::Result<Self> {
         // connect_string :  "postgres://doka:doka@localhost:5432/ad_test_03";
 
         log_info!("********** Creating SQL pool with connect string [{}]", connect_string);

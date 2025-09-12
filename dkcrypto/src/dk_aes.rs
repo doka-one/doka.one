@@ -1,9 +1,6 @@
-use std::error::Error;
-
 use aes_gcm::aead::Nonce;
-use aes_gcm::{AeadCore, AeadInPlace, Aes128Gcm, Key, KeyInit};
-use anyhow::{ensure, Context, Result};
-use rand::RngCore;
+use aes_gcm::{AeadInPlace, Aes128Gcm, Key, KeyInit};
+use anyhow::{ensure, Result};
 
 fn get_once_from_str(none_12: &str) -> Result<Nonce<Aes128Gcm>> {
     let mut nonce_bytes = [0u8; 12];

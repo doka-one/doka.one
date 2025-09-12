@@ -1,4 +1,4 @@
-use std::{env, fmt};
+use std::{env};
 
 use anyhow::anyhow;
 use async_imap::Client;
@@ -37,7 +37,7 @@ async fn read_starttls_emails(
     println!("Upgraded to a secure TLS connection");
 
     // Step 4: Rebuild the IMAP client using the TLS stream
-    let mut client = Client::new(tls_stream);
+    let client = Client::new(tls_stream);
 
     // Step 5: Log in with the provided credentials
     let mut imap_session = match client.login(login, password).await {

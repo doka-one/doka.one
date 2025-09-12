@@ -57,6 +57,7 @@ impl ItemDelegate {
         start_page: Option<u32>,
         page_size: Option<u32>,
         filter_expression: Option<String>,
+        order_tags: Option<Vec<String>>
     ) -> WebTypeWithContext<GetItemReply> {
         log_info!(
             "🚀 Start search_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]",
@@ -82,8 +83,13 @@ impl ItemDelegate {
 
         // session_token: SessionToken, follower: Follower, x_request_id: XRequestID
         let tag_definition_builder = TagDefinitionBuilder::new(self.session_token.clone(), self.follower.clone());
-        let select_tags = &vec!["lastname", "postal_code"];
-        let order_tags = &vec!["lastname", "postal_code"];
+        let select_tags = &vec![];
+        // let v_order_tags: Vec<&str> = order_tags
+        //     .as_deref()                 // Option<&[String]>
+        //     .unwrap_or(&[])             // &[]
+        //     .iter()
+        //     .map(String::as_str)        // &String -> &str
+        //     .collect();
 
         // We use a tag definition interface,because we don't know which tags
         //      we want the definition for, because they are in the filter's conditions.
@@ -92,13 +98,14 @@ impl ItemDelegate {
                 &filter_expression_ast,
                 &tag_definition_builder,
                 select_tags,
-                order_tags,
+                & order_tags.unwrap_or(vec![]),
                 SearchSqlGenerationMode::Live,
                 &entry_session.customer_code,
             )
             .await,
             |e: GenerationError| {
-                let msg = SimpleMessage::from(e.to_string()); //TODO verify the message we must output in this case
+                log_error!("💣 Fail to generate sql search query, [{:?}],follower=[{}]", e, &self.follower);
+                let msg = SimpleMessage::from(e.to_string());
                 WebType::from_simple(StatusCode::BAD_REQUEST.as_u16(), msg).into_with_context()
             }
         );

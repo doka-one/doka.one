@@ -56,6 +56,7 @@ pub struct SearchQuery {
     pub start_page: Option<u32>,
     pub page_size: Option<u32>,
     pub filters: Option<String>,
+    pub order_tags: Option<Vec<String>>,
 }
 
 ///
@@ -69,7 +70,7 @@ pub async fn search_item(
 ) -> WebTypeWithContext<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
 
-    delegate.search_item(page.start_page, page.page_size, page.filters).await
+    delegate.search_item(page.start_page, page.page_size, page.filters, page.order_tags).await
 }
 
 ///

@@ -1,9 +1,11 @@
+use std::fmt::format;
 use std::fs;
 use std::ops::Deref;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
+use chrono::Utc;
 use lazy_static::lazy_static;
 use portpicker::Port;
 
@@ -359,6 +361,87 @@ fn generate_doka_cli_env_var(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+const DOKA_CONFIG : &str = include_str!("../resources/doka-config.json");
+
+
+// helper to get the user's home directory
+fn user_home_dir() -> anyhow::Result<PathBuf> {
+    // If you already use `dirs`/`home` crates, you can swap this out.
+    if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow!("Cannot determine USERPROFILE"))
+    } else {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow!("Cannot determine HOME"))
+    }
+}
+
+/// Generate the .doka-config.json file
+///
+/// Place it in the **user root folder**
+fn generate_doka_config(config: &Config, ports: &Ports) -> anyhow::Result<()> {
+    /*
+        "CONFIG_BASE" : "<DOKA_INSTALL_DIR>/<DOKA_INSTANCE>",
+
+
+
+     */
+
+    let doka_config_content = DOKA_CONFIG
+
+        .replace("<DOKA_INSTALL_DIR>", &config.installation_path)
+        .replace("<DOKA_INSTANCE>", &config.instance_name)
+
+        .replace("<DB_USER>", &config.db_user_name)
+        .replace("<DB_PASSWORD>", &config.db_user_password)
+
+        .replace("<DB_HOST>", &config.db_host)
+        .replace("<DB_PORT>", & format!("{}", config.db_port))
+
+        .replace("<AS_HOST>", "localhost")
+        .replace("<AS_PORT>", &ports.admin_server.to_string())
+        .replace("<FS_HOST>", "localhost")
+        .replace("<FS_PORT>", &ports.file_server.to_string())
+        .replace("<KM_HOST>", "localhost")
+        .replace("<KM_PORT>", &ports.key_manager.to_string())
+        .replace("<SM_HOST>", "localhost")
+        .replace("<SM_PORT>", &ports.session_manager.to_string())
+        .replace("<DS_HOST>", "localhost")
+        .replace("<DS_PORT>", &ports.document_server.to_string())
+        .replace("<TKS_HOST>", "localhost") // TKS is for TIKA Server
+        .replace("<TKS_PORT>", &ports.tika_server.to_string())
+        .replace("<HB_HOST>", "localhost") // TKS is for TIKA Server
+        .replace("<HB_PORT>", &ports.harbor_server.to_string());
+
+    let home = user_home_dir()?;
+    let properties_file = home.join(".doka-config.json");
+
+    // If it already exists, back it up with ISO timestamp
+    if properties_file.exists() {
+        let ts = Utc::now().format("%Y-%m-%dT%H-%M-%SZ"); // ISO-ish, filename-safe
+        let backup = home.join(format!(".doka-config_{}.json", ts));
+        fs::rename(&properties_file, &backup).with_context(|| {
+            format!("Failed to backup existing file to {}", backup.display())
+        })?;
+    }
+
+    // Write new file atomically(ish): write to tmp then rename
+    let tmp = home.join(".doka-config.json.tmp");
+    fs::write(&tmp, &doka_config_content).map_err(eprint_fwd!(
+        "Cannot create the temporary .doka-config.json file"
+    ))?;
+    fs::rename(&tmp, &properties_file).map_err(eprint_fwd!(
+        "Cannot move the temporary file into place"
+    ))?;
+
+    println!("Done. Generated ~/.doka-config.json");
+    Ok(())
+}
+
+
+
 pub(crate) fn generate_all_app_properties(config: &Config, ports: &Ports) -> anyhow::Result<()> {
     let _ = step_println("Generate Doka Services property files");
 
@@ -370,6 +453,8 @@ pub(crate) fn generate_all_app_properties(config: &Config, ports: &Ports) -> any
 
     let _ = generate_log4j_config_for_tika(config)?;
     let _ = generate_config_for_tika(config, ports)?;
+
+    let _ = generate_doka_config(config, ports)?;
 
     let _ = generate_doka_cli_app_properties(config, ports)?;
     let _ = generate_doka_cli_env_var(config);

@@ -1,0 +1,96 @@
+{
+  "clusters": [
+    {
+      "description": "Doka Service Configuration",
+      "name": "<DOKA_INSTANCE>",
+      "constants": {
+        "CONFIG_BASE" : "<DOKA_INSTALL_DIR>/<DOKA_INSTANCE>",
+        "PROPERTY_FILE_LOCATION" : "config/application.properties",
+        "DB_HOST": "<DB_HOST>",
+        "DB_PORT": "<DB_PORT>",
+        "DB_USER": "<DB_USER>",
+        "DB_PASSWORD": "<DB_PASSWORD>",
+        "DB_POOL_SIZE": "10",
+        "KEY_MANAGER_HOST": "<KM_HOST>",
+        "KEY_MANAGER_PORT": "<KM_PORT>",
+        "SESSION_MANAGER_HOST": "<SM_HOST>",
+        "SESSION_MANAGER_PORT": "<SM_PORT>",
+        "ADMIN_SERVER_HOST": "<AS_HOST>",
+        "ADMIN_SERVER_PORT": "<AS_PORT>",
+        "DOCUMENT_SERVER_HOST": "<DS_HOST>",
+        "DOCUMENT_SERVER_PORT": "<DS_PORT>",
+        "FILE_SERVER_HOST": "<FS_HOST>",
+        "FILE_SERVER_PORT": "<FS_PORT>",
+        "TIKA_SERVER_HOST": "<TKS_HOST>",
+        "TIKA_SERVER_PORT": "<TKS_PORT>",
+        "HARBOR_HOST": "<HB_HOST>",
+        "HARBOR_PORT": "<HB_PORT>"
+      },
+      "services": [
+        {
+          "description": "Key manager configuration",
+          "name": "key-manager",
+          "property_file": "${CONFIG_BASE}/key-manager/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+          }
+        },
+
+        {
+          "description": "Session manager configuration",
+          "name": "session-manager",
+          "property_file": "${CONFIG_BASE}/session-manager/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+          }
+        },
+
+        {
+          "description": "Admin server configuration",
+          "name": "admin-server",
+          "property_file": "${CONFIG_BASE}/admin-server/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+            "server.port" : "${ADMIN_SERVER_PORT}",
+            "app.ek" : "${CONFIG_BASE}/admin-server/keys/cek.key",
+            "log4rs.config" : "${CONFIG_BASE}/admin-server/config/log4rs.yaml"
+          }
+        },
+
+        {
+          "description": "Document server configuration",
+          "name": "document-server",
+          "property_file": "${CONFIG_BASE}/document-server/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+          }
+        },
+
+        {
+          "description": "File server configuration",
+          "name": "file-server",
+          "property_file": "${CONFIG_BASE}/file-server/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+          }
+        },
+
+        {
+          "description": "Harbor configuration",
+          "name": "harbor",
+          "property_file": "${CONFIG_BASE}/harbor/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+          }
+        },
+
+        {
+          "description": "Doka CLI configuration",
+          "name": "doka-cli",
+          "property_file": "${CONFIG_BASE}/doka-cli/${PROPERTY_FILE_LOCATION}",
+          "properties" : {
+            "working.folder": "${CONFIG_BASE}/doka-cli/config",
+            "server.host" : "localhost",
+            "as.port" : "${ADMIN_SERVER_PORT}",
+            "ds.port" : "${DOCUMENT_SERVER_PORT}",
+            "fs.port" : "${FILE_SERVER_PORT}"
+          }
+        }
+      ]
+    }
+  ]
+}

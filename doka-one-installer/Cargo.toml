@@ -15,6 +15,8 @@ postgres = { workspace = true }
 postgres-types = { workspace = true }
 lazy_static = { workspace = true }
 mut_static = { workspace = true }
+chrono = { workspace = true }
+
 clap = { version = "4.0.32", features = ["derive"] }
 zip-extract = "0.1.1"
 portpicker = "0.1.1"

@@ -11,6 +11,7 @@ pub(crate) struct Ports {
     pub document_server: u16,
     pub file_server: u16,
     pub tika_server: u16,
+    pub harbor_server: u16,
 }
 
 ///
@@ -47,6 +48,7 @@ pub(crate) fn find_service_port() -> anyhow::Result<Ports> {
     const PORT_DOCUMENT_SERVER: u16 = 30_070;
     const PORT_FILE_SERVER: u16 = 30_080;
     const PORT_TIKA_SERVER: u16 = 40_010;
+    const PORT_HARBOR_SERVER: u16 = 50_000;
 
     let _ = step_println("Searching ports for services ...")?;
 
@@ -68,6 +70,9 @@ pub(crate) fn find_service_port() -> anyhow::Result<Ports> {
     let port_tika_server = test_ports(PORT_TIKA_SERVER)?;
     println!("Found port {port_tika_server}");
 
+    let port_harbor_server = test_ports(PORT_HARBOR_SERVER)?;
+    println!("Found port {port_harbor_server}");
+
     Ok(Ports {
         key_manager: port_key_manager,
         session_manager: port_session_manager,
@@ -75,5 +80,6 @@ pub(crate) fn find_service_port() -> anyhow::Result<Ports> {
         document_server: port_document_server,
         file_server: port_file_server,
         tika_server: port_tika_server,
+        harbor_server: port_harbor_server,
     })
 }

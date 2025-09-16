@@ -24,8 +24,7 @@ use crate::login::LoginDelegate;
 mod customer;
 mod dk_password;
 mod login;
-mod schema_cs;
-mod schema_fs;
+
 
 /// 0️ Login into the system with the provided credentials
 ///

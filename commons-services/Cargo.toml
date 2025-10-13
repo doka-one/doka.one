@@ -18,9 +18,9 @@ rand = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 
-commons-error = {path="../commons-error"}
-commons-pg = {path="../commons-pg"}
-dkconfig = {path="../dkconfig"}
-dkcrypto = {path="../dkcrypto"}
-dkdto = {path="../dkdto"}
-doka-cli = {path="../doka-cli"}
+commons-error = { path = "../commons-error" }
+commons-pg = { path = "../commons-pg" }
+common-config = { path = "../common-config" }
+dkcrypto = { path = "../dkcrypto" }
+dkdto = { path = "../dkdto" }
+doka-cli = { path = "../doka-cli" }

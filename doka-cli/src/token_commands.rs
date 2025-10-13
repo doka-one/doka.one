@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
-use dkconfig::properties::get_prop_value;
+use common_config::properties::get_prop_value;
 use serde::{Deserialize, Serialize};
 
 use dkcrypto::dk_crypto::CypherMode::CC20;
@@ -21,9 +21,7 @@ struct ClearSecurityToken {
 
 impl ClearSecurityToken {
     pub fn new() -> Self {
-        ClearSecurityToken {
-            expiry_date: Utc::now().add(Duration::minutes(60)),
-        }
+        ClearSecurityToken { expiry_date: Utc::now().add(Duration::minutes(60)) }
     }
 }
 
@@ -48,10 +46,7 @@ pub fn token_generate(cek_file: &str) -> anyhow::Result<()> {
     write_security_token(&security_token)?;
 
     println!("Text Security token: {}", &clear_token);
-    println!(
-        "😎 Security token generated successfully, token : {}... ",
-        &security_token[0..7]
-    );
+    println!("😎 Security token generated successfully, token : {}... ", &security_token[0..7]);
     Ok(())
 }
 

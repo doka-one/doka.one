@@ -3,15 +3,15 @@ use std::process::exit;
 
 use log::error;
 
+use common_config::conf_reader::cek_read_once;
+use common_config::properties::{get_prop_value, set_prop_value};
+use common_config::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
 use commons_error::*;
-use dkconfig::conf_reader::cek_read_once;
-use dkconfig::properties::{get_prop_value, set_prop_value};
-use dkconfig::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
 
-pub mod session_lib;
-pub mod token_lib;
 pub mod database_lib;
 pub mod key_lib;
+pub mod session_lib;
+pub mod token_lib;
 pub mod x_request_id;
 
 #[macro_export]
@@ -32,7 +32,7 @@ pub fn read_cek_and_store() {
         exit(-28);
     };
     let cek = match cek_read_once(Path::new(&cek_file), false) {
-        Ok(s) => {s}
+        Ok(s) => s,
         Err(e) => {
             log_error!("{:?} {:?}", &cek_file, e);
             exit(-29);
@@ -40,4 +40,3 @@ pub fn read_cek_and_store() {
     };
     set_prop_value(COMMON_EDIBLE_KEY_PROPERTY, &cek);
 }
-

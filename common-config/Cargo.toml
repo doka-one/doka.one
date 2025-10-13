@@ -1,5 +1,5 @@
 [package]
-name = "dkconfig"
+name = "common-config"
 version = "0.3.0"
 edition = "2021"
 
@@ -20,5 +20,6 @@ java-properties = { workspace = true }
 anyhow = { workspace = true }
 lazy_static = { workspace = true }
 
-commons-error = {path="../commons-error"}
+commons-error = { path = "../commons-error" }
+once_cell = "1.19.0"
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use dkconfig::conf_reader::{read_config, read_doka_env};
+use common_config::conf_reader::{read_config, read_env};
 use dkdto::api_error::ApiError;
 use dkdto::web_types::{LoginReply, LoginRequest, UploadReply};
 use doka_api_tests::{read_test_env, Lookup, TestEnv};
@@ -14,7 +14,7 @@ const TEST_TO_RUN: &[&str] = &["t10_upload_mass_file"];
 /// In a distributed micro-services environment, this case is not supposed to happen.
 /// Anyhow, the file server must process all the incoming requests.
 fn t10_upload_mass_file() -> Result<(), ApiError<'static>> {
-    let props = read_config("doka-test", &read_doka_env("DOKA_UT_ENV"), &Some("DOKA_CLUSTER_PROFILE".to_string()));
+    let props = read_config("doka-test", &read_env("DOKA_UT_ENV"), &Some("DOKA_CLUSTER_PROFILE".to_string()));
     let lookup = Lookup::new("t10_upload_mass_file", TEST_TO_RUN, &props.get("token").unwrap()); // auto dropping
     let test_env = read_test_env();
     eprintln!("test_env {:?}", &test_env);

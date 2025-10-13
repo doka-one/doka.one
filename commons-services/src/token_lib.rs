@@ -4,8 +4,8 @@ use axum::http::request::Parts;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
+use common_config::properties::get_prop_value;
 use commons_error::*;
-use dkconfig::properties::get_prop_value;
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 
@@ -30,10 +30,7 @@ where
             .get("token")
             .and_then(|value| value.to_str().ok())
             .map(|value| SecurityToken(value.to_string()))
-            .ok_or((
-                StatusCode::UNAUTHORIZED,
-                "Missing or invalid token header".into(),
-            ))?;
+            .ok_or((StatusCode::UNAUTHORIZED, "Missing or invalid token header".into()))?;
 
         Ok(token)
     }
@@ -68,10 +65,7 @@ where
             .get("sid")
             .and_then(|value| value.to_str().ok())
             .map(|value| SessionToken(value.to_string()))
-            .ok_or((
-                StatusCode::UNAUTHORIZED,
-                "Missing or invalid session token header".into(),
-            ))?;
+            .ok_or((StatusCode::UNAUTHORIZED, "Missing or invalid session token header".into()))?;
 
         Ok(token)
     }

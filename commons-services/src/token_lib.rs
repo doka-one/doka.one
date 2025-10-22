@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use commons_error::*;
-use dkconfig::properties::get_prop_value;
+use common_config::properties::get_prop_value;
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 

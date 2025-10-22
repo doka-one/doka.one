@@ -4,9 +4,9 @@ use std::process::exit;
 use log::error;
 
 use commons_error::*;
-use dkconfig::conf_reader::cek_read_once;
-use dkconfig::properties::{get_prop_value, set_prop_value};
-use dkconfig::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
+use common_config::conf_reader::cek_read_once;
+use common_config::properties::{get_prop_value, set_prop_value};
+use common_config::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
 
 pub mod session_lib;
 pub mod token_lib;

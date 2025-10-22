@@ -20,7 +20,7 @@ tokio = { workspace = true }
 
 commons-error = {path="../commons-error"}
 commons-pg = {path="../commons-pg"}
-dkconfig = {path="../dkconfig"}
+common-config = {path="../common-config"}
 dkcrypto = {path="../dkcrypto"}
 dkdto = {path="../dkdto"}
 doka-cli = {path="../doka-cli"}

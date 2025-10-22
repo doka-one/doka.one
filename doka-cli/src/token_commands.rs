@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
-use dkconfig::properties::get_prop_value;
+use common_config::properties::get_prop_value;
 use serde::{Deserialize, Serialize};
 
 use dkcrypto::dk_crypto::CypherMode::CC20;

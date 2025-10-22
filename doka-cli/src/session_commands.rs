@@ -3,7 +3,7 @@ use std::io::{BufReader, Read, Write};
 
 use anyhow::anyhow;
 
-use dkconfig::properties::get_prop_value;
+use common_config::properties::get_prop_value;
 use dkdto::web_types::LoginRequest;
 use doka_cli::request_client::AdminServerClient;
 

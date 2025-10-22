@@ -35,7 +35,7 @@ commons-error = { path = "../commons-error" }
 dkdto = { path = "../dkdto" }
 dkcrypto = { path = "../dkcrypto" }
 doka-cli = { path = "../doka-cli" } # TODO should not be imported, it's only here to get the API stubs
-dkconfig = { path = "../dkconfig" }
+common-config = { path = "../common-config" }
 commons-services = { path = "../commons-services" }
 
 

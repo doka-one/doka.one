@@ -12,9 +12,9 @@ use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest,
     DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType,
@@ -223,7 +223,7 @@ async fn main() {
     // Read the application config's file
     println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(PROJECT_CODE, &read_doka_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
+    let props = read_config(PROJECT_CODE, &read_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
 

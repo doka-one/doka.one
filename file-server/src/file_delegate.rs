@@ -28,8 +28,8 @@ use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
-use dkconfig::properties::get_prop_value;
-use dkconfig::property_name::{
+use common_config::properties::get_prop_value;
+use common_config::property_name::{
     DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY, TIKA_SERVER_HOSTNAME_PROPERTY,
     TIKA_SERVER_PORT_PROPERTY,
 };

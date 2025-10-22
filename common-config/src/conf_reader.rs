@@ -106,11 +106,7 @@ pub fn read_cluster_profile(cluster_var_name: &Option<String>) -> Option<String>
 ///  * If the o_config_file is defined, we take the property file from it.
 ///  * If not, we read the .xxx-config.json file from the user's base folder (or the argument --config-file)
 ///       and where the services are defined
-pub fn read_config(
-    project_code: &str,
-    o_config_file: &Option<String>,
-    cluster_var_name: &Option<String>,
-) -> HashMap<String, String> {
+pub fn read_config( project_code: &str, o_config_file: &Option<String>, cluster_var_name: &Option<String>,) -> HashMap<String, String> {
     let config_file = match o_config_file {
         None => dirs::home_dir().expect("Failed to determine home directory").join(".doka-config.json"),
         Some(config_file) => {
@@ -138,15 +134,46 @@ pub fn read_config(
             exit(10);
         });
 
-        let constants = cluster.constants.map.clone();
+        let os = std::env::consts::OS;
+        let o_system_constants = match os {
+            "windows" => cluster.constants_windows.as_ref(),
+            "linux" => cluster.constants_linux.as_ref(),
+            _ => None,
+        };
 
+        let mut constants = cluster.constants.map.clone();
+
+        // Complete the constants list with the constants for the OS
+        if let Some(os_constants) = o_system_constants {
+            for (k, v) in &os_constants.map {
+                constants.insert(k.clone(), v.clone());
+            }
+        }
+
+        let service = cluster.services.iter().find(|s| s.name == project_code).unwrap_or_else(|| {
+            eprintln!("Service with name '{}' not found", project_code);
+            exit(20);
+        });
         let service = cluster.services.iter().find(|s| s.name == project_code).unwrap_or_else(|| {
             eprintln!("Service with name '{}' not found", project_code);
             exit(20);
         });
 
         let property_file = service.property_file.clone();
+        let mut properties = service.properties.map.clone();
 
+        // Complete the list of properties with the common properties
+        match &cluster.properties {
+            None => {}
+            Some(cp) => {
+                for (k,v) in &cp.map {
+                    properties.insert(k.clone(), v.clone());
+                }
+            }
+        }
+
+        let resolved_property_file = replace_value_with_constants(&property_file, &Some(constants.clone()));
+        (Path::new(&resolved_property_file).to_path_buf(), Some(constants), Some(properties))
         let properties = service.properties.map.clone();
         let resolved_property_file = replace_value_with_constants(&property_file, &Some(constants.clone()));
         (Path::new(&resolved_property_file).to_path_buf(), Some(constants), Some(properties))
@@ -154,11 +181,9 @@ pub fn read_config(
         eprintln!("💣 Config file [{}] does not exist", config_file.to_str().unwrap());
         exit(120);
     };
-
     let Ok(props) = read_config_from_path(&property_file, &constants, &properties) else {
         exit(100);
     };
-
     props
 }
 
@@ -174,6 +199,9 @@ pub struct ClusterConfig {
     pub description: Option<String>,
     pub name: String,
     pub constants: Constants,
+    pub constants_linux: Option<Constants>,
+    pub constants_windows: Option<Constants>,
+    pub properties: Option<FlatProps>,
     pub services: Vec<Service>,
 }
 
@@ -228,10 +256,7 @@ pub fn read_cluster_configs(file_path: &Path) -> anyhow::Result<ClusterConfigs> 
 /// Read the configuration file from a direct path
 /// It will first read the props from the application.properties files, then override the values with those in the .doka-config.json
 /// and eventually process the interpolation with the constant value.
-pub fn read_config_from_path(
-    property_file: &PathBuf,
-    constants: &Option<HashMap<String, String>>,
-    properties: &Option<HashMap<String, String>>,
+pub fn read_config_from_path(property_file: &PathBuf, constants: &Option<HashMap<String, String>>, properties: &Option<HashMap<String, String>>,
 ) -> anyhow::Result<HashMap<String, String>> {
     println!("Read the properties from the file : {}", property_file.to_str().unwrap_or("Not found"));
 
@@ -241,7 +266,7 @@ pub fn read_config_from_path(
             HashMap::new()
         }),
         Err(e) => {
-            eprintln!("💣 Cannot open the property file, e={}", e);
+            eprintln!("Cannot open the property file, let's continue, e={}", e);
             HashMap::new()
         }
     };
@@ -264,7 +289,7 @@ pub fn read_config_from_path(
         .map(|(key, value)| (key, replace_value_with_constants(&value, constants)))
         .collect();
 
-    println!("Resolved properties: {:?}", resolved_props);
+    println!("Resolved properties: {:?}", resolved_props.keys());
 
     Ok(resolved_props)
 }

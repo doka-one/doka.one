@@ -24,11 +24,11 @@ csv = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 
-commons-pg = { path = "../commons-pg" }
-commons-error = { path = "../commons-error" }
-common-config = { path = "../common-config" }
-dkcrypto = { path = "../dkcrypto" }
-commons-services = { path = "../commons-services" }
-dkdto = { path = "../dkdto" }
-doka-cli = { path = "../doka-cli" }
+commons-pg = {path="../commons-pg"}
+commons-error = {path="../commons-error"}
+common-config = {path="../common-config"}
+dkcrypto = {path="../dkcrypto"}
+commons-services = {path= "../commons-services" }
+dkdto = {path="../dkdto"}
+doka-cli = {path="../doka-cli"}
 

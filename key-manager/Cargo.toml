@@ -23,16 +23,15 @@ csv = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 
-commons-pg = { path = "../commons-pg" }
-commons-error = { path = "../commons-error" }
-common-config = { path = "../common-config" }
-dkcrypto = { path = "../dkcrypto" }
-commons-services = { path = "../commons-services" }
-dkdto = { path = "../dkdto" }
-doka-cli = { path = "../doka-cli" }
+commons-pg = {path="../commons-pg"}
+commons-error = {path="../commons-error"}
+common-config = {path="../common-config"}
+dkcrypto = {path="../dkcrypto"}
+commons-services = {path= "../commons-services" }
+dkdto = {path="../dkdto"}
+doka-cli = {path="../doka-cli"}
 
 # test
 reqwest = { workspace = true }
-once_cell = "1.19.0"
-lazy_static = "1.5.0"
+
 

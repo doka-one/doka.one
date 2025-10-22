@@ -3,10 +3,10 @@ use std::process::exit;
 
 use log::error;
 
+use commons_error::*;
 use common_config::conf_reader::cek_read_once;
 use common_config::properties::{get_prop_value, set_prop_value};
 use common_config::property_name::{COMMON_EDIBLE_KEY_FILE_PROPERTY, COMMON_EDIBLE_KEY_PROPERTY};
-use commons_error::*;
 
 pub mod database_lib;
 pub mod key_lib;

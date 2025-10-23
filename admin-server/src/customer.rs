@@ -27,8 +27,6 @@ use doka_cli::async_request_client::KeyManagerClientAsync;
 use doka_cli::request_client::TokenType;
 
 use crate::dk_password::valid_password;
-use crate::schema_cs::CS_SCHEMA;
-use crate::schema_fs::FS_SCHEMA;
 
 struct DbServerInfo {
     host: String,
@@ -60,6 +58,9 @@ impl DbServerInfo {
         }
     }
 }
+
+const CS_SCHEMA: &str   = include_str!("../resources/schema_cs.ddl");
+const FS_SCHEMA: &str   = include_str!("../resources/schema_fs.ddl");
 
 fn generate_cs_schema_script(customer_code: &str) -> String {
     let template = CS_SCHEMA.to_string();

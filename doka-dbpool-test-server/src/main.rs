@@ -6,9 +6,9 @@ use std::process::exit;
 use commons_error::*;
 use commons_pg::init_db_pool;
 use commons_services::read_cek_and_store;
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use common_config::property_name::{
     COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
 };
 use dkdto::WebType;
@@ -45,7 +45,7 @@ fn main() {
 
     let props = read_config(
         PROJECT_CODE,
-        &read_doka_env(&VAR_NAME),
+        &read_env(&VAR_NAME),
         &Some("DOKA_CLUSTER_PROFILE".to_string()),
     );
 

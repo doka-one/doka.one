@@ -256,11 +256,11 @@ fn install(args: InstallArgs) {
     };
 
     // Phase 3a : Uninstall Windows services
-    if cfg!(windows) {
-        let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
-            exit(25);
-        };
-    }
+    // if cfg!(windows) {
+    //     let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
+    //         exit(25);
+    //     };
+    // }
 
     // Phase 3b : Download artefacts
 
@@ -283,17 +283,17 @@ fn install(args: InstallArgs) {
         exit(45);
     };
 
-    let Ok(_) = write_all_service_definition(&config)
-        .map_err(eprint_fwd!("Write definition file failed")) else {
-        exit(50);
-    };
-
-    // Phase 5 : Start up services
-    if cfg!(windows) {
-        let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
-            exit(60);
-        };
-    }
+    // let Ok(_) = write_all_service_definition(&config)
+    //     .map_err(eprint_fwd!("Write definition file failed")) else {
+    //     exit(50);
+    // };
+    //
+    // // Phase 5 : Start up services
+    // if cfg!(windows) {
+    //     let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
+    //         exit(60);
+    //     };
+    // }
 
     let _ = end_println("Doka installed with success");
 }

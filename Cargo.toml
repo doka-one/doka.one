@@ -4,7 +4,7 @@ members = [
     "commons-error",
     "commons-pg",
     "dkcrypto",
-    "dkconfig",
+    "common-config",
     "dkdto",
     "doka-cli",
     "commons-services",

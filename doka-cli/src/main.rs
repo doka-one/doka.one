@@ -5,8 +5,8 @@ use std::process::exit;
 use anyhow::anyhow;
 
 use commons_error::*;
-use dkconfig::conf_reader::{read_config, read_config_from_path, read_doka_env};
-use dkconfig::properties::{get_prop_value, set_prop_values};
+use common_config::conf_reader::{read_config, read_config_from_path, read_env};
+use common_config::properties::{get_prop_value, set_prop_values};
 
 use crate::command_options::{display_commands, load_commands, parse_args, Command, Params};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
@@ -36,7 +36,7 @@ const FILE_DOWNLOAD_FAILED: u16 = 120;
 const SUCCESS: u16 = 0;
 
 fn read_configuration_file() -> anyhow::Result<()> {
-    let doka_env = read_doka_env("DOKA_CLI_ENV");
+    let doka_env = read_env("DOKA_CLI_ENV");
     let props = read_config(
         "doka-cli",
         &doka_env,

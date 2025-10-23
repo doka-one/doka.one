@@ -4,7 +4,7 @@ use std::sync::{Mutex, MutexGuard};
 use lazy_static::*;
 use rs_uuid::iso::uuid_v4;
 
-use dkconfig::conf_reader::{read_config, read_doka_env};
+use common_config::conf_reader::{read_config, read_env};
 use dkdto::web_types::{CreateCustomerRequest, LoginRequest};
 use doka_cli::request_client::AdminServerClient;
 
@@ -118,7 +118,7 @@ lazy_static! {
 }
 
 pub fn read_props() -> HashMap<String, String> {
-    read_config("doka-test", &read_doka_env("DOKA_UT_ENV"), &Some("DOKA_CLUSTER_PROFILE".to_string()))
+    read_config("doka-test", &read_env("DOKA_UT_ENV"), &Some("DOKA_CLUSTER_PROFILE".to_string()))
 }
 
 pub fn init_test(test_name: &str, props: &HashMap<String, String>) {

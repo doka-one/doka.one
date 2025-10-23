@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use regex::Regex;
 
 use commons_error::*;
-use dkconfig::properties::get_prop_value;
+use common_config::properties::get_prop_value;
 use dkdto::web_types::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
 use doka_cli::request_client::{DocumentServerClient, FileServerClient};
 

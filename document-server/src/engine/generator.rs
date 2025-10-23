@@ -277,10 +277,10 @@ fn verify_filter_conditions(
     Ok(())
 }
 
-fn build_order_column(order_tags: &[&str], map_of_tags_with_occurrence: &HashMap<String, Vec<String>>) -> Vec<String> {
+fn build_order_column(order_tags: &Vec<String>, map_of_tags_with_occurrence: &HashMap<String, Vec<String>>) -> Vec<String> {
     order_tags
         .iter()
-        .filter_map(|tag| map_of_tags_with_occurrence.get(&tag.to_string()))
+        .filter_map(|tag| map_of_tags_with_occurrence.get(tag))
         .map(|occurrences| {
             let mut coalesce_expr = occurrences.iter().map(|o| format!("{}.value", o)).collect::<Vec<_>>();
             if coalesce_expr.len() == 1 {
@@ -296,6 +296,9 @@ fn build_order_column(order_tags: &[&str], map_of_tags_with_occurrence: &HashMap
         .collect()
 }
 
+/// Not used for now
+///
+/// Allow to add some tag column in the search query
 fn build_tag_column_with_alias(
     select_tags: &[&str],
     map_of_tags_with_occurrence: &HashMap<String, Vec<String>>,
@@ -326,8 +329,8 @@ fn build_tag_column_with_alias(
 pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     filter_expression_ast: &FilterExpressionAST,
     tag_definition_builder: &T,
-    select_tags: &[&str],
-    order_tags: &[&str],
+    _select_tags: &[&str],
+    order_tags: &Vec<String>,
     generation_mode: SearchSqlGenerationMode,
     customer_code: &str,
 ) -> Result<String, GenerationError> {
@@ -337,19 +340,20 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     dbg!(&filter_conditions);
 
     // Extract all the tags name from each leaves
-    let tags: HashSet<_> =
+    let mut tags: HashSet<_> =
         filter_conditions.iter().map(|(_, (_, filter_condition))| filter_condition.attribute.clone()).collect();
+
+    tags.extend(order_tags.iter().map(|s| s.to_string()));
 
     dbg!(&tags);
 
-    // Find the tag_definitions for all the tags (type, limit, default value)
+    // Find the tag_definitions for the tags used in the filter and in the order by
     let tags_list: Vec<String> = tags.iter().cloned().collect();
 
     let definitions =
         match tag_definition_builder.get_tag_definition(&tags_list, customer_code).await.map_err(tr_fwd!()) {
             Ok(definitions) => definitions,
             Err(e) => {
-                // TODO tracer and session id ?
                 log_error!("Error while getting tag definitions: {:?}", e);
                 return Err(GenerationError::TagSearchError("Error in tag search".to_string()));
             }
@@ -367,7 +371,6 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
 
     // Verify if the filter conditions are compatible with the tag type
     if let Err(e) = verify_filter_conditions(&filter_conditions, &definitions) {
-        // TODO tracer and session id ?
         log_error!("Error while verifying filter conditions: {:?}", e);
         return Err(e);
     }
@@ -383,7 +386,6 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
             log_error!("Error while building tag value filter: {:?}", e);
             e
         })?;
-
         log_debug!("tag_value_filter: {}", &tag_value_filter);
 
         let query_tag =
@@ -393,16 +395,13 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
             })?;
 
         let tag_occurrence = format!("ot_{}_{}", &fc.attribute, occurrence);
-
         dbg!(&tag_occurrence);
 
         // Add the tag_occurrence to a list associated with the tag name through a hash map
         map_of_tags_with_occurrence.entry(fc.attribute.clone()).or_insert_with(Vec::new).push(tag_occurrence);
-
         dbg!(&map_of_tags_with_occurrence);
 
         log_info!("query_tags: {}", &query_tag);
-
         list_of_query_tags.push(query_tag);
     }
 
@@ -416,11 +415,11 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
 
     dbg!(&order_columns);
 
-    // build the tag_columns
-    let tag_columns = build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(",\n    ");
+    // Build the tag_columns - There is no need to generate extra columns for the tags.
+    //let tag_columns = build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(",\n    ");
+    //dbg!(&tag_columns);
 
-    dbg!(&tag_columns);
-
+    // TODO Super filter implementation
     if let SearchSqlGenerationMode::Persisted = generation_mode {
         // Evaluate the count of items from the tag_value_filter
         ()
@@ -441,13 +440,13 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     name,
     file_ref,
     created_gmt,
-    last_modified_gmt,"#,
+    last_modified_gmt"#,
     );
 
     final_sql.push_str("\n    ");
-    final_sql.push_str(&tag_columns);
+    // final_sql.push_str(&tag_columns);
 
-    final_sql.push_str("\n");
+    // final_sql.push_str("\n");
     final_sql.push_str(" FROM {customer_schema}.item i ");
 
     final_sql.push_str("\n");
@@ -638,7 +637,7 @@ mod tests {
             &filter_expression_ast,
             &tag_definition_builder,
             &vec!["country", "science", "is_open"],
-            &vec!["country", "science", "is_open"],
+            &vec!["country".to_string(), "science".to_string(), "is_open".to_string()],
             SearchSqlGenerationMode::Live,
             "cs_123456",
         )
@@ -678,8 +677,8 @@ mod tests {
         let query = generate_search_sql(
             &filter_expression_ast,
             &tag_definition_builder,
-            &vec!["lastname", "postal_code"],
-            &vec!["lastname", "postal_code"],
+            &vec![""],
+            &vec!["lastname".to_string(), "postal_code".to_string()],
             SearchSqlGenerationMode::Live,
             "cs_123456",
         )

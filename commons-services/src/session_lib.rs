@@ -1,8 +1,8 @@
 use log::error;
 
 use commons_error::*;
-use dkconfig::properties::get_prop_value;
-use dkconfig::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
+use common_config::properties::get_prop_value;
+use common_config::property_name::{SESSION_MANAGER_HOSTNAME_PROPERTY, SESSION_MANAGER_PORT_PROPERTY};
 use dkdto::api_error::ApiError;
 use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
 use dkdto::web_types::EntrySession;

@@ -28,4 +28,4 @@ percent-encoding = "^2.3"
 commons-error = {path="../commons-error"}
 dkcrypto = {path="../dkcrypto"}
 dkdto = {path="../dkdto"}
-dkconfig={path="../dkconfig"}
+common-config={path="../common-config"}

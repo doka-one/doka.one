@@ -1,9 +1,8 @@
-use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST};
+use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
 use axum::async_trait;
 use commons_error::tr_fwd;
 use commons_error::*;
-use commons_pg::sql_transaction::SQLDataSet;
-use commons_pg::sql_transaction_async::{SQLConnectionAsync, SQLQueryBlockAsync};
+use commons_pg::sql_transaction_async::{SQLConnectionAsync};
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::web_types::TagType;
 use log::*;
@@ -217,12 +216,17 @@ fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType
             format!("unaccent_lower((tv.value_string)::text) {0} unaccent_lower('{1}')", &sql_op, value)
         }
         TagType::Bool => {
-            // science = true
-            let value = filter_condition.value.to_string().to_lowercase();
-            if filter_condition.operator == ComparisonOperator::EQ && value == "true" {
-                "tv.value_boolean".to_string()
-            } else {
-                "NOT tv.value_boolean".to_string()
+            match (&filter_condition.operator, &filter_condition.value) {
+                (ComparisonOperator::EQ, FilterValue::ValueBool(true)) => "tv.value_boolean = TRUE".to_string(),
+                (ComparisonOperator::EQ, FilterValue::ValueBool(false)) => "tv.value_boolean = FALSE".to_string(),
+                (ComparisonOperator::NEQ, FilterValue::ValueBool(true)) => "tv.value_boolean <> TRUE".to_string(),
+                (ComparisonOperator::NEQ, FilterValue::ValueBool(false)) => "tv.value_boolean <> FALSE".to_string(),
+                _ => {
+                    return Err(GenerationError::TagIncompatibleType(format!(
+                        "Tag : {}, Invalid boolean comparison {:?} with value {}",
+                        &filter_condition.attribute, &filter_condition.operator, &filter_condition.value
+                    )));
+                }
             }
         }
         TagType::Int => {
@@ -501,8 +505,8 @@ mod tests {
     // cargo test --color=always --bin document-server engine  [ -- --show-output]
 
     use crate::engine::generator::{
-        build_query_filter, extract_all_conditions, generate_search_sql, verify_filter_conditions, GenerationError,
-        SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
+        build_query_filter, build_tag_value_filter, extract_all_conditions, generate_search_sql,
+        verify_filter_conditions, GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
     };
     use crate::filter::analyse_expression;
     use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
@@ -524,11 +528,11 @@ mod tests {
     pub(crate) fn init_logger() {
         INIT_LOGGER.call_once(|| {
             if let Err(e) = log4rs::init_file(
-                "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
-                // r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
+                // "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
+                r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
                 Default::default(),
             ) {
-                panic!("{:?}", e);
+                eprintln!("logger init skipped: {:?}", e);
             }
         });
     }
@@ -783,5 +787,61 @@ mod tests {
 
         const EXPECTED : &str = "(( ot_country_0.value is not null  AND  ot_science_0.value is not null ) OR ( ot_is_open_0.value is not null  OR ( ot_country_1.value is not null  AND  ot_science_1.value is not null )))";
         assert_eq!(EXPECTED, &boolean_filter);
+    }
+
+    #[test]
+    pub fn test_build_tag_value_filter_bool_false_eq() {
+        let filter_condition = FilterCondition {
+            key: "1".to_string(),
+            attribute: "is_open".to_string(),
+            operator: ComparisonOperator::EQ,
+            value: FilterValue::ValueBool(false),
+        };
+
+        let sql = build_tag_value_filter(&filter_condition, &TagType::Bool).unwrap();
+
+        assert_eq!("tv.value_boolean = FALSE", sql);
+    }
+
+    #[test]
+    pub fn test_build_tag_value_filter_bool_true_eq() {
+        let filter_condition = FilterCondition {
+            key: "1".to_string(),
+            attribute: "is_open".to_string(),
+            operator: ComparisonOperator::EQ,
+            value: FilterValue::ValueBool(true),
+        };
+
+        let sql = build_tag_value_filter(&filter_condition, &TagType::Bool).unwrap();
+
+        assert_eq!("tv.value_boolean = TRUE", sql);
+    }
+
+    #[test]
+    pub fn test_build_tag_value_filter_bool_true_neq() {
+        let filter_condition = FilterCondition {
+            key: "1".to_string(),
+            attribute: "is_open".to_string(),
+            operator: ComparisonOperator::NEQ,
+            value: FilterValue::ValueBool(true),
+        };
+
+        let sql = build_tag_value_filter(&filter_condition, &TagType::Bool).unwrap();
+
+        assert_eq!("tv.value_boolean <> TRUE", sql);
+    }
+
+    #[test]
+    pub fn test_build_tag_value_filter_bool_false_neq() {
+        let filter_condition = FilterCondition {
+            key: "1".to_string(),
+            attribute: "is_open".to_string(),
+            operator: ComparisonOperator::NEQ,
+            value: FilterValue::ValueBool(false),
+        };
+
+        let sql = build_tag_value_filter(&filter_condition, &TagType::Bool).unwrap();
+
+        assert_eq!("tv.value_boolean <> FALSE", sql);
     }
 }

@@ -8,14 +8,14 @@ use axum::routing::{delete, patch, post};
 use axum::{Json, Router};
 use log::*;
 
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
 use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
-use common_config::conf_reader::{read_config, read_env};
-use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use dkdto::web_types::{CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType};
 
 use crate::customer::CustomerDelegate;
@@ -97,8 +97,8 @@ pub async fn delete_integration_tests_customer(
     delegate.delete_integration_tests_customer().await
 }
 
-/// Accept parameters from the commande line
-/// * --env [optional] : the path to the .doka-config.json file (or from the DOKA_ENV environment variable)
+/// Accept parameters from the command line
+/// * --config-file [optional] : the path to the .doka-config.json file (or from the DOKA_ENV environment variable)
 /// * --cluster-profile : the name of the cluster profile
 ///
 /// By default, the program will look for the .doka-config.json file in the user's base folder

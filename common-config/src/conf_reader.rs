@@ -103,8 +103,8 @@ pub fn read_cluster_profile(cluster_var_name: &Option<String>) -> Option<String>
 }
 
 /// Read the configuration file from the project code and the environment variable
-///  * If the doka_env_folder is defined, we take the property file from it.
-///  * If not, we read the .doka-config.json file from the user's base folder (or the argument --doka-config)
+///  * If the o_config_file is defined, we take the property file from it.
+///  * If not, we read the .xxx-config.json file from the user's base folder (or the argument --config-file)
 ///       and where the services are defined
 pub fn read_config(
     project_code: &str,

@@ -12,4 +12,5 @@ log = { workspace = true }
 log4rs = { workspace = true }
 
 #[dev-dependencies]
+serde_json = { workspace = true }
 #log4rs = { workspace = true }

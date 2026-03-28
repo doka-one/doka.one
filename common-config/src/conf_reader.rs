@@ -160,19 +160,15 @@ pub fn read_config(
         });
 
         let property_file = service.property_file.clone();
-        let mut properties = service.properties.map.clone();
+        let mut properties = match &cluster.properties {
+            None => HashMap::new(),
+            Some(cp) => cp.map.clone(),
+        };
 
-        // Complete the list of properties with the common properties
-        match &cluster.properties {
-            None => {}
-            Some(cp) => {
-                for (k, v) in &cp.map {
-                    properties.insert(k.clone(), v.clone());
-                }
-            }
+        // Service properties override cluster defaults when keys overlap.
+        for (k, v) in &service.properties.map {
+            properties.insert(k.clone(), v.clone());
         }
-
-        let properties = service.properties.map.clone();
         let resolved_property_file = replace_value_with_constants(&property_file, &Some(constants.clone()));
         (Path::new(&resolved_property_file).to_path_buf(), Some(constants), Some(properties))
     } else {

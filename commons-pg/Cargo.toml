@@ -26,4 +26,5 @@ futures = { version = "0.3.30", features = [] }
 
 [dev-dependencies]
 log4rs = { workspace = true }
+serde_json = { workspace = true }
 

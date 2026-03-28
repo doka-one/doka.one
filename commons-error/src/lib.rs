@@ -104,14 +104,83 @@ pub fn eprint_closure_fwd<'a, T: std::fmt::Display>(msg: &'a str) -> Box<dyn Fn(
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use serde_json::Value;
     use std::collections::HashMap;
     use std::env;
-    use std::fs::File;
-    use std::path::Path;
+    use std::fs::{read_to_string, File};
+    use std::path::{Path, PathBuf};
     use std::process::exit;
     use std::sync::Once;
 
     static INIT: Once = Once::new();
+
+    fn replace_value_with_constants(value: &str, constants: &HashMap<String, String>) -> String {
+        let mut resolved_value = value.to_string();
+
+        for (const_key, const_value) in constants {
+            let placeholder = format!("${{{}}}", const_key);
+            if resolved_value.contains(&placeholder) {
+                resolved_value = resolved_value.replace(&placeholder, const_value);
+            }
+        }
+
+        resolved_value
+    }
+
+    fn session_manager_log_config_from_file(config_file: &Path) -> anyhow::Result<PathBuf> {
+        let json_data = read_to_string(config_file)?;
+        let root: Value = serde_json::from_str(&json_data)?;
+        let clusters = root
+            .get("clusters")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Missing clusters array"))?;
+
+        let profile = env::var("DOKA_CLUSTER_PROFILE").expect("DOKA_CLUSTER_PROFILE must be set for commons-error tests");
+        let selected_cluster = clusters
+            .iter()
+            .find(|cluster| cluster.get("name").and_then(Value::as_str) == Some(profile.as_str()))
+            .ok_or_else(|| anyhow::anyhow!("Cluster profile not found: {}", profile))?;
+
+        let mut constants = HashMap::new();
+        if let Some(obj) = selected_cluster.get("constants").and_then(Value::as_object) {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    constants.insert(k.clone(), s.to_string());
+                }
+            }
+        }
+        let os_key = if cfg!(target_os = "linux") {
+            Some("constants_linux")
+        } else if cfg!(target_os = "windows") {
+            Some("constants_windows")
+        } else {
+            None
+        };
+        if let Some(os_key) = os_key {
+            if let Some(obj) = selected_cluster.get(os_key).and_then(Value::as_object) {
+                for (k, v) in obj {
+                    if let Some(s) = v.as_str() {
+                        constants.insert(k.clone(), s.to_string());
+                    }
+                }
+            }
+        }
+
+        let service = selected_cluster
+            .get("services")
+            .and_then(Value::as_array)
+            .and_then(|services| services.iter().find(|service| service.get("name").and_then(Value::as_str) == Some("session-manager")))
+            .ok_or_else(|| anyhow::anyhow!("session-manager service not found"))?;
+
+        let log_config = service
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|props| props.get("log4rs.config"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("session-manager.log4rs.config not found"))?;
+
+        Ok(PathBuf::from(replace_value_with_constants(log_config, &constants)))
+    }
 
     fn init() {
         println!("Init tests");
@@ -127,9 +196,13 @@ mod tests {
 
             println!("Found doka_env=[{}]", &doka_env);
 
-            // let log_config: String = "E:/doka-configs/dev/ppm/config/log4rs.yaml".to_string();
-            let log_config: String = format!("{}/commons-error/config/log4rs.yaml", doka_env);
-            let log_config_path = Path::new(&log_config);
+            let log_config_path = match session_manager_log_config_from_file(Path::new(&doka_env)) {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("💣 Cannot resolve session-manager log4rs.config from {:?}: {:?}", &doka_env, e);
+                    exit(-59);
+                }
+            };
 
             match log4rs::init_file(&log_config_path, Default::default()) {
                 Err(e) => {

@@ -439,11 +439,12 @@ mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
     use crate::filter::filter_lexer::{lex3, FilterError, PositionalToken, Token, TokenSlice};
+    use crate::filter::filter_lexer::LogicalOperator;
     use crate::filter::filter_normalizer::{
         n1_remove_successive_logical_open_close, n2_mark_condition_open_close, n3_binary_logical_operator,
     };
     use crate::filter::tests::init_logger;
-    use crate::filter::{ComparisonOperator, LogicalOperator};
+    use crate::filter::ComparisonOperator;
     use commons_error::*;
     use log::*;
 

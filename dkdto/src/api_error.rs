@@ -1,7 +1,7 @@
-use std::borrow::Cow;
-use serde::{Serialize, Deserialize};
-use std::fmt::{Display, Formatter};
 use http::StatusCode;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::fmt::{Display, Formatter};
 
 /// Replacement for ErrorSet and ErrorMessage
 

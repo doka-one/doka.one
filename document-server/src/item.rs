@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -31,9 +30,9 @@ use dkdto::web_types::{
 use doka_cli::request_client::TokenType;
 
 use crate::engine::generator::{generate_search_sql, GenerationError, SearchSqlGenerationMode, TagDefinitionBuilder};
+use crate::filter::analyse_expression;
 use crate::filter::filter_ast::FilterExpressionAST;
 use crate::filter::filter_lexer::FilterError;
-use crate::filter::{analyse_expression, to_sql_form};
 use crate::TagDelegate;
 
 pub(crate) struct ItemDelegate {
@@ -57,7 +56,7 @@ impl ItemDelegate {
         start_page: Option<u32>,
         page_size: Option<u32>,
         filter_expression: Option<String>,
-        order_tags: Option<Vec<String>>
+        order_tags: Option<Vec<String>>,
     ) -> WebTypeWithContext<GetItemReply> {
         log_info!(
             "🚀 Start search_item api, start_page=[{:?}], page_size=[{:?}], follower=[{}]",
@@ -98,7 +97,7 @@ impl ItemDelegate {
                 &filter_expression_ast,
                 &tag_definition_builder,
                 select_tags,
-                & order_tags.unwrap_or(vec![]),
+                &order_tags.unwrap_or(vec![]),
                 SearchSqlGenerationMode::Live,
                 &entry_session.customer_code,
             )

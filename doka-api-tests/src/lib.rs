@@ -68,7 +68,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref IS_INIT_MUT: Mutex<bool> = Mutex::new({ false });
+    static ref IS_INIT_MUT: Mutex<bool> = Mutex::new(false);
 }
 
 pub fn init_test(test_name: &str, dev_token: &str) {

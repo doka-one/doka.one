@@ -84,13 +84,11 @@ mod test {
 
     #[test]
     fn organize_doka() {
-        let file = File::open(r#"C:\Users\denis\wks-tools\doka-export\data\data.csv"#)
-            .expect("Cannot read the customer file");
+        let file =
+            File::open(r#"C:\Users\denis\wks-tools\doka-export\data\data.csv"#).expect("Cannot read the customer file");
         let mut buf_reader = BufReader::new(file);
         let mut buf: Vec<u8> = vec![];
-        let _n = buf_reader
-            .read_to_end(&mut buf)
-            .expect("Didn't read enough");
+        let _n = buf_reader.read_to_end(&mut buf).expect("Didn't read enough");
 
         // Read the CSV file
         //     let csv = "year,make,model,description
@@ -101,10 +99,7 @@ mod test {
         // Loop over the csv data
         for record in reader.deserialize() {
             let record: Record = record.unwrap();
-            println!(
-                "{}, {} , {} , {}",
-                record.label, record.label_2, record.name, record.file_identifier
-            );
+            println!("{}, {} , {} , {}", record.label, record.label_2, record.name, record.file_identifier);
 
             let target = r#"C:\Users\denis\wks-tools\doka-export\data\organized_file\"#;
 
@@ -118,10 +113,7 @@ mod test {
             // move it into the new folder and rename it
             let source = format!(
                 "{}{}{}{}",
-                r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#,
-                "x.",
-                record.file_identifier,
-                ".pdf"
+                r#"C:\Users\denis\wks-tools\doka-export\data\denis_pdf\"#, "x.", record.file_identifier, ".pdf"
             );
             let cible = format!("{}\\{}", new_folder, record.name);
             dbg!(&source, &cible);

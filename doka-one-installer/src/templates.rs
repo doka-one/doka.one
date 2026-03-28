@@ -1,5 +1,4 @@
-
-pub(crate) const DEF_FILE_TEMPLATE : &str = r#"
+pub(crate) const DEF_FILE_TEMPLATE: &str = r#"
 <service>
   <id>{SERVICE_ID}</id>
   <name>{SERVICE_NAME}</name>
@@ -10,7 +9,7 @@ pub(crate) const DEF_FILE_TEMPLATE : &str = r#"
 </service>
 "#;
 
-pub(crate) const DEF_FILE_WITH_ARGS_TEMPLATE : &str = r#"
+pub(crate) const DEF_FILE_WITH_ARGS_TEMPLATE: &str = r#"
 <service>
   <id>{SERVICE_ID}</id>
   <name>{SERVICE_NAME}</name>
@@ -21,8 +20,6 @@ pub(crate) const DEF_FILE_WITH_ARGS_TEMPLATE : &str = r#"
   <persistent_env name="DOKA_ENV" value="{MY_ENV}" />
 </service>
 "#;
-
-
 
 pub(crate) const STD_APP_PROPERTIES_TEMPLATE: &str = r#"
 #Rocket server port
@@ -40,7 +37,6 @@ db.pool_size=10
 #Normalize log configuration path.
 log4rs.config={SERVICE_LOG4RS}
 "#;
-
 
 pub(crate) const ADMIN_SERVER_APP_PROPERTIES_TEMPLATE: &str = r#"
 #Rocket server port
@@ -136,8 +132,7 @@ tks.port={TKS_PORT}
 log4rs.config={SERVICE_LOG4RS}
 "#;
 
-
-pub (crate) const DOKA_CLI_APP_PROPERTIES_TEMPLATE: &str = r#"
+pub(crate) const DOKA_CLI_APP_PROPERTIES_TEMPLATE: &str = r#"
 #Server host
 server.host={HOST}
 # Service ports
@@ -149,7 +144,7 @@ ds.port={DS_PORT}
 fs.port={FS_PORT}
 "#;
 
-pub (crate) const LOG4RS_TEMPLATE : &str = r#"
+pub(crate) const LOG4RS_TEMPLATE: &str = r#"
 refresh_rate: 10 seconds
 
 appenders:
@@ -182,7 +177,7 @@ loggers:
 "#;
 
 // TODO This log4j config file might not be optimal for Apache Tika
-pub (crate) const TIKA_LOG4J_TEMPLATE : &str = r#"
+pub(crate) const TIKA_LOG4J_TEMPLATE: &str = r#"
 <Configuration status="INFO">
     <Appenders>
         <Console name="stdout" target="SYSTEM_OUT">
@@ -214,7 +209,7 @@ pub (crate) const TIKA_LOG4J_TEMPLATE : &str = r#"
 </Configuration>
 "#;
 
-pub (crate) const TIKA_CONFIG_TEMPLATE : &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+pub(crate) const TIKA_CONFIG_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!-- description of the config file at https://cwiki.apache.org/confluence/display/TIKA/TikaServer+in+Tika+2.x -->
 <properties>
   <server>

@@ -27,16 +27,11 @@ fn test_ports(starting_port: Port) -> anyhow::Result<Port> {
         }
         tested_port += 1;
         if tested_port - starting_port >= RANGE {
-            return Err(anyhow!(
-                "No port found between {starting_port} and {}",
-                tested_port - 1
-            ));
+            return Err(anyhow!("No port found between {starting_port} and {}", tested_port - 1));
         }
     }
 
-    let port = found_port.ok_or(anyhow!(
-        "Port still not defined, last test port {tested_port}"
-    ))?;
+    let port = found_port.ok_or(anyhow!("Port still not defined, last test port {tested_port}"))?;
 
     Ok(port)
 }

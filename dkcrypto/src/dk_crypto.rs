@@ -1,6 +1,4 @@
-
-use std::io::Read;
-use std::io::{Write};
+use std::io::Write;
 
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -45,10 +43,7 @@ impl DkEncrypt {
         match self.mode {
             CypherMode::AES => {
                 // Randomly generate an IV of 12 bytes
-                let iv: Vec<u8> = rand::thread_rng()
-                    .sample_iter(&Alphanumeric)
-                    .take(12)
-                    .collect();
+                let iv: Vec<u8> = rand::thread_rng().sample_iter(&Alphanumeric).take(12).collect();
                 let encrypted = encrypt_aes128(clear_data, key, &iv)?;
                 // Append the iv in the beginning of the encrypted data
                 let mut encrypted_data = Vec::with_capacity(iv.len() + encrypted.len());
@@ -96,9 +91,7 @@ impl DkEncrypt {
     /// * `Err(anyhow::Error)` - An error if encryption fails.
     pub fn encrypt_str(&self, clear_txt: &str, key: &str) -> anyhow::Result<String> {
         let clear_data = clear_txt.to_string().into_bytes();
-        let encrypted_data = self
-            .encrypt_vec(&clear_data, key)
-            .map_err(err_fwd!("Cannot encrypt the binary data"))?;
+        let encrypted_data = self.encrypt_vec(&clear_data, key).map_err(err_fwd!("Cannot encrypt the binary data"))?;
 
         let str = general_purpose::URL_SAFE_NO_PAD.encode(encrypted_data);
 
@@ -131,8 +124,7 @@ impl DkEncrypt {
             }
         };
 
-        let clear_string =
-            String::from_utf8(decrypted_data).map_err(err_fwd!("Data are not UTF8 compatible"))?;
+        let clear_string = String::from_utf8(decrypted_data).map_err(err_fwd!("Data are not UTF8 compatible"))?;
 
         Ok(clear_string)
     }
@@ -165,11 +157,7 @@ impl DkEncrypt {
     /// Then compute the SHA256 on it
     /// Returned as base64url encoded string
     pub fn generate_random_key() -> String {
-        let pass_phrase: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(1024)
-            .map(char::from)
-            .collect();
+        let pass_phrase: String = rand::thread_rng().sample_iter(&Alphanumeric).take(1024).map(char::from).collect();
 
         let bytes = compute_sha(&pass_phrase);
         let key = general_purpose::URL_SAFE_NO_PAD.encode(bytes);
@@ -235,9 +223,7 @@ fn compute_hmac(text: &str, key: &str) -> Vec<u8> {
 /// Can be used by calling get_iv()
 fn _get_constant_iv() -> [u8; 16] {
     log_info!("Build the IV constant");
-    let iv: [u8; 16] = [
-        78, 241, 26, 48, 230, 214, 47, 151, 90, 115, 148, 58, 131, 162, 119, 230,
-    ];
+    let iv: [u8; 16] = [78, 241, 26, 48, 230, 214, 47, 151, 90, 115, 148, 58, 131, 162, 119, 230];
     iv
 }
 

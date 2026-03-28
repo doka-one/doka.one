@@ -1,4 +1,4 @@
-use std::{env};
+use std::env;
 
 use anyhow::anyhow;
 use async_imap::Client;
@@ -7,11 +7,7 @@ use async_native_tls::TlsConnector;
 use futures::StreamExt;
 use tokio::net::TcpStream;
 
-async fn read_starttls_emails(
-    imap_addr: (&str, u16),
-    login: &str,
-    password: &str,
-) -> anyhow::Result<()> {
+async fn read_starttls_emails(imap_addr: (&str, u16), login: &str, password: &str) -> anyhow::Result<()> {
     // Step 1: Connect to the IMAP server over plain TCP
     let tcp_stream = TcpStream::connect(imap_addr).await?;
     println!("Connected to {}:{} via plain TCP", imap_addr.0, imap_addr.1);
@@ -25,9 +21,7 @@ async fn read_starttls_emails(
     use native_tls::TlsConnector as NativeTlsConnector;
     let mut native_tls_connector = NativeTlsConnector::builder();
 
-    native_tls_connector
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true);
+    native_tls_connector.danger_accept_invalid_certs(true).danger_accept_invalid_hostnames(true);
 
     let tls = TlsConnector::from(native_tls_connector);
 
@@ -72,9 +66,7 @@ async fn read_starttls_emails(
 
     // Step 8: Extract the message body
     let body = message.body().expect("Message did not have a body!");
-    let body = std::str::from_utf8(body)
-        .expect("Message was not valid UTF-8")
-        .to_string();
+    let body = std::str::from_utf8(body).expect("Message was not valid UTF-8").to_string();
     println!("Message body: {}", body);
 
     // Step 9: Logout from the IMAP session
@@ -84,18 +76,15 @@ async fn read_starttls_emails(
     Ok(())
 }
 
-async fn read_ssl_emails(
-    imap_addr: (&str, u16),
-    login: &str,
-    password: &str,
-) -> anyhow::Result<()> {
+#[allow(dead_code)]
+async fn read_ssl_emails(imap_addr: (&str, u16), login: &str, password: &str) -> anyhow::Result<()> {
     let tcp_stream = TcpStream::connect(imap_addr).await?;
     let tls = async_native_tls::TlsConnector::new();
     let tls_stream = tls.connect(imap_addr.0, tcp_stream).await?;
 
     println!("Build the client...");
 
-    let mut client = async_imap::Client::new(tls_stream);
+    let client = async_imap::Client::new(tls_stream);
 
     // client.run_command_and_check_ok("STARTTLS", None).await?;
 
@@ -138,9 +127,7 @@ async fn read_ssl_emails(
 
     // extract the message's body
     let body = message.body().expect("message did not have a body!");
-    let body = std::str::from_utf8(body)
-        .expect("message was not valid utf-8")
-        .to_string();
+    let _body = std::str::from_utf8(body).expect("message was not valid utf-8").to_string();
     println!("-- 1 message received, logging out");
 
     // imap_session.logout().await?;
@@ -164,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
     let proton_addr = ("127.0.0.1", 1143);
     let r = read_starttls_emails(proton_addr, login, password).await;
 
-    dbg!(r);
+    let _ = dbg!(r);
 
     Ok(())
 }

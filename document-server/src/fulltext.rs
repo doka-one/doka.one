@@ -5,6 +5,8 @@ use axum::Json;
 use log::*;
 use serde::de::DeserializeOwned;
 
+use common_config::properties::get_prop_value;
+use common_config::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
 use commons_error::*;
 use commons_pg::sql_transaction::CellValue;
 use commons_pg::sql_transaction_async::{SQLChangeAsync, SQLConnectionAsync, SQLQueryBlockAsync, SQLTransactionAsync};
@@ -13,8 +15,6 @@ use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
-use common_config::properties::get_prop_value;
-use common_config::property_name::{TIKA_SERVER_HOSTNAME_PROPERTY, TIKA_SERVER_PORT_PROPERTY};
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::api_error::ApiError;

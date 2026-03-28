@@ -66,9 +66,7 @@ where
                 u32::from_str(
                     value
                         .to_str()
-                        .map_err(err_fwd!(
-                            "⛔ Cannot parse the x_request_id from the header,set default to 0"
-                        ))
+                        .map_err(err_fwd!("⛔ Cannot parse the x_request_id from the header,set default to 0"))
                         .unwrap_or("0"),
                 )
                 .ok()

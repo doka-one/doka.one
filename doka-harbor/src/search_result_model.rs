@@ -4,6 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::ImageRequest;
 use dkdto::web_types::{EnumTagValue, GetItemReply, ItemElement, TagValueElement};
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 struct CborFile {
     file_data: Bytes,

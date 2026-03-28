@@ -1,5 +1,3 @@
-use std::env;
-use std::env::current_exe;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::ops::Add;

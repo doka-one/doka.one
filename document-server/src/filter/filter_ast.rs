@@ -4,9 +4,7 @@ use std::fmt;
 use crate::filter::filter_lexer::FilterErrorCode::{
     AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected, ValueExpected,
 };
-use crate::filter::filter_lexer::{lex3, FilterError, LogicalOperator, Token};
-use crate::filter::filter_normalizer::normalize_lexeme;
-use crate::parser_log;
+use crate::filter::filter_lexer::{FilterError, LogicalOperator, Token};
 use commons_error::*;
 use log::*;
 use rs_uuid::uuid8;
@@ -111,14 +109,14 @@ fn parse_tokens_with_index(tokens: &[Token], index: &RefCell<usize>) -> Result<B
 
     if let Some(token) = t {
         match token {
-            Token::LogicalOpen(pt) => {
+            Token::LogicalOpen(_pt) => {
                 // The expression starts with a bracket, it's a logical
                 log_debug!("found a logical at index {}", *index.borrow());
                 let logical_expression = parse_logical(tokens, &index)?;
                 log_debug!("logical expression was [{:?}], now index is [{}]", &logical_expression, *index.borrow());
                 Ok(logical_expression)
             }
-            Token::ConditionOpen(pt) => {
+            Token::ConditionOpen(_pt) => {
                 log_debug!("found a condition at index {}", *index.borrow());
                 let c = parse_condition(&tokens, &index)?;
                 log_debug!("condition expression was [{:?}], now index is [{}]", &c, *index.borrow());
@@ -147,7 +145,7 @@ fn parse_logical(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<FilterE
 
     if let Some(token) = t {
         match token {
-            Token::ConditionOpen(pt) | Token::LogicalOpen(pt) => {
+            Token::ConditionOpen(_pt) | Token::LogicalOpen(_pt) => {
                 // Read the Left member of the Logical Expression
                 log_debug!("found a new expression at index {}", *index.borrow());
                 let left = parse_tokens_with_index(&tokens, &index)?;

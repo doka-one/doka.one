@@ -12,15 +12,15 @@ use axum::routing::post;
 use axum::{routing::get, Json, Router};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_value, set_prop_values};
+use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY};
 use commons_error::{log_info, log_warn};
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use common_config::conf_reader::{read_config, read_env};
-use common_config::properties::{get_prop_value, set_prop_values};
-use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY};
 use dkdto::cbor_type::CborBytes;
-use dkdto::web_types::{WebType, WebTypeBuilder};
+use dkdto::web_types::WebType;
 use handlebars::{Context, Handlebars, Helper, HelperResult, Output, RenderContext, RenderError, RenderErrorReason};
 use log::*;
 use serde_derive::{Deserialize, Serialize};
@@ -89,7 +89,7 @@ async fn view_file_json(Path(file_ref): Path<String>) -> WebType<CborFile> {
 /// GET /cbor/search_result
 async fn search_result() -> CborBytes {
     let session_token = SessionToken { 0: "".to_string() };
-    let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
+    let delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
     delegate.search_result_cbor().await.into()
 }
 
@@ -98,7 +98,7 @@ async fn search_result() -> CborBytes {
 /// GET /json/search_result
 async fn search_result_json() -> WebType<SearchResultHarbor> {
     let session_token = SessionToken { 0: "".to_string() };
-    let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
+    let delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
     delegate.search_result_json().await
 }
 
@@ -107,7 +107,7 @@ async fn search_result_json() -> WebType<SearchResultHarbor> {
 /// GET /cbor/upload_watch
 async fn upload_watch() -> CborBytes {
     let session_token = SessionToken { 0: "".to_string() };
-    let mut delegate = UploadWatcherComponent::new(session_token, XRequestID::from_value(None));
+    let delegate = UploadWatcherComponent::new(session_token, XRequestID::from_value(None));
     delegate.upload_watch_cbor().await.into()
 }
 
@@ -137,7 +137,7 @@ async fn index_page() -> Html<String> {
     //dbg!(&path);
 
     let session_token = SessionToken { 0: "".to_string() };
-    let mut delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
+    let delegate = SearchResultComponent::new(session_token, XRequestID::from_value(None));
     let items = delegate.search_result().await.unwrap();
 
     //dbg!(&items);
@@ -235,7 +235,7 @@ pub struct ItemUpdateRequest {
 }
 
 /// 🌐 Item update component (dumb)
-async fn item_update_html(Json(payload): Json<ItemUpdateRequest>) -> Html<String> {
+async fn item_update_html(Json(_payload): Json<ItemUpdateRequest>) -> Html<String> {
     // The web server will serve the HTML files located in all the subdirectories of the "root" directory
     // If you run the harbor program from the "doka-harbor" directory, it will be the root directory
 
@@ -264,15 +264,16 @@ async fn item_update_html(Json(payload): Json<ItemUpdateRequest>) -> Html<String
 /// 🌐 Upload page
 ///
 /// Show all the current upload progress
+#[allow(dead_code)]
 async fn upload_page() -> Html<String> {
     // Build the data
-    let path = env::current_dir().unwrap();
+    let _path = env::current_dir().unwrap();
 
     //dbg!(&path);
 
     let session_token = SessionToken { 0: "".to_string() };
-    let mut delegate = UploadWatcherComponent::new(session_token, XRequestID::from_value(None));
-    let list_upload_watch_info = delegate.upload_watch().await.unwrap();
+    let delegate = UploadWatcherComponent::new(session_token, XRequestID::from_value(None));
+    let _list_upload_watch_info = delegate.upload_watch().await.unwrap();
 
     // WHY DOES THE TEMPLATE NOT TAKE THE HARBOR STRUCT AS ENTRY PARAMS ?
 

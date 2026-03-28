@@ -33,23 +33,9 @@ pub(crate) struct Command {
 fn display_options(options: &Vec<ParamOption>) {
     for option in options {
         let flag_str = option.flags.join(", ");
-        let has_value_str = if option.has_value {
-            " <value>".blue().to_string()
-        } else {
-            "".to_string()
-        };
-        let required_str = if option.required {
-            "(required)".red().to_string()
-        } else {
-            "".to_string()
-        };
-        println!(
-            "  {}{}{}\t{}",
-            flag_str.green(),
-            has_value_str,
-            required_str,
-            option.description
-        );
+        let has_value_str = if option.has_value { " <value>".blue().to_string() } else { "".to_string() };
+        let required_str = if option.required { "(required)".red().to_string() } else { "".to_string() };
+        println!("  {}{}{}\t{}", flag_str.green(), has_value_str, required_str, option.description);
     }
 }
 
@@ -144,18 +130,12 @@ pub(crate) fn parse_args(args: &[String]) -> anyhow::Result<Params> {
         i += 1;
     }
 
-    Ok(Params {
-        object: command,
-        action: subcommand,
-        options,
-    })
+    Ok(Params { object: command, action: subcommand, options })
 }
 
 pub(crate) fn load_commands() -> Vec<Command> {
     let json_str = include_str!("../commands.json");
-    serde_json::from_str(json_str)
-        .map_err(eprint_fwd!("💣 Problem while loading the list of commands"))
-        .unwrap()
+    serde_json::from_str(json_str).map_err(eprint_fwd!("💣 Problem while loading the list of commands")).unwrap()
 }
 
 fn _find_option<'a>(
@@ -164,28 +144,20 @@ fn _find_option<'a>(
     subcommand_name: &str,
     option_flag: &str,
 ) -> Result<&'a ParamOption, String> {
-    let command = commands
-        .iter()
-        .find(|cmd| cmd.name == command_name)
-        .ok_or(format!("Command {} not found", command_name))?;
+    let command =
+        commands.iter().find(|cmd| cmd.name == command_name).ok_or(format!("Command {} not found", command_name))?;
 
     let subcommand = command
         .sub
         .iter()
         .find(|subcmd| subcmd.name == subcommand_name)
-        .ok_or(format!(
-            "Subcommand {} not found in command {}",
-            subcommand_name, command_name
-        ))?;
+        .ok_or(format!("Subcommand {} not found in command {}", subcommand_name, command_name))?;
 
     let option = subcommand
         .options
         .iter()
         .find(|opt| opt.flags.contains(&option_flag.to_string()))
-        .ok_or(format!(
-            "Option with flag {} not found in subcommand {}",
-            option_flag, subcommand_name
-        ))?;
+        .ok_or(format!("Option with flag {} not found in subcommand {}", option_flag, subcommand_name))?;
 
     Ok(option)
 }

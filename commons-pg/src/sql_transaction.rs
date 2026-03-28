@@ -7,10 +7,10 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use lazy_static::*;
 use log::*;
 use mut_static::MutStatic;
-use postgres::{NoTls, Transaction};
 use postgres::types::ToSql;
-use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use postgres::{NoTls, Transaction};
 use r2d2_postgres::r2d2::{Pool, PooledConnection};
+use r2d2_postgres::{r2d2, PostgresConnectionManager};
 
 use commons_error::*;
 
@@ -20,13 +20,8 @@ lazy_static! {
 
 // TODO forward the error
 pub fn init_db_pool(connect_string: &str, pool_size: u32) {
-    let pool = SQLPool::new(connect_string, pool_size)
-        .map_err(err_fwd!("Cannot create the static pool"))
-        .unwrap();
-    let _ = SQL_POOL
-        .set(pool)
-        .map_err(err_fwd!("Cannot create the static pool"))
-        .unwrap();
+    let pool = SQLPool::new(connect_string, pool_size).map_err(err_fwd!("Cannot create the static pool")).unwrap();
+    let _ = SQL_POOL.set(pool).map_err(err_fwd!("Cannot create the static pool")).unwrap();
 }
 
 /// Analyse the template query with named params and compare it to the list of input parameters.
@@ -97,23 +92,16 @@ impl SQLPool {
             .connection_timeout(Duration::from_secs(2 * 3600))
             //.idle_timeout(Some(Duration::from_secs(3600)))
             .build(manager)
-            .map_err(err_fwd!(
-                "Cannot create the PG connection pool for db [{}]",
-                connect_string
-            ))?;
+            .map_err(err_fwd!("Cannot create the PG connection pool for db [{}]", connect_string))?;
 
         Ok(Self { pool })
     }
 
-    pub fn pick_connection(
-        &self,
-    ) -> anyhow::Result<PooledConnection<PostgresConnectionManager<NoTls>>> {
+    pub fn pick_connection(&self) -> anyhow::Result<PooledConnection<PostgresConnectionManager<NoTls>>> {
         // Pick a connection from the pool and get the transaction
         let mut my_pool = self.pool.clone();
         let pool = my_pool.borrow_mut();
-        let client = pool
-            .get()
-            .map_err(err_fwd!("Client from the Connection pool failed"))?;
+        let client = pool.get().map_err(err_fwd!("Client from the Connection pool failed"))?;
         Ok(client)
     }
 }
@@ -136,27 +124,18 @@ impl SQLConnection {
         //     }
         // };
 
-        let c = pool
-            .pick_connection()
-            .map_err(err_fwd!("Connection pickup failed"))?;
+        let c = pool.pick_connection().map_err(err_fwd!("Connection pickup failed"))?;
         Ok(SQLConnection { client: c })
     }
 
     pub fn from_sql_pool(sql_pool: &SQLPool) -> anyhow::Result<SQLConnection> {
-        let client = sql_pool
-            .pick_connection()
-            .map_err(err_fwd!("Connection pickup failed"))?;
+        let client = sql_pool.pick_connection().map_err(err_fwd!("Connection pickup failed"))?;
         Ok(SQLConnection { client })
     }
 
     pub fn sql_transaction(&'_ mut self) -> anyhow::Result<SQLTransaction<'_>> {
-        let t = self
-            .client
-            .transaction()
-            .map_err(err_fwd!("Open transaction failed"))?;
-        Ok(SQLTransaction {
-            inner_transaction: t,
-        })
+        let t = self.client.transaction().map_err(err_fwd!("Open transaction failed"))?;
+        Ok(SQLTransaction { inner_transaction: t })
     }
 }
 
@@ -278,9 +257,7 @@ impl SQLDataSet {
             return None;
         }
 
-        let opt_dt = self
-            .get_timestamp(col_name)
-            .map(|st| Self::system_time_to_date_time(&st));
+        let opt_dt = self.get_timestamp(col_name).map(|st| Self::system_time_to_date_time(&st));
         opt_dt
     }
 
@@ -311,9 +288,7 @@ pub fn iso_to_datetime(dt_str: &str) -> anyhow::Result<DateTime<Utc>> {
 
 pub fn iso_to_naivedate(d_str: &str) -> anyhow::Result<NaiveDate> {
     let dt_s = format!("{}T12:00:00Z", d_str);
-    let dt = DateTime::parse_from_rfc3339(&dt_s)?
-        .with_timezone(&Utc)
-        .date_naive();
+    let dt = DateTime::parse_from_rfc3339(&dt_s)?.with_timezone(&Utc).date_naive();
     anyhow::Result::Ok(dt)
 }
 
@@ -332,8 +307,9 @@ pub fn naivedatetime_to_iso(d: &NaiveDateTime) -> String {
 // TODO we can get rid of it when we replace SystemTime with NaiveDateTime
 pub fn naive_datetime_to_system_time(opt_naive: Option<NaiveDateTime>) -> Option<SystemTime> {
     opt_naive.map(|naive| {
-        let duration_since_epoch = Duration::from_secs(naive.timestamp() as u64)
-            + Duration::from_nanos(naive.timestamp_subsec_nanos() as u64);
+        let utc = naive.and_utc();
+        let duration_since_epoch =
+            Duration::from_secs(utc.timestamp() as u64) + Duration::from_nanos(utc.timestamp_subsec_nanos() as u64);
         UNIX_EPOCH + duration_since_epoch
     })
 }
@@ -520,8 +496,7 @@ impl SQLQueryBlock {
         // p_name => 0, p_id => 1
 
         let null_str = "".to_owned();
-        let (mut new_sql_string, v_params) =
-            parse_query(self.sql_query.as_str(), &self.params, &null_str);
+        let (mut new_sql_string, v_params) = parse_query(self.sql_query.as_str(), &self.params, &null_str);
 
         match self.length {
             None => {
@@ -535,10 +510,7 @@ impl SQLQueryBlock {
         let result_set = sql_transaction
             .inner_transaction
             .query(new_sql_string.as_str(), v_params.as_slice())
-            .map_err(err_fwd!(
-                "Sql query failed, sql [{}]",
-                new_sql_string.as_str()
-            ))?;
+            .map_err(err_fwd!("Sql query failed, sql [{}]", new_sql_string.as_str()))?;
 
         let mut result: Vec<HashMap<String, CellValue>> = vec![];
 
@@ -607,10 +579,7 @@ impl SQLQueryBlock {
             result.push(my_row);
         }
 
-        Ok(SQLDataSet {
-            position: 0,
-            data: Box::new(result),
-        })
+        Ok(SQLDataSet { position: 0, data: Box::new(result) })
     }
 }
 
@@ -627,27 +596,20 @@ impl SQLChange {
         let _ = sql_transaction
             .inner_transaction
             .batch_execute(self.sql_query.as_str())
-            .map_err(err_fwd!(
-                "Batch execution failed, sql [{}]",
-                self.sql_query.as_str()
-            ))?;
+            .map_err(err_fwd!("Batch execution failed, sql [{}]", self.sql_query.as_str()))?;
 
         Ok(())
     }
 
     fn execute(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<u64> {
         let null_str = "".to_owned();
-        let (new_sql_string, v_params) =
-            parse_query(self.sql_query.as_str(), &self.params, &null_str);
+        let (new_sql_string, v_params) = parse_query(self.sql_query.as_str(), &self.params, &null_str);
 
         log_debug!("New sql query : [{}]", &new_sql_string);
         let change_query_info = sql_transaction
             .inner_transaction
             .execute(new_sql_string.as_str(), v_params.as_slice())
-            .map_err(err_fwd!(
-                "Query execution failed, sql [{}]",
-                new_sql_string.as_str()
-            ))?;
+            .map_err(err_fwd!("Query execution failed, sql [{}]", new_sql_string.as_str()))?;
 
         log_debug!("change query info: [{}]", &change_query_info);
         Ok(change_query_info)
@@ -695,9 +657,7 @@ mod tests {
 
     use commons_error::*;
 
-    use crate::sql_transaction::{
-        CellValue, init_db_pool, SQLChange, SQLConnection, SQLPool, SQLQueryBlock,
-    };
+    use crate::sql_transaction::{init_db_pool, CellValue, SQLChange, SQLConnection, SQLPool, SQLQueryBlock};
 
     static INIT: Once = Once::new();
 
@@ -720,11 +680,8 @@ mod tests {
     fn a10_faulty_connection() {
         init();
 
-        let r_sql_pool = SQLPool::new(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=wrong_pass.",
-            1,
-        )
-        .map_err(err_fwd!("Fail the pool"));
+        let r_sql_pool = SQLPool::new("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=wrong_pass.", 1)
+            .map_err(err_fwd!("Fail the pool"));
 
         assert!(r_sql_pool.is_err());
     }
@@ -732,26 +689,20 @@ mod tests {
     #[test]
     fn a20_simple_query() -> anyhow::Result<()> {
         init();
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
         let mut cnx = SQLConnection::new().map_err(err_fwd!("New Sql connection failed"))?;
-        let mut trans = cnx
-            .sql_transaction()
-            .map_err(err_fwd!("Error transaction"))?;
+        let mut trans = cnx.sql_transaction().map_err(err_fwd!("Error transaction"))?;
 
         let query = SQLQueryBlock {
-            sql_query: "SELECT id, customer_name, ciphered_password FROM public.keys ORDER BY customer_name".to_string(),
+            sql_query: "SELECT id, customer_name, ciphered_password FROM public.keys ORDER BY customer_name"
+                .to_string(),
             start: 0,
             length: Some(10),
             params: HashMap::new(),
         };
 
-        let mut sql_result = query
-            .execute(&mut trans)
-            .map_err(err_fwd!("Query failed"))?;
+        let mut sql_result = query.execute(&mut trans).map_err(err_fwd!("Query failed"))?;
 
         trans.commit()?;
 
@@ -776,33 +727,17 @@ mod tests {
                                     WHERE name like :p_name AND ( :p_name IS NOT NULL )
                                     AND id > :p_id AND  :p_id < 400 "#;
 
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
-        let mut cnx = SQLConnection::new()
-            .map_err(err_fwd!("Connection issue"))
-            .unwrap();
+        let mut cnx = SQLConnection::new().map_err(err_fwd!("Connection issue")).unwrap();
 
-        let mut trans = cnx
-            .sql_transaction()
-            .map_err(err_fwd!("Transaction issue"))
-            .unwrap();
+        let mut trans = cnx.sql_transaction().map_err(err_fwd!("Transaction issue")).unwrap();
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
-        params.insert(
-            "p_name".to_owned(),
-            CellValue::from_raw_string("A%".to_owned()),
-        );
+        params.insert("p_name".to_owned(), CellValue::from_raw_string("A%".to_owned()));
         params.insert("p_id".to_owned(), CellValue::from_raw_int(180));
 
-        let query = SQLQueryBlock {
-            sql_query: sql_string.to_string(),
-            start: 0,
-            length: Some(10),
-            params,
-        };
+        let query = SQLQueryBlock { sql_query: sql_string.to_string(), start: 0, length: Some(10), params };
 
         let mut data_set = query.execute(&mut trans).unwrap();
 
@@ -829,28 +764,18 @@ mod tests {
     fn a40_insert_row() {
         init();
 
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
-        let mut cnx = SQLConnection::new()
-            .map_err(err_fwd!("Connection issue"))
-            .unwrap();
-        let mut trans = cnx
-            .sql_transaction()
-            .map_err(err_fwd!("Transaction issue"))
-            .unwrap();
+        let mut cnx = SQLConnection::new().map_err(err_fwd!("Connection issue")).unwrap();
+        let mut trans = cnx.sql_transaction().map_err(err_fwd!("Transaction issue")).unwrap();
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
         params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(26));
-        params.insert(
-            "p_customer_key".to_owned(),
-            CellValue::from_raw_string("The Encrypted Key".to_string()),
-        );
+        params.insert("p_customer_key".to_owned(), CellValue::from_raw_string("The Encrypted Key".to_string()));
 
         let query = SQLChange {
-            sql_query: "INSERT INTO keys (customer_name, ciphered_password) VALUES (:p_customer_id, :p_customer_key)".to_string(),
+            sql_query: "INSERT INTO keys (customer_name, ciphered_password) VALUES (:p_customer_id, :p_customer_key)"
+                .to_string(),
             params,
             sequence_name: "keys_id_seq".to_string(),
         };
@@ -867,23 +792,18 @@ mod tests {
     fn update_row() {
         init();
 
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
         let mut cnx = SQLConnection::new().unwrap();
         let mut trans = cnx.sql_transaction().unwrap();
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
         params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(10));
-        params.insert(
-            "p_customer_key".to_owned(),
-            CellValue::from_raw_string("N/A".to_string()),
-        );
+        params.insert("p_customer_key".to_owned(), CellValue::from_raw_string("N/A".to_string()));
 
         let query = SQLChange {
-            sql_query: "UPDATE public.keys SET ciphered_password = :p_customer_key WHERE id > :p_customer_id".to_string(),
+            sql_query: "UPDATE public.keys SET ciphered_password = :p_customer_key WHERE id > :p_customer_id"
+                .to_string(),
             params,
             sequence_name: "".to_string(),
         };
@@ -911,10 +831,7 @@ mod tests {
         // let _res = open_file_anyhow_4().map_err(err_fwd!("Second error by anyhow [{}] [{}]", &var, &txt) );
 
         let filename = "bar.txt";
-        let _f = File::open(filename).map_err(err_fwd!(
-            "First error managed by anyhow, filename=[{}]",
-            filename
-        ));
+        let _f = File::open(filename).map_err(err_fwd!("First error managed by anyhow, filename=[{}]", filename));
     }
 
     #[test]
@@ -923,11 +840,9 @@ mod tests {
 
         init();
 
-        let mut client = Client::connect(
-            "host=postgresql95-c1 port=5433 dbname=p2_prod_2 user=denis password=Oratece4.",
-            NoTls,
-        )
-        .unwrap();
+        let mut client =
+            Client::connect("host=postgresql95-c1 port=5433 dbname=p2_prod_2 user=denis password=Oratece4.", NoTls)
+                .unwrap();
 
         //     client.batch_execute("
         // CREATE TABLE person (
@@ -944,12 +859,7 @@ mod tests {
         //     &[&name, &data],
         // )?;
 
-        for row in client
-            .query(
-                "SELECT customer_id, customer_key FROM public.keys ORDER BY customer_id",
-                &[],
-            )
-            .unwrap()
+        for row in client.query("SELECT customer_id, customer_key FROM public.keys ORDER BY customer_id", &[]).unwrap()
         {
             let id: i64 = row.get(0);
             let name: &str = row.get(1);

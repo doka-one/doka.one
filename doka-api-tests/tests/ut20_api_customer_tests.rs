@@ -1,6 +1,4 @@
 mod test_lib;
 
 #[cfg(test)]
-mod api_customer_tests {
-
-}
+mod api_customer_tests {}

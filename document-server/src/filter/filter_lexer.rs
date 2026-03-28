@@ -5,7 +5,7 @@ use crate::filter::filter_lexer::Token::{LogicalClose, LogicalOpen};
 use crate::filter::ComparisonOperator;
 use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
 use commons_error::*;
-use log::{debug, error, info};
+use log::error;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -390,7 +390,6 @@ fn exp_lexer_index(
                         );
                         let out_char = read_char_at_index(&index, &input_chars, depth);
                         tokens.extend(sub_tokens);
-                        expected_lexem = ExpressionExpectedLexeme::LogicalOperatorOrNothing;
 
                         match out_char {
                             None => {

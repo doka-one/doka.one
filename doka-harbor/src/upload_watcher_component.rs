@@ -1,30 +1,20 @@
-use bytes::Bytes;
 use commons_error::*;
 use hyper::StatusCode;
-use image::imageops::FilterType;
-use image::ImageFormat;
 use log::*;
 use serde::de::DeserializeOwned;
 use serde::{de, Serialize};
 use serde_derive::Deserialize;
-use std::io::Cursor;
-use std::ops::Deref;
-use tokio::task;
 
-use crate::buckets::{DOC_BUCKET, FILE_BUCKET};
-use crate::date_tools::{format_date, format_date_in_timezone};
+use crate::buckets::FILE_BUCKET;
 use crate::kv_store::KvStore;
-use crate::search_result_model::{GetItemReplyForSearchResult, HarborContext, MapToHarbor, SearchResultHarbor};
-use commons_error::{err_fwd, log_info, log_warn};
-use commons_services::session_lib::valid_sid_get_session;
+use commons_error::log_info;
 use commons_services::token_lib::SessionToken;
-use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
 use dkdto::api_error::ApiError;
 use dkdto::cbor_type::CborType;
-use dkdto::error_codes::{INTERNAL_TECHNICAL_ERROR, INVALID_TOKEN};
-use dkdto::web_types::{GetItemReply, WebType, WebTypeBuilder};
-use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
+use dkdto::error_codes::INTERNAL_TECHNICAL_ERROR;
+use dkdto::web_types::WebTypeBuilder;
+use doka_cli::async_request_client::FileServerClientAsync;
 use doka_cli::request_client::TokenType;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -41,18 +31,19 @@ pub(crate) struct UploadWatchInfoHarbor {
 
 #[derive(Clone)]
 pub(crate) struct UploadWatcherComponent {
-    pub session_token: SessionToken,
-    pub follower: Follower,
+    pub _session_token: SessionToken,
+    pub _follower: Follower,
 }
 
 impl UploadWatcherComponent {
     pub fn new(session_token: SessionToken, x_request_id: XRequestID) -> Self {
         Self {
-            session_token,
-            follower: Follower { x_request_id: x_request_id.new_if_null(), token_type: TokenType::None },
+            _session_token: session_token,
+            _follower: Follower { x_request_id: x_request_id.new_if_null(), token_type: TokenType::None },
         }
     }
 
+    #[allow(dead_code)]
     fn cbor_type_error<T: de::DeserializeOwned + Serialize>() -> impl Fn(&ApiError<'static>) -> CborType<T>
     where
         T: DeserializeOwned,
@@ -76,7 +67,7 @@ impl UploadWatcherComponent {
         }
     }
 
-    pub async fn upload_watch(&self) -> Result<ListOfUploadWatchInfoHarbor, &ApiError> {
+    pub async fn upload_watch(&self) -> Result<ListOfUploadWatchInfoHarbor, &ApiError<'_>> {
         log_info!("🚀 Start the upload_watch API");
 
         // Call the doka API
@@ -86,8 +77,8 @@ impl UploadWatcherComponent {
         let sid =
             "no7sunaJVabyGe3-_LkD9inQmrlQYaKhl3v3JCaK4zFiweZSK_YisP6SKEtj3UaIBjO8y1yvOyHFJwHZFRi3EndsOorrVgfENrJu8g";
 
-        let search_key = format!("{}-{}-{}", &sid, &micro_trans, search_filters);
-        let file_store = KvStore::new(FILE_BUCKET, "0123456789ABCDEF");
+        let _search_key = format!("{}-{}-{}", &sid, &micro_trans, search_filters);
+        let _file_store = KvStore::new(FILE_BUCKET, "0123456789ABCDEF");
 
         let server_host = "localhost"; // get_prop_value("server.host")?;
         let file_server_port: u16 = 30080; // get_prop_value("ds.port")?.parse()?;

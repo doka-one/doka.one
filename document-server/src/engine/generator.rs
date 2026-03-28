@@ -2,8 +2,8 @@ use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpre
 use axum::async_trait;
 use commons_error::tr_fwd;
 use commons_error::*;
-use commons_pg::sql_transaction_async::{SQLConnectionAsync};
-use commons_services::x_request_id::{Follower, XRequestID};
+use commons_pg::sql_transaction_async::SQLConnectionAsync;
+use commons_services::x_request_id::Follower;
 use dkdto::web_types::TagType;
 use log::*;
 use once_cell::sync::Lazy;
@@ -65,7 +65,7 @@ fn extract_all_conditions(
     for fc in filter_conditions {
         let attribute_count = all_conditions_map
             .values()
-            .filter(|(index, filter_condition)| &filter_condition.attribute == &fc.attribute)
+            .filter(|(_, filter_condition)| &filter_condition.attribute == &fc.attribute)
             .count() as u32;
 
         all_conditions_map.insert(fc.key.clone(), (attribute_count, fc));
@@ -80,8 +80,8 @@ fn vectorize_conditions(filter_expression: &FilterExpressionAST) -> Result<Vec<F
         FilterExpressionAST::Condition(filter_condition) => {
             filter_conditions.push((*filter_condition).clone());
         }
-        FilterExpressionAST::Logical { operator, leaves } => {
-            for (i, l) in leaves.iter().enumerate() {
+        FilterExpressionAST::Logical { operator: _, leaves } => {
+            for l in leaves {
                 if let Ok(leaf) = vectorize_conditions(l) {
                     filter_conditions.extend(leaf);
                 }
@@ -99,7 +99,7 @@ pub(crate) fn build_query_filter(
 ) -> Result<String, GenerationError> {
     let mut content: String = String::from("");
     match filter_expression_ast {
-        FilterExpressionAST::Condition(FilterCondition { key, attribute, operator, value }) => {
+        FilterExpressionAST::Condition(FilterCondition { key, attribute: _, operator: _, value: _ }) => {
             // Search the key in the hashmap
 
             match filter_conditions.get(key) {
@@ -161,7 +161,7 @@ impl TagDefinitionBuilder {
 }
 
 #[async_trait]
-trait TagDefinitionInterface {
+pub(crate) trait TagDefinitionInterface {
     /// Returns the definition of the given tags for the given customer
     async fn get_tag_definition(&self, tag_names: &[String], customer_code: &str) -> Result<Vec<TagDefinition>>;
 }
@@ -215,20 +215,18 @@ fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType
             dbg!(&value);
             format!("unaccent_lower((tv.value_string)::text) {0} unaccent_lower('{1}')", &sql_op, value)
         }
-        TagType::Bool => {
-            match (&filter_condition.operator, &filter_condition.value) {
-                (ComparisonOperator::EQ, FilterValue::ValueBool(true)) => "tv.value_boolean = TRUE".to_string(),
-                (ComparisonOperator::EQ, FilterValue::ValueBool(false)) => "tv.value_boolean = FALSE".to_string(),
-                (ComparisonOperator::NEQ, FilterValue::ValueBool(true)) => "tv.value_boolean <> TRUE".to_string(),
-                (ComparisonOperator::NEQ, FilterValue::ValueBool(false)) => "tv.value_boolean <> FALSE".to_string(),
-                _ => {
-                    return Err(GenerationError::TagIncompatibleType(format!(
-                        "Tag : {}, Invalid boolean comparison {:?} with value {}",
-                        &filter_condition.attribute, &filter_condition.operator, &filter_condition.value
-                    )));
-                }
+        TagType::Bool => match (&filter_condition.operator, &filter_condition.value) {
+            (ComparisonOperator::EQ, FilterValue::ValueBool(true)) => "tv.value_boolean = TRUE".to_string(),
+            (ComparisonOperator::EQ, FilterValue::ValueBool(false)) => "tv.value_boolean = FALSE".to_string(),
+            (ComparisonOperator::NEQ, FilterValue::ValueBool(true)) => "tv.value_boolean <> TRUE".to_string(),
+            (ComparisonOperator::NEQ, FilterValue::ValueBool(false)) => "tv.value_boolean <> FALSE".to_string(),
+            _ => {
+                return Err(GenerationError::TagIncompatibleType(format!(
+                    "Tag : {}, Invalid boolean comparison {:?} with value {}",
+                    &filter_condition.attribute, &filter_condition.operator, &filter_condition.value
+                )));
             }
-        }
+        },
         TagType::Int => {
             format!("tv.value_integer {0} {1}", &sql_op, &filter_condition.value)
         }
@@ -256,7 +254,7 @@ fn verify_filter_conditions(
 ) -> Result<(), GenerationError> {
     for (_, (_, filter_condition)) in filter_conditions.iter() {
         if let Some(definition) = definitions.iter().find(|def| &def.tag_names == &filter_condition.attribute) {
-            /** TODO we must also check the value format depending on the tag type here */
+            /* TODO we must also check the value format depending on the tag type here */
             // Check if the operator is valid for the tag type
             if let Some(valid_operators) = LEGAL_OPERATORS_BY_TAG_TYPE.get(&definition.tag_type) {
                 if !valid_operators.contains(&filter_condition.operator) {
@@ -281,7 +279,10 @@ fn verify_filter_conditions(
     Ok(())
 }
 
-fn build_order_column(order_tags: &Vec<String>, map_of_tags_with_occurrence: &HashMap<String, Vec<String>>) -> Vec<String> {
+fn build_order_column(
+    order_tags: &Vec<String>,
+    map_of_tags_with_occurrence: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
     order_tags
         .iter()
         .filter_map(|tag| map_of_tags_with_occurrence.get(tag))

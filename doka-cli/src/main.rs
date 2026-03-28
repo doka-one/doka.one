@@ -4,16 +4,16 @@ use std::process::exit;
 
 use anyhow::anyhow;
 
-use commons_error::*;
-use common_config::conf_reader::{read_config, read_config_from_path, read_env};
+use common_config::conf_reader::{read_config, read_env};
 use common_config::properties::{get_prop_value, set_prop_values};
+use commons_error::*;
 
 use crate::command_options::{display_commands, load_commands, parse_args, Command, Params};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
 use crate::file_commands::{file_download, file_info, file_list, file_loading, file_upload};
 use crate::item_commands::{create_item, get_item, item_tag_delete, item_tag_update, search_item};
 use crate::session_commands::session_login;
-use crate::token_commands::{get_target_file, token_generate};
+use crate::token_commands::token_generate;
 
 mod command_options;
 mod customer_commands;
@@ -37,11 +37,7 @@ const SUCCESS: u16 = 0;
 
 fn read_configuration_file() -> anyhow::Result<()> {
     let doka_env = read_env("DOKA_CLI_ENV");
-    let props = read_config(
-        "doka-cli",
-        &doka_env,
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+    let props = read_config("doka-cli", &doka_env, &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     // let config_path = get_target_file("config/application.properties")?;
     // let config_path_str = config_path.to_str().ok_or(anyhow!("Cannot convert path to str"))?;

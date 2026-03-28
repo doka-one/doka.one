@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum OperatingSystem {
     WINDOWS,
-    LINUX
+    LINUX,
 }
 #[derive(Debug)]
 pub(crate) struct Config {
@@ -15,5 +15,3 @@ pub(crate) struct Config {
     pub release_number: String,
     pub operating_system: OperatingSystem,
 }
-
-

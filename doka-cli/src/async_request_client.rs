@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use commons_error::*;
-use log::*;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest::{multipart, Client, RequestBuilder};
 use serde::de::DeserializeOwned;
@@ -243,7 +242,7 @@ impl FileServerClientAsync {
         // http://localhost:{{PORT}}/file-server/download/47cef2c4-188d-43ed-895d-fe29440633da
         let url = self.server.build_url_with_refcode("download", file_reference);
 
-        self.server.get_binary_data(&url, &Sid(sid.to_string())).await.unwrap_or_else(|e| {
+        self.server.get_binary_data(&url, &Sid(sid.to_string())).await.unwrap_or_else(|_e| {
             println!("😎 Cannot download the binary content");
             // log_error!("Cannot download the binary content");
             WebResponse::from_api_error(&INTERNAL_TECHNICAL_ERROR)

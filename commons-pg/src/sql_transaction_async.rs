@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::anyhow;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::TryStreamExt;
 use lazy_static::*;
 use log::*;
@@ -174,8 +174,9 @@ fn bind_cell_to_query<'q>(
                     let seconds = duration_since_epoch.as_secs();
                     // Convertir les secondes en NaiveDateTime
                     let naive_datetime =
-                        NaiveDateTime::from_timestamp(seconds as i64, duration_since_epoch.subsec_nanos());
-                    Some(naive_datetime)
+                        DateTime::<Utc>::from_timestamp(seconds as i64, duration_since_epoch.subsec_nanos())
+                            .map(|dt| dt.naive_utc());
+                    naive_datetime
                 }
             };
             query_builder.bind(opt_naive_datetime)

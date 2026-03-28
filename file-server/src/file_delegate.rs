@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use anyhow::anyhow;
 use axum::body::Body;
@@ -33,11 +33,6 @@ use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
 use commons_services::try_or_return;
 use commons_services::x_request_id::{Follower, XRequestID};
-use common_config::properties::get_prop_value;
-use common_config::property_name::{
-    DOCUMENT_SERVER_HOSTNAME_PROPERTY, DOCUMENT_SERVER_PORT_PROPERTY, TIKA_SERVER_HOSTNAME_PROPERTY,
-    TIKA_SERVER_PORT_PROPERTY,
-};
 use dkcrypto::dk_crypto::CypherMode::CC20;
 use dkcrypto::dk_crypto::DkEncrypt;
 use dkdto::api_error::ApiError;
@@ -1496,7 +1491,7 @@ impl FileDelegate {
         let mut parts: HashMap<u32, String> = HashMap::new();
         let mut media_type = String::new();
         while dataset.next() {
-            let part_info_len = dataset.get_int_32("part_data_length").ok_or(anyhow!("Wrong part_data_length col"))?;
+            let _part_info_len = dataset.get_int_32("part_data_length").ok_or(anyhow!("Wrong part_data_length col"))?;
             let part_info = Self::read_part(&mut dataset)
                 .map_err(err_fwd!("Cannot read part data, follower=[{}]", &self.follower))?;
             media_type = part_info.0; // always the same media type for each row

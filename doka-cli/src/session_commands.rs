@@ -13,7 +13,7 @@ use crate::token_commands::get_target_file;
 pub(crate) fn session_login(user_name: &str, user_password: &str) -> anyhow::Result<()> {
     println!("👶 Open a session...");
 
-    let working_folder = get_prop_value("working.folder")?;
+    let _working_folder = get_prop_value("working.folder")?;
     let server_host = get_prop_value("server.host")?;
     let admin_server_port: u16 = get_prop_value("as.port")?.parse()?;
     println!("Admin server port : {}", admin_server_port);

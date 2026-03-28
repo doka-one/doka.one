@@ -8,13 +8,12 @@ use serde::de::DeserializeOwned;
 use serde::{de, Serialize};
 use serde_derive::Deserialize;
 use std::io::Cursor;
-use std::ops::Deref;
 use tokio::task;
 
 use crate::buckets::{DOC_BUCKET, FILE_BUCKET};
 use crate::date_tools::{format_date, format_date_in_timezone};
 use crate::kv_store::KvStore;
-use crate::search_result_model::{GetItemReplyForSearchResult, HarborContext, MapToHarbor, SearchResultHarbor};
+use crate::search_result_model::{HarborContext, MapToHarbor, SearchResultHarbor};
 use commons_error::{err_fwd, log_info, log_warn};
 use commons_services::session_lib::valid_sid_get_session;
 use commons_services::token_lib::SessionToken;
@@ -27,6 +26,7 @@ use dkdto::web_types::{GetItemReply, WebType, WebTypeBuilder};
 use doka_cli::async_request_client::{DocumentServerClientAsync, FileServerClientAsync};
 use doka_cli::request_client::TokenType;
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct CborFile {
     pub file_data: Bytes,
@@ -70,7 +70,7 @@ impl SearchResultComponent {
     pub async fn view_file(&mut self, file_ref: &str) -> CborType<CborFile> {
         log_info!("🚀 Start the view_file API");
 
-        let entry_session = try_or_return!(
+        let _entry_session = try_or_return!(
             valid_sid_get_session(&self.session_token, &mut self.follower).await,
             Self::cbor_type_error()
         );
@@ -96,7 +96,7 @@ impl SearchResultComponent {
     pub async fn view_file_json(&mut self, file_ref: &str) -> WebType<CborFile> {
         log_info!("🚀 Start the view_file API");
 
-        let entry_session = try_or_return!(
+        let _entry_session = try_or_return!(
             valid_sid_get_session(&self.session_token, &mut self.follower).await,
             Self::web_type_error()
         );
@@ -119,10 +119,11 @@ impl SearchResultComponent {
     }
 
     /// 🌟 Read a file from the Doka API
-    pub async fn get_file(&mut self, file_ref: &str) -> Result<Bytes, &ApiError> {
+    pub async fn get_file(&mut self, file_ref: &str) -> Result<Bytes, &ApiError<'_>> {
         log_info!("🚀 Start the get_file API");
 
         // TODO check the session token
+        #[allow(dead_code)]
         fn my_type_error<T: de::DeserializeOwned + Serialize>(
         ) -> impl Fn(&ApiError<'static>) -> Result<T, &'static ApiError<'static>>
         where
@@ -134,7 +135,7 @@ impl SearchResultComponent {
             }
         }
 
-        // let entry_session = try_or_return!(
+        // let _entry_session = try_or_return!(
         //     valid_sid_get_session(&self.session_token, &mut self.follower).await,
         //     my_type_error()
         // );
@@ -207,7 +208,7 @@ impl SearchResultComponent {
     }
 
     /// 🌟 Search for the entities from the Doka API
-    pub async fn search_result(&self) -> Result<SearchResultHarbor, &ApiError> {
+    pub async fn search_result(&self) -> Result<SearchResultHarbor, &ApiError<'_>> {
         log_info!("🚀 Start the search_result API");
 
         // Call the doka API
@@ -387,7 +388,7 @@ impl SearchResultComponent {
                 .expect("Task panicked");
                 log_info!("Reduction done");
 
-                let r = kv_store.store_to_nats(&file_reduced_key, reduced_data.to_vec().clone()).await;
+                let _r = kv_store.store_to_nats(&file_reduced_key, reduced_data.to_vec().clone()).await;
                 log_info!("Store resize to nats is done");
                 reduced_data
             }

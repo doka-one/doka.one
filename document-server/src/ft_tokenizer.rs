@@ -316,15 +316,11 @@ fn parse_vector(tsvector: &str) -> (Vec<WordType>, HashMap<u64, String>) {
 /// Deprecated - Use  encrypt_words_rayon instead
 /// Unused
 ///
-fn encrypt_words(
-    words_to_encrypt: &HashMap<u64, String>,
-    customer_key: &str,
-) -> anyhow::Result<HashMap<u64, String>> {
+fn encrypt_words(words_to_encrypt: &HashMap<u64, String>, customer_key: &str) -> anyhow::Result<HashMap<u64, String>> {
     let mut encrypted_words = HashMap::<u64, String>::new();
     for (k, w) in words_to_encrypt {
-        let encrypted_word = DkEncrypt::new(CC20)
-            .encrypt_str(&w, customer_key)
-            .map_err(err_fwd!("Cannot encrypt the word: [{}]", w))?;
+        let encrypted_word =
+            DkEncrypt::new(CC20).encrypt_str(&w, customer_key).map_err(err_fwd!("Cannot encrypt the word: [{}]", w))?;
         encrypted_words.insert(*k, encrypted_word);
     }
     Ok(encrypted_words)
@@ -364,9 +360,7 @@ fn replace_words_in_phrase(
     for w in &mut phrase {
         match w {
             WordToEncrypt(order) => {
-                let r = encrypted_words
-                    .get(order)
-                    .ok_or(anyhow!("Wrong index: {}", order))?;
+                let r = encrypted_words.get(order).ok_or(anyhow!("Wrong index: {}", order))?;
                 *w = WordType::PureText(r.clone());
             }
             WordType::PureText(_) => {}
@@ -382,30 +376,21 @@ pub fn encrypt_tsvector(tsvector: &str, customer_key: &str) -> anyhow::Result<St
     let timestamp_start_0 = Utc::now().timestamp_millis();
     let (phrase, words_to_encrypt) = parse_vector(&tsvector);
     let timestamp_end_0 = Utc::now().timestamp_millis();
-    println!(
-        "parse_vector :: diff [{}] ms",
-        timestamp_end_0 - timestamp_start_0
-    );
+    println!("parse_vector :: diff [{}] ms", timestamp_end_0 - timestamp_start_0);
 
     // dbg!(&phrase.len(), &words_to_encrypt);
 
     let timestamp_start_1 = Utc::now().timestamp_millis();
     let encrypted_words = hash_words_rayon(&words_to_encrypt, &customer_key)?;
     let timestamp_end_1 = Utc::now().timestamp_millis();
-    println!(
-        "encrypt_words :: diff [{}] ms",
-        timestamp_end_1 - timestamp_start_1
-    );
+    println!("encrypt_words :: diff [{}] ms", timestamp_end_1 - timestamp_start_1);
 
     //dbg!(&encrypted_words);
 
     let timestamp_start_2 = Utc::now().timestamp_millis();
     let complete_phrase = replace_words_in_phrase(phrase, &encrypted_words)?;
     let timestamp_end_2 = Utc::now().timestamp_millis();
-    println!(
-        "replace_words_in_phrase :: diff [{}] ms",
-        timestamp_end_2 - timestamp_start_2
-    );
+    println!("replace_words_in_phrase :: diff [{}] ms", timestamp_end_2 - timestamp_start_2);
 
     Ok(complete_phrase)
 }
@@ -454,18 +439,12 @@ mod file_server_test {
         let timestamp_start_1 = Utc::now().timestamp_millis();
         // let encrypted_words = encrypt_words(&words_to_encrypt, KEY)?;
         let timestamp_end_1 = Utc::now().timestamp_millis();
-        println!(
-            "encrypt_words :: diff [{}] ms",
-            timestamp_end_1 - timestamp_start_1
-        );
+        println!("encrypt_words :: diff [{}] ms", timestamp_end_1 - timestamp_start_1);
 
         let timestamp_start_0 = Utc::now().timestamp_millis();
         // let encrypted_words = encrypt_words_rayon(&words_to_encrypt, KEY)?;
         let timestamp_end_0 = Utc::now().timestamp_millis();
-        println!(
-            "encrypt_words_rayon :: diff [{}] ms",
-            timestamp_end_0 - timestamp_start_0
-        );
+        println!("encrypt_words_rayon :: diff [{}] ms", timestamp_end_0 - timestamp_start_0);
 
         Ok(())
     }
@@ -473,27 +452,13 @@ mod file_server_test {
     #[test]
     fn tokenize_garbage() {
         let garbage_1 = "On [ne] sera jamais l'élite de la nation";
-        let garbage_1_tokens = vec![
-            "On", "ne", "sera", "jamais", "l", "élite", "de", "la", "nation",
-        ];
+        let garbage_1_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "nation"];
 
         let garbage_2 = "On [ne] sera jamais l'élite de la nation😈";
-        let garbage_2_tokens = vec![
-            "On", "ne", "sera", "jamais", "l", "élite", "de", "la", "nation",
-        ];
+        let garbage_2_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "nation"];
 
         let garbage_3 = "On [ne] sera, jamais l'élite de la नमस्ते😈";
-        let garbage_3_tokens = vec![
-            "On",
-            "ne",
-            "sera",
-            "jamais",
-            "l",
-            "élite",
-            "de",
-            "la",
-            "नमस\u{94d}त\u{947}",
-        ];
+        let garbage_3_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "नमस\u{94d}त\u{947}"];
 
         let mut tkn = FTTokenizer::new(&garbage_1);
         let garbage_1_words: Vec<String> = tkn.next_n_words(1);
@@ -522,12 +487,8 @@ mod file_server_test {
         let case_4 = "2010-10-01 est normal";
         let tokens_4 = vec!["2010-10-01", "est", "normal"];
 
-        let test_cases: Vec<(&str, Vec<&str>)> = vec![
-            (case_1, tokens_1),
-            (case_2, tokens_2),
-            (case_3, tokens_3),
-            (case_4, tokens_4),
-        ];
+        let test_cases: Vec<(&str, Vec<&str>)> =
+            vec![(case_1, tokens_1), (case_2, tokens_2), (case_3, tokens_3), (case_4, tokens_4)];
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
@@ -539,15 +500,7 @@ mod file_server_test {
     #[test]
     fn tokenize_number() {
         let case_1 = "51234567890.25 est une sacrée somme.Mais bon !";
-        let tokens_1 = vec![
-            "51234567890.25",
-            "est",
-            "une",
-            "sacrée",
-            "somme",
-            "Mais",
-            "bon",
-        ];
+        let tokens_1 = vec!["51234567890.25", "est", "une", "sacrée", "somme", "Mais", "bon"];
 
         let case_2 = "Il me doit -51,01 €";
         let tokens_2 = vec!["Il", "me", "doit", "-51,01"];
@@ -559,24 +512,10 @@ mod file_server_test {
         let tokens_4 = vec!["Il", "me", "doit", "1.235.458.456"];
 
         let case_5 = "C'est bien 5 cts et non pas 5 francs";
-        let tokens_5 = vec![
-            "C", "est", "bien", "5", "cts", "et", "non", "pas", "5", "francs",
-        ];
+        let tokens_5 = vec!["C", "est", "bien", "5", "cts", "et", "non", "pas", "5", "francs"];
 
         let case_6 = "C'est le bien-être 5-0 cts et non pas 5.0-1 francs";
-        let tokens_6 = vec![
-            "C",
-            "est",
-            "le",
-            "bienêtre",
-            "5-0",
-            "cts",
-            "et",
-            "non",
-            "pas",
-            "5.0-1",
-            "francs",
-        ];
+        let tokens_6 = vec!["C", "est", "le", "bienêtre", "5-0", "cts", "et", "non", "pas", "5.0-1", "francs"];
 
         let case_7 = "Il me doit +51,01 €";
         let tokens_7 = vec!["Il", "me", "doit", "51,01"];
@@ -651,8 +590,7 @@ mod file_server_test {
         let case_3 = "denis@isd.lu @Tarzoun";
         let tokens_3 = vec!["denis@isd.lu", "@Tarzoun"];
 
-        let test_cases: Vec<(&str, Vec<&str>)> =
-            vec![(case_1, tokens_1), (case_2, tokens_2), (case_3, tokens_3)];
+        let test_cases: Vec<(&str, Vec<&str>)> = vec![(case_1, tokens_1), (case_2, tokens_2), (case_3, tokens_3)];
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
@@ -678,13 +616,8 @@ mod file_server_test {
         let case_5 = "Català Mìng-dĕ̤ng-ngṳ̄ Нохчийн";
         let tokens_5 = vec!["Català", "Mìngdĕ̤ngngṳ̄", "Нохчийн"];
 
-        let test_cases: Vec<(&str, Vec<&str>)> = vec![
-            (case_1, tokens_1),
-            (case_2, tokens_2),
-            (case_3, tokens_3),
-            (case_4, tokens_4),
-            (case_5, tokens_5),
-        ];
+        let test_cases: Vec<(&str, Vec<&str>)> =
+            vec![(case_1, tokens_1), (case_2, tokens_2), (case_3, tokens_3), (case_4, tokens_4), (case_5, tokens_5)];
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
@@ -698,8 +631,7 @@ mod file_server_test {
 
     #[test]
     fn tokenize_big_planet() -> anyhow::Result<()> {
-        let byte_buf: String =
-            std::fs::read_to_string("C:/Users/denis/wks-poc/tika/content.planet.txt")?;
+        let byte_buf: String = std::fs::read_to_string("C:/Users/denis/wks-poc/tika/content.planet.txt")?;
         let mut tkn = FTTokenizer::new(&byte_buf);
         let words: Vec<String> = tkn.next_n_words(5_000);
         println!("PART 1 => {:?}", words);
@@ -742,15 +674,7 @@ mod file_server_test {
         let my_str_1 = "denis 😎 papin\n";
         let my_str_2 = "denis😎papin";
 
-        println!(
-            "[{}] Has not printable char = {:?}",
-            my_str_1,
-            has_not_printable_char(my_str_1)
-        );
-        println!(
-            "[{}] Has not printable char = {:?}",
-            my_str_2,
-            has_not_printable_char(my_str_2)
-        );
+        println!("[{}] Has not printable char = {:?}", my_str_1, has_not_printable_char(my_str_1));
+        println!("[{}] Has not printable char = {:?}", my_str_2, has_not_printable_char(my_str_2));
     }
 }

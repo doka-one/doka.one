@@ -11,9 +11,7 @@ use crate::{step_println, Config, DEF_FILE_TEMPLATE};
 fn uninstall_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     // serman install key_manager.xml --overwrite
     let serman_program = format!("{}/bin/serman/serman.exe", &config.installation_path);
-    let o = Command::new(serman_program.as_str())
-        .args(&["uninstall", service_id])
-        .output();
+    let o = Command::new(serman_program.as_str()).args(&["uninstall", service_id]).output();
     match o {
         Ok(_) => {}
         Err(e) => {
@@ -25,10 +23,8 @@ fn uninstall_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     sleep(Duration::from_secs(4));
 
     // clear the service by stopping it
-    let _the_output = Command::new("sc")
-        .args(&["stop", service_id])
-        .output()
-        .map_err(eprint_fwd!("Cannot stop the service"))?;
+    let _the_output =
+        Command::new("sc").args(&["stop", service_id]).output().map_err(eprint_fwd!("Cannot stop the service"))?;
 
     println!("Service cleared: {service_id}");
 
@@ -44,10 +40,7 @@ fn uninstall_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
 fn create_service(config: &Config, service_id: &str) -> anyhow::Result<()> {
     // serman install key_manager.xml --overwrite
     let serman_program = format!("{}/bin/serman/serman.exe", &config.installation_path);
-    let service_definition_file = format!(
-        "{}/service-definitions/{}.xml",
-        &config.installation_path, service_id
-    );
+    let service_definition_file = format!("{}/service-definitions/{}.xml", &config.installation_path, service_id);
 
     // install the service
 
@@ -90,22 +83,12 @@ pub(crate) fn build_windows_services(config: &Config) -> anyhow::Result<()> {
 ///
 /// This should generate a correct definiton file for the windows service.
 /// Nevertheless, we must generate the doka config files for each services before.
-fn write_service_definition_file(
-    config: &Config,
-    service_id: &str,
-    service_name: &str,
-) -> anyhow::Result<()> {
+fn write_service_definition_file(config: &Config, service_id: &str, service_name: &str) -> anyhow::Result<()> {
     println!("Write service definition for {service_id}");
 
     // ex : D:\test_install\doka.one\bin\key-manager\key-manager.exe
-    let executable = format!(
-        "{}/bin/{service_id}/{service_id}.exe",
-        &config.installation_path
-    );
-    let my_env = format!(
-        "{}/doka-configs/{}",
-        &config.installation_path, &config.instance_name
-    );
+    let executable = format!("{}/bin/{service_id}/{service_id}.exe", &config.installation_path);
+    let my_env = format!("{}/doka-configs/{}", &config.installation_path, &config.instance_name);
 
     // dbg!(&executable, &my_env);
 
@@ -117,9 +100,8 @@ fn write_service_definition_file(
         .replace("{EXECUTABLE}", &executable)
         .replace("{MY_ENV}", &my_env);
 
-    let definiton_file = Path::new(config.installation_path.as_str())
-        .join("service-definitions/")
-        .join(format!("{service_id}.xml"));
+    let definiton_file =
+        Path::new(config.installation_path.as_str()).join("service-definitions/").join(format!("{service_id}.xml"));
     let _ = std::fs::write(&definiton_file, &definition);
 
     println!("Done. Write service definition for {service_id}");
@@ -147,18 +129,12 @@ fn write_service_definition_file_for_tika(config: &Config) -> anyhow::Result<()>
         &config.installation_path, &config.instance_name, service_id
     );
 
-    let jar_path = format!(
-        "{}/bin/{service_id}/tika-server-standard-2.2.0.jar",
-        &config.installation_path
-    );
+    let jar_path = format!("{}/bin/{service_id}/tika-server-standard-2.2.0.jar", &config.installation_path);
     // let port_str = ports.tika_server.to_string();
     //let arguments = format!("-Dlog4j.configurationFile={} -jar {} --port {}", &log4j_path, &jar_path, &port_str );
     let arguments = format!("-jar {} -c {}", &jar_path, &tika_config_path);
 
-    let my_env = format!(
-        "{}/doka-configs/{}",
-        &config.installation_path, &config.instance_name
-    );
+    let my_env = format!("{}/doka-configs/{}", &config.installation_path, &config.instance_name);
 
     let mut definition = String::from(DEF_FILE_WITH_ARGS_TEMPLATE);
     // We should XML escape the replacement values, but for now, we know what we are doing.
@@ -171,9 +147,8 @@ fn write_service_definition_file_for_tika(config: &Config) -> anyhow::Result<()>
 
     // dbg!(&definition);
 
-    let definiton_file = Path::new(config.installation_path.as_str())
-        .join("service-definitions/")
-        .join(format!("{service_id}.xml"));
+    let definiton_file =
+        Path::new(config.installation_path.as_str()).join("service-definitions/").join(format!("{service_id}.xml"));
     let _ = std::fs::write(&definiton_file, &definition);
 
     println!("Done. Write service definition for {service_id}");
@@ -200,8 +175,7 @@ pub(crate) fn write_all_service_definition(config: &Config) -> anyhow::Result<()
     write_service_definition_file(&config, "file-server", "Doka File Server")
         .map_err(eprint_fwd!("Write definition file failed"))?;
 
-    write_service_definition_file_for_tika(&config)
-        .map_err(eprint_fwd!("Write definition file for tika failed"))?;
+    write_service_definition_file_for_tika(&config).map_err(eprint_fwd!("Write definition file for tika failed"))?;
 
     Ok(())
 }

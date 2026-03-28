@@ -143,10 +143,8 @@ mod tests {
 
     fn open_file_with_err() -> anyhow::Result<()> {
         let filename = "bar.txt";
-        let _f = File::open(filename).map_err(err_fwd!(
-            "First level error managed by anyhow, filename=[{}]",
-            filename
-        ))?;
+        let _f =
+            File::open(filename).map_err(err_fwd!("First level error managed by anyhow, filename=[{}]", filename))?;
         Ok(())
     }
 
@@ -186,10 +184,7 @@ mod tests {
         init();
         println!("----------- Start crash_error ----------");
         let session_number = 123456;
-        let r = middle_level_routine().map_err(err_fwd!(
-            "Session : {} - Cannot read the internal map",
-            session_number
-        ));
+        let r = middle_level_routine().map_err(err_fwd!("Session : {} - Cannot read the internal map", session_number));
         log_error!("Last return = [{:?}]", r);
         println!("----------- End crash_error ----------");
     }

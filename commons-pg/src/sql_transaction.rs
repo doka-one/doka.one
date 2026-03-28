@@ -85,11 +85,15 @@ pub struct SQLPool {
 
 impl SQLPool {
     pub fn new(connect_string: &str, pool_size: u32) -> anyhow::Result<Self> {
+        Self::new_with_timeout(connect_string, pool_size, Duration::from_secs(2 * 3600))
+    }
+
+    fn new_with_timeout(connect_string: &str, pool_size: u32, connection_timeout: Duration) -> anyhow::Result<Self> {
         let manager = PostgresConnectionManager::new(connect_string.parse()?, NoTls);
 
         let pool = r2d2::Pool::builder()
             .max_size(pool_size)
-            .connection_timeout(Duration::from_secs(2 * 3600))
+            .connection_timeout(connection_timeout)
             //.idle_timeout(Some(Duration::from_secs(3600)))
             .build(manager)
             .map_err(err_fwd!("Cannot create the PG connection pool for db [{}]", connect_string))?;
@@ -647,6 +651,7 @@ impl SQLChange {
     }
 }
 
+/// All the tests are ignored because to specific for a database schema.
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -677,10 +682,8 @@ mod tests {
     fn session_manager_log_config_from_file(config_file: &Path) -> anyhow::Result<std::path::PathBuf> {
         let json_data = read_to_string(config_file)?;
         let root: Value = serde_json::from_str(&json_data)?;
-        let clusters = root
-            .get("clusters")
-            .and_then(Value::as_array)
-            .ok_or_else(|| anyhow::anyhow!("Missing clusters array"))?;
+        let clusters =
+            root.get("clusters").and_then(Value::as_array).ok_or_else(|| anyhow::anyhow!("Missing clusters array"))?;
 
         let profile = env::var("DOKA_CLUSTER_PROFILE").expect("DOKA_CLUSTER_PROFILE must be set for commons-pg tests");
         let selected_cluster = clusters
@@ -716,7 +719,9 @@ mod tests {
         let service = selected_cluster
             .get("services")
             .and_then(Value::as_array)
-            .and_then(|services| services.iter().find(|service| service.get("name").and_then(Value::as_str) == Some("session-manager")))
+            .and_then(|services| {
+                services.iter().find(|service| service.get("name").and_then(Value::as_str) == Some("session-manager"))
+            })
             .ok_or_else(|| anyhow::anyhow!("session-manager service not found"))?;
 
         let log_config = service
@@ -730,6 +735,7 @@ mod tests {
     }
 
     use crate::sql_transaction::{init_db_pool, CellValue, SQLChange, SQLConnection, SQLPool, SQLQueryBlock};
+    use std::time::Duration;
 
     static INIT: Once = Once::new();
 
@@ -754,16 +760,22 @@ mod tests {
         });
     }
 
+    #[ignore]
     #[test]
     fn a10_faulty_connection() {
         init();
 
-        let r_sql_pool = SQLPool::new("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=wrong_pass.", 1)
-            .map_err(err_fwd!("Fail the pool"));
+        let r_sql_pool = SQLPool::new_with_timeout(
+            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=wrong_pass.",
+            1,
+            Duration::from_secs(1),
+        )
+        .map_err(err_fwd!("Fail the pool"));
 
         assert!(r_sql_pool.is_err());
     }
 
+    #[ignore]
     #[test]
     fn a20_simple_query() -> anyhow::Result<()> {
         init();
@@ -796,6 +808,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn a30_param_request() {
         init();
@@ -838,6 +851,7 @@ mod tests {
         assert_eq!(data_set.position, data_set.len());
     }
 
+    #[ignore]
     #[test]
     fn a40_insert_row() {
         init();
@@ -866,6 +880,7 @@ mod tests {
         assert!(id > 10)
     }
 
+    #[ignore]
     #[test]
     fn update_row() {
         init();
@@ -900,6 +915,7 @@ mod tests {
         }
     }
 
+    #[ignore]
     #[test]
     fn test_anyhow_4() {
         init();
@@ -912,6 +928,7 @@ mod tests {
         let _f = File::open(filename).map_err(err_fwd!("First error managed by anyhow, filename=[{}]", filename));
     }
 
+    #[ignore]
     #[test]
     fn test_pg() {
         use postgres::{Client, NoTls};

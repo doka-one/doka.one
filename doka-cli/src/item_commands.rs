@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::anyhow;
 use base64::Engine;
+use colored::Colorize;
 use regex::Regex;
 
 use common_config::properties::get_prop_value;
@@ -152,7 +153,7 @@ fn build_item_tag(param_value: &str) -> anyhow::Result<AddTagValue> {
             match r {
                 Ok(v) => v,
                 Err(_e) => {
-                    return Err(anyhow!("Property type and value does not match: {}", param_value));
+                    return Err(anyhow!("Unknown property type in {}. Expected: text, bool, int, decimal, date, datetime, link", param_value));
                 }
             }
         }
@@ -300,7 +301,15 @@ fn build_properties_from_string(o_props: Option<&str>) -> anyhow::Result<Vec<Add
         let mut props: Vec<AddTagValue> = vec![];
         for cap in re.captures_iter(props_str) {
             dbg!(&cap[1]);
-            let tag = build_item_tag(&cap[1]).map_err(eprint_fwd!("Cannot read the tag value"))?;
+            let tag = match build_item_tag(&cap[1]) {
+                Ok(tag) => tag,
+                Err(e) => {
+                    eprintln!();
+                    eprintln!("{}", format!("[{}]", e).red().bold());
+                    eprintln!();
+                    return Err(anyhow!(e.to_string()));
+                }
+            };
             props.push(tag);
         }
         props

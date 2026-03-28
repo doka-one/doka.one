@@ -599,9 +599,9 @@ impl FileServerClient {
         Self { server: WebServer::new(server_name, port, "file-server") }
     }
 
-    pub fn upload(&self, item_info: &str, request: &Vec<u8>, sid: &str) -> WebResponse<UploadReply> {
+    pub fn upload(&self, encoded_item_info: &str, request: &Vec<u8>, sid: &str) -> WebResponse<UploadReply> {
         // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
-        let url = self.server.build_url_with_refcode("upload2", item_info);
+        let url = self.server.build_url_with_refcode("upload2", encoded_item_info);
         // let url = self.server.build_url("upload2/1ABH234");
         self.server.post_bytes_retry(&url, request, &Sid(sid.to_string()))
     }

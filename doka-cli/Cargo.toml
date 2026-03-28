@@ -16,6 +16,7 @@ log4rs = { workspace = true }
 okapi = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
+base64 = { workspace = true }
 
 reqwest = { workspace = true }
 tokio = { workspace = true }

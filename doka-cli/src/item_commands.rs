@@ -3,6 +3,7 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 use anyhow::anyhow;
+use base64::Engine;
 use regex::Regex;
 
 use common_config::properties::get_prop_value;
@@ -187,7 +188,8 @@ pub(crate) fn create_item(
             let mut buf_reader = BufReader::new(file);
             let mut binary: Vec<u8> = vec![];
             let _n = buf_reader.read_to_end(&mut binary)?;
-            let fs_reply = file_server_client.upload(&item_name, &binary, &sid);
+            let encoded_item_info = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(item_name);
+            let fs_reply = file_server_client.upload(&encoded_item_info, &binary, &sid);
 
             if let Err(e) = fs_reply {
                 eprintln!("File upload failed, {}", &e.message);

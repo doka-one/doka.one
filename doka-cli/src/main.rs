@@ -63,6 +63,10 @@ fn extract_option(options: &HashMap<String, Option<String>>, key: &str) -> anyho
     }
 }
 
+fn is_known_object(commands: &[Command], object: &str) -> bool {
+    commands.iter().any(|command| command.name == object)
+}
+
 fn dispatch(params: &Params, commands: &[Command]) -> u16 {
     match (params.object.as_str(), params.action.as_str()) {
         ("help", "help") => {
@@ -248,6 +252,13 @@ fn main() -> () {
     };
 
     // dbg!(&params);
+
+    if !is_known_object(&commands, &params.object) {
+        eprintln!("💣 Unknown object [{}]", &params.object);
+        eprintln!("Expected one of: {}", commands.iter().map(|command| command.name.as_str()).collect::<Vec<_>>().join(", "));
+        display_commands(&commands);
+        exit_program(PARAMETER_ERROR as i32);
+    }
 
     match read_configuration_file() {
         Ok(_) => {}

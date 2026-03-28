@@ -24,7 +24,7 @@ pub(crate) struct Subcommand {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Command {
-    name: String,
+    pub(crate) name: String,
     sub: Vec<Subcommand>,
 }
 

@@ -3,6 +3,7 @@ use std::io::{BufReader, Cursor, Read};
 use std::path::Path;
 
 use anyhow::anyhow;
+use base64::Engine;
 
 use common_config::properties::get_prop_value;
 use doka_cli::request_client::FileServerClient;
@@ -24,7 +25,8 @@ pub(crate) fn file_upload(item_info: &str, path: &str) -> anyhow::Result<()> {
     let mut buf_reader = BufReader::new(file);
     let mut binary: Vec<u8> = vec![];
     let _n = buf_reader.read_to_end(&mut binary)?;
-    let wr_reply = client.upload(&item_info, &binary, &sid);
+    let encoded_item_info = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(item_info);
+    let wr_reply = client.upload(&encoded_item_info, &binary, &sid);
 
     match wr_reply {
         Ok(reply) => {

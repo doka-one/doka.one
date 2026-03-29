@@ -194,6 +194,19 @@ pub(crate) async fn fulltext_indexing(
     delegate.fulltext_indexing(raw_text_request).await
 }
 
+/// 🌟 Build an encrypted tsvector from a single word using a specific PostgreSQL text search language
+/// **NORM
+///
+/// #[get("/tokenize/<lang>/<word>")]
+pub(crate) async fn tokenize(
+    session_token: SessionToken,
+    x_request_id: XRequestID,
+    Path((lang, word)): Path<(String, String)>,
+) -> WebType<SimpleMessage> {
+    let delegate = FullTextDelegate::new(session_token, x_request_id);
+    delegate.tokenize(&lang, &word).await
+}
+
 /// 🌟 Delete the information linked to the document full text indexing information
 /// Used from file-server
 /// **NORM
@@ -289,6 +302,7 @@ async fn main() {
         .route("/tag", post(add_tag))
         .route("/tag/:tag_id", delete(delete_tag))
         .route("/fulltext_indexing", post(fulltext_indexing))
+        .route("/tokenize/:lang/:word", get(tokenize))
         .route("/delete_text_indexing", post(delete_text_indexing));
 
     let app = Router::new().nest(&base_url, key_routes);

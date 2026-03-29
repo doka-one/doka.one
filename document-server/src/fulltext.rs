@@ -49,6 +49,57 @@ impl FullTextDelegate {
         }
     }
 
+    pub async fn tokenize(mut self, lang: &str, word: &str) -> WebType<SimpleMessage> {
+        log_info!("🚀 Start tokenize api, lang=[{}], word=[{}], follower=[{}]", lang, word, &self.follower);
+
+        let entry_session = try_or_return!(
+            valid_sid_get_session(&self.session_token, &mut self.follower).await,
+            Self::web_type_error()
+        );
+
+        let customer_code = entry_session.customer_code.as_str();
+
+        let Ok(customer_key) = fetch_customer_key(customer_code, &self.follower)
+            .await
+            .map_err(err_fwd!("💣 Cannot get the customer key, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
+        };
+
+        let Ok(mut cnx) = SQLConnectionAsync::from_pool()
+            .await
+            .map_err(err_fwd!("💣 New Db connection failed, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(mut trans) = cnx.begin().await.map_err(err_fwd!("💣 Transaction issue, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        };
+
+        let Ok(tsv) = self
+            .select_tsvector(&mut trans, Some(lang), word)
+            .await
+            .map_err(err_fwd!("💣 Cannot build the tsvector, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
+        };
+
+        let Ok(tsv_encrypted) = encrypt_tsvector(&tsv, &customer_key)
+            .map_err(err_fwd!("💣 Cannot encrypt the vector, follower=[{}]", &self.follower))
+        else {
+            return WebType::from_api_error(&INTERNAL_TECHNICAL_ERROR);
+        };
+
+        if trans.commit().await.map_err(err_fwd!("💣 Commit failed, follower=[{}]", &self.follower)).is_err() {
+            return WebType::from_api_error(&INTERNAL_DATABASE_ERROR);
+        }
+
+        log_info!("🏁 End tokenize api, follower=[{}]", &self.follower);
+        WebType::from_item(StatusCode::OK.as_u16(), SimpleMessage { message: tsv_encrypted })
+    }
+
     /// 🌟 Delete the information linked to the document full text indexing information
     /// Service called from the file-server
     pub async fn delete_text_indexing(

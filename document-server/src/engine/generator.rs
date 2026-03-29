@@ -463,12 +463,14 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     final_sql.push_str("\n    ");
     final_sql.push_str(query_filter.as_str());
 
-    final_sql.push_str("\n");
-    final_sql.push_str(" ORDER BY ");
+    if !order_columns.is_empty() {
+        final_sql.push_str("\n");
+        final_sql.push_str(" ORDER BY ");
 
-    final_sql.push_str("\n    ");
-    final_sql.push_str(order_columns.as_str());
-    final_sql.push_str("\n");
+        final_sql.push_str("\n    ");
+        final_sql.push_str(order_columns.as_str());
+        final_sql.push_str("\n");
+    }
 
     let sql_query = final_sql.to_string().replace("{customer_schema}", format!("cs_{}", customer_code).as_str());
     Ok(sql_query)

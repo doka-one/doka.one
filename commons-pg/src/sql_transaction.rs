@@ -185,6 +185,14 @@ impl SQLDataSet {
         self.data.len()
     }
 
+    pub fn get_cell(&self, col_name: &str) -> Option<&CellValue> {
+        if self.position < 1 || self.position > self.data.len() {
+            return None;
+        }
+
+        self.data.deref().get(self.position - 1)?.get(col_name)
+    }
+
     pub fn get_int(&self, col_name: &str) -> Option<i64> {
         if self.position < 1 || self.position > self.data.len() {
             return None;

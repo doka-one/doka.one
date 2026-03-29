@@ -29,11 +29,96 @@ use dkdto::web_types::{
 };
 use doka_cli::request_client::TokenType;
 
-use crate::engine::generator::{generate_search_sql, GenerationError, SearchSqlGenerationMode, TagDefinitionBuilder};
+use crate::engine::generator::{
+    generate_search_sql, GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionBuilder,
+    TagDefinitionInterface,
+};
 use crate::filter::analyse_expression;
 use crate::filter::filter_ast::FilterExpressionAST;
 use crate::filter::filter_lexer::FilterError;
 use crate::TagDelegate;
+
+// Collect each distinct attribute referenced by the filter AST so search can project those tags back.
+fn collect_attributes(ast: &FilterExpressionAST, attributes: &mut Vec<String>) {
+    match ast {
+        FilterExpressionAST::Condition(filter_condition) => {
+            if !attributes.contains(&filter_condition.attribute) {
+                attributes.push(filter_condition.attribute.clone());
+            }
+        }
+        FilterExpressionAST::Logical { leaves, .. } => {
+            for leaf in leaves {
+                collect_attributes(leaf, attributes);
+            }
+        }
+    }
+}
+
+// Search responses project both filtered tags and sort tags, even when they overlap.
+fn build_select_tags(ast: &FilterExpressionAST, order_tags: &[String]) -> Vec<String> {
+    let mut select_tags = vec![];
+    collect_attributes(ast, &mut select_tags);
+    for tag in order_tags {
+        if !select_tags.contains(tag) {
+            select_tags.push(tag.clone());
+        }
+    }
+    select_tags
+}
+
+// Reuse the dataset's typed cell representation instead of duplicating per-column extraction logic.
+fn enum_tag_value_from_cell(tag_type: &TagType, cell: Option<&CellValue>) -> EnumTagValue {
+    match tag_type {
+        TagType::Text => EnumTagValue::Text(cell.and_then(CellValue::inner_value_string)),
+        TagType::Link => EnumTagValue::Link(cell.and_then(CellValue::inner_value_string)),
+        TagType::Bool => EnumTagValue::Boolean(cell.and_then(CellValue::inner_value_bool)),
+        TagType::Int => EnumTagValue::Integer(cell.and_then(CellValue::inner_value_int)),
+        TagType::Double => EnumTagValue::Double(cell.and_then(CellValue::inner_value_double)),
+        TagType::Date => {
+            let opt_iso_d_str = cell.and_then(CellValue::inner_value_naivedate).as_ref().map(naivedate_to_iso);
+            EnumTagValue::SimpleDate(opt_iso_d_str)
+        }
+        TagType::DateTime => {
+            let opt_iso_dt_str = cell
+                .and_then(CellValue::inner_value_systemtime)
+                .map(|system_time| {
+                    let dt: DateTime<Utc> = system_time.into();
+                    dt
+                })
+                .as_ref()
+                .map(date_time_to_iso);
+            EnumTagValue::DateTime(opt_iso_dt_str)
+        }
+    }
+}
+
+// Build the lightweight property projection returned by search results from the generated SQL aliases.
+fn build_projected_properties(
+    sql_result: &SQLDataSet,
+    item_id: i64,
+    definitions: &[TagDefinition],
+    select_tags: &[String],
+) -> Vec<TagValueElement> {
+    let mut properties = vec![];
+
+    for tag_name in select_tags {
+        let Some(definition) = definitions.iter().find(|definition| definition.tag_names == *tag_name) else {
+            continue;
+        };
+
+        let value = enum_tag_value_from_cell(&definition.tag_type, sql_result.get_cell(tag_name));
+
+        properties.push(TagValueElement {
+            tag_value_id: 0,
+            item_id,
+            tag_id: 0,
+            tag_name: tag_name.clone(),
+            value,
+        });
+    }
+
+    properties
+}
 
 pub(crate) struct ItemDelegate {
     pub session_token: SessionToken,
@@ -82,7 +167,7 @@ impl ItemDelegate {
 
         // session_token: SessionToken, follower: Follower, x_request_id: XRequestID
         let tag_definition_builder = TagDefinitionBuilder::new(self.session_token.clone(), self.follower.clone());
-        let select_tags = &vec![];
+        let select_tags = build_select_tags(&filter_expression_ast, &order_tags.clone().unwrap_or_default());
         // let v_order_tags: Vec<&str> = order_tags
         //     .as_deref()                 // Option<&[String]>
         //     .unwrap_or(&[])             // &[]
@@ -96,7 +181,7 @@ impl ItemDelegate {
             generate_search_sql(
                 &filter_expression_ast,
                 &tag_definition_builder,
-                select_tags,
+                &select_tags,
                 &order_tags.unwrap_or(vec![]),
                 SearchSqlGenerationMode::Live,
                 &entry_session.customer_code,
@@ -123,7 +208,15 @@ impl ItemDelegate {
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
         };
 
-        let Ok(items) = self.search_item_from_query(&mut trans, &sql_query, start_page, page_size).await else {
+        let projected_definitions: Vec<TagDefinition> = try_or_return!(
+            tag_definition_builder.get_tag_definition(&select_tags, &entry_session.customer_code).await.map_err(tr_fwd!()),
+            |_e| WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context()
+        );
+
+        let Ok(items) = self
+            .search_item_from_query(&mut trans, &sql_query, start_page, page_size, &select_tags, &projected_definitions)
+            .await
+        else {
             log_error!("💣 Cannot find item by id, follower=[{}]", &self.follower);
             return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
         };
@@ -198,6 +291,8 @@ impl ItemDelegate {
         sql_query: &str,
         start_page: Option<u32>,
         page_size: Option<u32>,
+        select_tags: &[String],
+        projected_definitions: &[TagDefinition],
     ) -> anyhow::Result<Vec<ItemElement>> {
         let params = HashMap::new();
 
@@ -225,15 +320,7 @@ impl ItemDelegate {
             let last_modified_gmt =
                 sql_result.get_timestamp_as_datetime("last_modified_gmt").as_ref().map(|x| date_time_to_iso(x));
 
-            let lastname: String = sql_result.get_string("lastname").unwrap_or("".to_owned());
-
-            let tv = TagValueElement {
-                tag_value_id: 0,
-                item_id: 0,
-                tag_id: 0,
-                tag_name: "lastname".to_string(),
-                value: EnumTagValue::Text(Some(lastname.to_string())),
-            };
+            let properties = build_projected_properties(&sql_result, id, projected_definitions, select_tags);
 
             let item = ItemElement {
                 item_id: id,
@@ -241,7 +328,7 @@ impl ItemDelegate {
                 file_ref: o_file_ref,
                 created: date_time_to_iso(&created_gmt),
                 last_modified: last_modified_gmt,
-                properties: Some(vec![tv]), // fill it with the extra fields
+                properties: Some(properties),
             };
 
             let _ = &items.push(item);
@@ -361,38 +448,12 @@ impl ItemDelegate {
             };
 
             let value = match tt {
-                TagType::Text => {
-                    let value_string = sql_result.get_string("value_string");
-                    EnumTagValue::Text(value_string)
-                }
-                TagType::Link => {
-                    let value_string = sql_result.get_string("value_string");
-                    EnumTagValue::Link(value_string)
-                }
-                TagType::Bool => {
-                    let value_boolean = sql_result.get_bool("value_boolean");
-                    EnumTagValue::Boolean(value_boolean)
-                }
-                TagType::Int => {
-                    let value_integer = sql_result.get_int("value_integer");
-                    EnumTagValue::Integer(value_integer)
-                }
-                TagType::Double => {
-                    let value_double = sql_result.get_double("value_double");
-                    EnumTagValue::Double(value_double)
-                }
-                TagType::Date => {
-                    // Changed to simply get the naive date and change it to iso string, no need of "Date"
-                    let value_naivedate = sql_result.get_naivedate("value_date");
-                    //let value_date = sql_result.get_naivedate_as_date("value_date");
-                    let opt_iso_d_str = value_naivedate.as_ref().map(|x| naivedate_to_iso(x));
-                    EnumTagValue::SimpleDate(opt_iso_d_str)
-                }
-                TagType::DateTime => {
-                    let value_datetime = sql_result.get_timestamp_as_datetime("value_datetime");
-                    let opt_iso_dt_str = value_datetime.as_ref().map(|x| date_time_to_iso(x));
-                    EnumTagValue::DateTime(opt_iso_dt_str)
-                }
+                TagType::Text | TagType::Link => enum_tag_value_from_cell(&tt, sql_result.get_cell("value_string")),
+                TagType::Bool => enum_tag_value_from_cell(&tt, sql_result.get_cell("value_boolean")),
+                TagType::Int => enum_tag_value_from_cell(&tt, sql_result.get_cell("value_integer")),
+                TagType::Double => enum_tag_value_from_cell(&tt, sql_result.get_cell("value_double")),
+                TagType::Date => enum_tag_value_from_cell(&tt, sql_result.get_cell("value_date")),
+                TagType::DateTime => enum_tag_value_from_cell(&tt, sql_result.get_cell("value_datetime")),
             };
 
             let tv = TagValueElement { tag_value_id, item_id: row_item_id, tag_id, tag_name, value };

@@ -153,7 +153,7 @@ impl WebServer {
         request: &U,
         headers: &CustomHeaders,
     ) -> anyhow::Result<WebResponse<V>> {
-        let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().post(Url::parse(&url)?).timeout(TIMEOUT);
         let request_builder_2 = match &headers.token_type {
             Token(token_value) => request_builder.header("token", token_value.clone()),
             Sid(sid_value) => request_builder.header("sid", sid_value.clone()),
@@ -205,7 +205,7 @@ impl WebServer {
         request: Vec<u8>,
         token: &TokenType,
     ) -> anyhow::Result<WebResponse<V>> {
-        let request_builder = reqwest::blocking::Client::new().post(Url::parse(url)?).timeout(TIMEOUT);
+        let request_builder = reqwest::blocking::Client::new().post(Url::parse(&url)?).timeout(TIMEOUT);
         let form =
             multipart::Form::new().part("data", multipart::Part::bytes(request).file_name("111-Bright_Snow.jpg"));
 
@@ -643,6 +643,7 @@ impl FileServerClient {
 
 #[cfg(test)]
 mod test {
+    use base64::Engine;
     use url::Url;
 
     use dkdto::web_types::TikaParsing;
@@ -658,7 +659,7 @@ mod test {
 
     #[test]
     fn test_put_basic() -> anyhow::Result<()> {
-        let byte_buf: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/Gandi_order.pdf")?;
+        let byte_buf: Vec<u8> = std::fs::read("/mnt/blob/Upload/tokenizer_tests/Gandi_order.pdf")?;
         // curl -T birdy_tickets.pdf  http://localhost:9998/tika/text --header "Accept: application/json"
         let s = put_data("http://localhost:40010/tika/text", byte_buf)?;
         dbg!(&s);
@@ -668,7 +669,7 @@ mod test {
 
     #[test]
     fn test_put_from_client() -> anyhow::Result<()> {
-        let byte_buf: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/Gandi_order.pdf")?;
+        let byte_buf: Vec<u8> = std::fs::read("/mnt/blob/Upload/tokenizer_tests/Gandi_order.pdf")?;
         let client = TikaServerClient::new("localhost", 40010);
         let s = client.parse_data(&byte_buf)?;
         let _ = dbg!(&s);
@@ -683,7 +684,7 @@ mod test {
 
     #[test]
     fn test_read_meta_from_client() -> anyhow::Result<()> {
-        let text = std::fs::read_to_string("C:/Users/denis/wks-poc/tika/content.en.txt")?;
+        let text = std::fs::read_to_string("/mnt/blob/Upload/tokenizer_tests/content.en.txt")?;
         let client = TikaServerClient::new("localhost", 40010);
         let s = client.read_meta(&text);
 
@@ -693,7 +694,7 @@ mod test {
 
     #[test]
     fn test_put_big_from_client() -> anyhow::Result<()> {
-        let byte_buf: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/big_planet.pdf")?;
+        let byte_buf: Vec<u8> = std::fs::read("/mnt/blob/Upload/tokenizer_tests/big_planet.pdf")?;
         let client = TikaServerClient::new("localhost", 40010);
         let s = client.parse_data(&byte_buf)?;
         let _ = dbg!(&s);
@@ -708,18 +709,10 @@ mod test {
 
     #[test]
     fn test_post_bytes_basic() -> anyhow::Result<()> {
-        let byte_buf = std::fs::read("/home/denis/Dropbox/Upload/111-Bright_Snow.jpg")?;
+        let byte_buf = std::fs::read("/mnt/blob/Upload/111-Bright_Snow.jpg")?;
+        let encoded_item_info = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("very_dicky");
 
-        let url = "http://localhost:30080/file-server/upload2/very_dicky";
-
-        // let request_builder = reqwest::blocking::Client::new()
-        //     .post(Url::parse(url)?)
-        //     .header("Content-Type", "multipart/form-data")
-        //     //.header("Accept", "application/json")
-        //     .header(
-        //         "sid",
-        //         "9ARks93f49KdpZ3sPnPYpSRZUOk9shmbQVZKn9If6RQmwi25yGtCN3vCis4JnYxGO46Hf07hDEZc9LFPRW5ncPFCeO-14VyW-Hdq-Q",
-        //     );
+        let url = format!("http://localhost:30080/file-server/upload2/{}", encoded_item_info);
 
         use reqwest::blocking::multipart;
 
@@ -727,7 +720,7 @@ mod test {
             multipart::Form::new().part("data", multipart::Part::bytes(byte_buf).file_name("111-Bright_Snow.jpg"));
 
         let request_builder = reqwest::blocking::Client::new()
-            .post(Url::parse(url)?)
+            .post(Url::parse(&url)?)
             .header(
                 "sid",
                 "9ARks93f49KdpZ3sPnPYpSRZUOk9shmbQVZKn9If6RQmwi25yGtCN3vCis4JnYxGO46Hf07hDEZc9LFPRW5ncPFCeO-14VyW-Hdq-Q",

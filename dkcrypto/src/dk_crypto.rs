@@ -234,12 +234,13 @@ mod tests {
 
     #[test]
     fn test_decrypt_token() {
-        let token = "p60XDuOC6PKDcADcay4U-cLuEKgvp3eTLmj_unGDquYb-LQCappgwIZ-yc8NL-c1";
+        let token = "VfYudrrA7EynryN11IZNuTrGw1hAznTO5Nd3a9KY55xPoSoZuhi_23aa3gQO1hE-aF8P9Q";
         let cek = "qYEV-MKSeQb6lSuXjqeqKH8QH7khmi0kuczzLC6j8eA";
 
         let clear = DkEncrypt::new(CC20).decrypt_str(token, cek).unwrap();
 
         println!("{:#?}", clear);
+        assert_eq!(clear, "{\"datetime\"}");
     }
 
     #[test]

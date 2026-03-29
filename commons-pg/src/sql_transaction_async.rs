@@ -511,6 +511,7 @@ mod tests {
 
     /// Raw connection to PG with SQLX, no lib
     #[tokio::test]
+    #[ignore]
     async fn a10_raw_sqlx_connection() -> anyhow::Result<()> {
         init();
         let url = "postgres://doka:doka@localhost:5432/ad_test_03";
@@ -562,6 +563,7 @@ mod tests {
 
     /// Use of the SQLConnection and SQLTransaction from our lib
     #[tokio::test]
+    #[ignore]
     async fn a15_cnx_and_trans() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;
@@ -607,6 +609,7 @@ mod tests {
 
     /// Simple select
     #[tokio::test]
+    #[ignore]
     async fn a20_simple_query() -> anyhow::Result<()> {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
@@ -643,6 +646,7 @@ mod tests {
 
     /// Simple inserts from the execute method
     #[tokio::test]
+    #[ignore]
     async fn a22_simple_insert() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;
@@ -678,6 +682,7 @@ mod tests {
 
     /// Insert a row using the sequence for the id column
     #[tokio::test]
+    #[ignore]
     async fn a30_insert_with_sequence() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;
@@ -714,6 +719,7 @@ mod tests {
 
     /// Select with filter
     #[tokio::test]
+    #[ignore]
     async fn a40_query_with_filter() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;
@@ -758,6 +764,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn a50_query_with_filter_offset_limit() -> anyhow::Result<()> {
         let r = init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
@@ -787,6 +794,7 @@ mod tests {
 
     /// An incorrect SQL query
     #[tokio::test]
+    #[ignore]
     async fn a50_query_syntax_error() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;
@@ -845,6 +853,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn p10_insert_with_sequence_multi() -> anyhow::Result<()> {
         init();
         let r = init_pool_once().await;

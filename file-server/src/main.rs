@@ -232,7 +232,7 @@ mod test {
     // #[test]
     // fn test_parse_content() -> anyhow::Result<()> {
     //     init_test();
-    //     let mem_file: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/big_planet.pdf")?;
+    //     let mem_file: Vec<u8> = std::fs::read("/mnt/blob/Upload/tokenizer_tests/big_planet.pdf")?;
     //     let ret = parse_content("0f373b54-5dbb-4c75-98e7-98fd141593dc", mem_file, "f1248fab", "MY_SID")?;
     //     Ok(())
     // }

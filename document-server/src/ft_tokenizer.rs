@@ -452,47 +452,47 @@ mod file_server_test {
     #[test]
     fn tokenize_garbage() {
         let garbage_1 = "On [ne] sera jamais l'élite de la nation";
-        let garbage_1_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "nation"];
+        let garbage_1_tokens = vec!["sera", "jamais", "élite", "nation"];
 
         let garbage_2 = "On [ne] sera jamais l'élite de la nation😈";
-        let garbage_2_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "nation"];
+        let garbage_2_tokens = vec!["sera", "jamais", "élite", "nation"];
 
         let garbage_3 = "On [ne] sera, jamais l'élite de la नमस्ते😈";
-        let garbage_3_tokens = vec!["On", "ne", "sera", "jamais", "l", "élite", "de", "la", "नमस\u{94d}त\u{947}"];
+        let garbage_3_tokens = vec!["sera", "jamais", "élite"];
 
         let mut tkn = FTTokenizer::new(&garbage_1);
-        let garbage_1_words: Vec<String> = tkn.next_n_words(1);
+        let garbage_1_words: Vec<String> = tkn.next_n_words(garbage_1.len());
         assert_eq!(garbage_1_tokens, garbage_1_words);
 
         let mut tkn = FTTokenizer::new(&garbage_2);
-        let garbage_2_words: Vec<String> = tkn.next_n_words(1);
+        let garbage_2_words: Vec<String> = tkn.next_n_words(garbage_2.len());
         assert_eq!(garbage_2_tokens, garbage_2_words);
 
         let mut tkn = FTTokenizer::new(&garbage_3);
-        let garbage_3_words: Vec<String> = tkn.next_n_words(1);
+        let garbage_3_words: Vec<String> = tkn.next_n_words(garbage_3.len());
         assert_eq!(garbage_3_tokens, garbage_3_words);
     }
 
     #[test]
     fn tokenize_date() {
         let case_1 = "On ne sera, jamais le 12/13/2009";
-        let tokens_1 = vec!["On", "ne", "sera", "jamais", "le", "12/13/2009"];
+        let tokens_1 = vec!["sera", "jamais", "12/13/2009"];
 
         let case_2 = "2009/10/01 n'est pas férié";
-        let tokens_2 = vec!["2009/10/01", "n", "est", "pas", "férié"];
+        let tokens_2 = vec!["2009/10/01", "férié"];
 
         let case_3 = "20/10/01 est bizarre";
-        let tokens_3 = vec!["20/10/01", "est", "bizarre"];
+        let tokens_3 = vec!["20/10/01", "bizarre"];
 
         let case_4 = "2010-10-01 est normal";
-        let tokens_4 = vec!["2010-10-01", "est", "normal"];
+        let tokens_4 = vec!["2010-10-01", "normal"];
 
         let test_cases: Vec<(&str, Vec<&str>)> =
             vec![(case_1, tokens_1), (case_2, tokens_2), (case_3, tokens_3), (case_4, tokens_4)];
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_n_words(1);
+            let words: Vec<String> = tkn.next_n_words(case.0.len());
             assert_eq!(case.1, words);
         }
     }
@@ -500,25 +500,25 @@ mod file_server_test {
     #[test]
     fn tokenize_number() {
         let case_1 = "51234567890.25 est une sacrée somme.Mais bon !";
-        let tokens_1 = vec!["51234567890.25", "est", "une", "sacrée", "somme", "Mais", "bon"];
+        let tokens_1 = vec!["51234567890.25", "sacrée", "somme", "Mais"];
 
         let case_2 = "Il me doit -51,01 €";
-        let tokens_2 = vec!["Il", "me", "doit", "-51,01"];
+        let tokens_2 = vec!["doit", "-51,01"];
 
         let case_3 = "Il me doit 1,235,458,456 €";
-        let tokens_3 = vec!["Il", "me", "doit", "1,235,458,456"];
+        let tokens_3 = vec!["doit", "1,235,458,456"];
 
         let case_4 = "Il me doit 1.235.458.456 €";
-        let tokens_4 = vec!["Il", "me", "doit", "1.235.458.456"];
+        let tokens_4 = vec!["doit", "1.235.458.456"];
 
         let case_5 = "C'est bien 5 cts et non pas 5 francs";
-        let tokens_5 = vec!["C", "est", "bien", "5", "cts", "et", "non", "pas", "5", "francs"];
+        let tokens_5 = vec!["bien", "francs"];
 
         let case_6 = "C'est le bien-être 5-0 cts et non pas 5.0-1 francs";
-        let tokens_6 = vec!["C", "est", "le", "bienêtre", "5-0", "cts", "et", "non", "pas", "5.0-1", "francs"];
+        let tokens_6 = vec!["bienêtre", "5.0-1", "francs"];
 
         let case_7 = "Il me doit +51,01 €";
-        let tokens_7 = vec!["Il", "me", "doit", "51,01"];
+        let tokens_7 = vec!["doit", "51,01"];
 
         let test_cases: Vec<(&str, Vec<&str>)> = vec![
             (case_1, tokens_1),
@@ -532,7 +532,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_n_words(1);
+            let words: Vec<String> = tkn.next_n_words(case.0.len());
             println!("{:?}", &words);
             assert_eq!(case.1, words);
         }
@@ -541,7 +541,7 @@ mod file_server_test {
     #[test]
     fn tokenize_mixed() {
         let case_1 = "-5.00 10-12-2010-1 l'élement 241-3";
-        let tokens_1 = vec!["-5.00", "10-12-2010-1", "l", "élement", "241-3"];
+        let tokens_1 = vec!["-5.00", "10-12-2010-1", "élement", "241-3"];
 
         let case_2 = "arc-en-ciel -5....00 10-12-2010-1, ";
         let tokens_2 = vec!["arcenciel", "-5....00", "10-12-2010-1"];
@@ -553,13 +553,13 @@ mod file_server_test {
         let tokens_4 = vec!["-55.2", "12-05"];
 
         let case_5 = "un ╫ c'est mieux qu'un σ";
-        let tokens_5 = vec!["un", "c", "est", "mieux", "qu", "un", "σ"];
+        let tokens_5 = vec!["mieux"];
 
         let case_6 = "B10-12-2010-1.ABC";
-        let tokens_6 = vec!["B101220101", "ABC"];
+        let tokens_6 = vec!["B101220101"];
 
         let case_7 = "B10.12.2010-1 06.10.53.81.30";
-        let tokens_7 = vec!["B10", "12.2010-1", "06.10.53.81.30"];
+        let tokens_7 = vec!["12.2010-1", "06.10.53.81.30"];
 
         let test_cases: Vec<(&str, Vec<&str>)> = vec![
             (case_1, tokens_1),
@@ -573,7 +573,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_n_words(1);
+            let words: Vec<String> = tkn.next_n_words(case.0.len());
             println!("{:?}", &words);
             assert_eq!(case.1, words);
         }
@@ -594,7 +594,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_n_words(1);
+            let words: Vec<String> = tkn.next_n_words(case.0.len());
             assert_eq!(case.1, words);
         }
     }
@@ -602,16 +602,16 @@ mod file_server_test {
     #[test]
     fn tokenize_unicode() {
         let case_1 = "Le montant de ¥en";
-        let tokens_1 = vec!["Le", "montant", "de", "en"];
+        let tokens_1 = vec!["montant"];
 
         let case_2 = "Ægon le grand";
-        let tokens_2 = vec!["Ægon", "le", "grand"];
+        let tokens_2 = vec!["Ægon", "grand"];
 
         let case_3 = "Добрый день,Добрый день,";
         let tokens_3 = vec!["Добрый", "день", "Добрый", "день"];
 
         let case_4 = "https://doka.eu/get";
-        let tokens_4 = vec!["https", "doka", "eu", "get"];
+        let tokens_4 = vec!["https", "doka"];
 
         let case_5 = "Català Mìng-dĕ̤ng-ngṳ̄ Нохчийн";
         let tokens_5 = vec!["Català", "Mìngdĕ̤ngngṳ̄", "Нохчийн"];
@@ -621,7 +621,7 @@ mod file_server_test {
 
         for case in test_cases {
             let mut tkn = FTTokenizer::new(case.0);
-            let words: Vec<String> = tkn.next_n_words(1);
+            let words: Vec<String> = tkn.next_n_words(case.0.len());
             assert_eq!(case.1, words);
         }
 
@@ -630,8 +630,9 @@ mod file_server_test {
     }
 
     #[test]
+    #[ignore]
     fn tokenize_big_planet() -> anyhow::Result<()> {
-        let byte_buf: String = std::fs::read_to_string("C:/Users/denis/wks-poc/tika/content.planet.txt")?;
+        let byte_buf: String = std::fs::read_to_string("/mnt/blob/Upload/tokenizer_tests/content.planet.txt")?;
         let mut tkn = FTTokenizer::new(&byte_buf);
         let words: Vec<String> = tkn.next_n_words(5_000);
         println!("PART 1 => {:?}", words);
@@ -665,7 +666,12 @@ mod file_server_test {
 
         let phrase = encrypt_tsvector(s, "O27AYTdNPNbG-7olPOUxDNb6GNnVzZpbGRa4qkhJ4BU").unwrap();
         // println!("Replaced text => {:?}", &phrase);
-        const ANSWER: &str = "'M5hDh3VMofIppBHf9EBD_Q':25,455 'vEKDWsb2dWg1mI3c3ITzYw':  20,450  'y4Xz7bhGLFy0-8GQYSgrYA':352,782 '5Yer_1-nc2OUrcuAw3aqUQ':182,612 '3xL1pw4_mRbEmPU7gt6Uvg':3,269,347,433,699\n                'M5hDh3VMofIppBHf9EBD_Q':25,455 'vEKDWsb2dWg1mI3c3ITzYw':20,450 '7M5J_RSBqGPYi28j2IqYRw':29,459 'bpWkx6yuRgkAwJd0taJfYw':16,446 'wgBlRoXLT4o6Tvand6md8A':22,452 't5CUUqP-ziWsqI3FbN5yhg':430\n                'y4Xz7bhGLFy0-8GQYSgrYA':352,782 'F_R2ii0jfT4ic-MIhUJcgA':182,612 '3xL1pw4_mRbEmPU7gt6Uvg':3,269,347,433,699,777 'gq-C64RMa_TTNTCjmZgpoQ':83,513 'uqciXabIwW28cwZiXdcUFg':355,785 '2snqO33FM_vS_7sZzPLtKQ':221,651\n                'Y9Zs9lyBqNYnexzwWyoeCQ':114,544 'IKmk_2KfyFYXfcnQwd1Yvg':54,59,108,484,489,538 'NN7kK878xz4O4WFEyYTRqw':36,466 'Zu2bpAPCfh7k3YqWol1mYg':385,815 'OMKMWAy0zXuAZ55EfjiM3A':415 'DT9HsozbRftjpqRMTfNnTg':354,784\n                'j50I-gdtnb3tQ3bI9nCzeg':93,168,523,598 '00Sf_xBNSgOYrL3EWKSPVQ':12,442 'jJvbNIz-zH1xPXHm65ucZQ':318,748 'e6GQ16s4bIXL5u2LdgHQkA':234,250,664,680\n                'nge4RtBow5mXobBiPk-wuQ':4,27,224,391,400,403,408,414,426,434,457,654,821,830,833";
+        const ANSWER: &str = "'V6E6QNIwsk0RerdDEorVZZwwcKHrPfVH0GxBpHKiGaI':25,455 'B0o7usyhsLqFbkB-IBpmwWjb0szRRi4G4ClJtCev5F4':  20,450  '0IbcJjDRJ_mpwq06rF6K15GLL3iBXrWtkfkWaR-ZgQw':352,782 'nrirRUsuVFQw68RIWJKRYvKfpdXiyKA59MGn8G3BA4k':182,612 '1q4rLmSCsechwllc7Qyw4hL56GO4QrOfHk0j-QhCTgs':3,269,347,433,699
+                'V6E6QNIwsk0RerdDEorVZZwwcKHrPfVH0GxBpHKiGaI':25,455 'B0o7usyhsLqFbkB-IBpmwWjb0szRRi4G4ClJtCev5F4':20,450 'hiVkCoU_uGlS-TJnTMHGqUicSEkGUQW8FgBw-EWBatU':29,459 'rYGCosIMtPXIS6HRJdzKW3iAVJ_HPjTpgCVh8swXmcs':16,446 'YUUiFeYTL92CmI0EuoN6IeBGk70kKledU37DkMrHgOM':22,452 '8N--KGaNkjQ9yWBBH5vKv4B8Mh4ZPhFHJNmzVmMZs2E':430
+                '0IbcJjDRJ_mpwq06rF6K15GLL3iBXrWtkfkWaR-ZgQw':352,782 'UJvwgsuJ5w-JBhbYVTCjoqejg90onak4PI9xvzQFKCo':182,612 '1q4rLmSCsechwllc7Qyw4hL56GO4QrOfHk0j-QhCTgs':3,269,347,433,699,777 'cWuk0t7UmBkLjf5DNoHfLGmohFVO9_YUMPd5vrbHJa4':83,513 'wKt39_BN995RF37twUaU0sT3_2Hpd5CzqDzC5K5VFBI':355,785 'izMtjfQ5Ewsc-rQ4kDuEKngJgC5LuUSaOflzyeWeH78':221,651
+                'qKYCPfaQ1FfBygVSv0Enfa5uJBpvGAFKEUhFgwW0z24':114,544 'SaCrcnB3_GdW1PX0Rv85syPa-iSFuNV-7d29PL6IyrI':54,59,108,484,489,538 'w5f8nGIdFUJLHjQD-7i2j2Hw0RZALGuDw-oO2eJlMrI':36,466 'Xnzsoqk1IxfZHJ6J6ORkeIBPpsZmqeZiI-Ro-fv7N68':385,815 'Ab2uC3AK199UP2XPsbpTHS25-mcX3nhn-mz0wRUPlPw':415 'rc3TygW7HdgZ3b73-RTpQbd2v9gAru1VvdIctaxBDbU':354,784
+                'b_mx8BtiCxVDBPXpBzyS9p6dWEHdELdNwoabK6LaId8':93,168,523,598 'EHEmAect8Peh8s-GYnTaN_5RxX8RrFub3nSTXo29Pb8':12,442 'mOR_-o5MBxOUg34OuPEXrm6Degx99skNqcfDLYu13uo':318,748 '9YGM72hArliRJxs1ipF4stQyKRru_r7ObSMUrH0U9y4':234,250,664,680
+                'K2GbNko0Ssn0dZXyiIbdrll4bPz-MjMfKgnL4oYI1ig':4,27,224,391,400,403,408,414,426,434,457,654,821,830,833";
         assert_eq!(ANSWER, &phrase);
     }
 

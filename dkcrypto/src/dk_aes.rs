@@ -105,7 +105,7 @@ mod tests {
         let orignal_text = "Un text utf-8 et plus ❤❤  ⡌⠁⠧⠑ ⠼⠁⠒  ⡍⠜⠇⠑⠹⠰⠎ ⡣⠕⠌";
         let bytes = orignal_text.as_bytes();
         let password_128 = "0123456789ABCDEF"; // 16 bytes for the key
-        let nonce = "0123456789ABC".as_bytes(); // and 12 bytes for the nonce
+        let nonce = "0123456789AB".as_bytes(); // 12 bytes for the nonce
 
         let r = encrypt_aes128(bytes, password_128, nonce).unwrap();
         let str = general_purpose::STANDARD.encode(&r);

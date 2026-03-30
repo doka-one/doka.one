@@ -47,6 +47,22 @@ pub(crate) enum SearchSqlGenerationMode {
     Persisted,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ConditionStatQuery {
+    pub(crate) condition_key: String,
+    pub(crate) attribute: String,
+    pub(crate) operator: String,
+    pub(crate) value_repr: String,
+    pub(crate) occurrence: u32,
+    pub(crate) count_sql: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CompiledSearchQuery {
+    pub(crate) main_sql: String,
+    pub(crate) condition_stats: Vec<ConditionStatQuery>,
+}
+
 #[derive(Debug)]
 pub(crate) struct TagDefinition {
     pub(crate) tag_names: String,
@@ -330,14 +346,14 @@ fn build_tag_column_with_alias(
 /// 🔑 Generate the SQL query from the filter AST
 ///    
 ///     REF_TAG : DOKA_SEARCH_SQL
-pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
+pub(crate) async fn compile_search_query<T: TagDefinitionInterface>(
     filter_expression_ast: &FilterExpressionAST,
     tag_definition_builder: &T,
     select_tags: &[String],
     order_tags: &Vec<String>,
-    generation_mode: SearchSqlGenerationMode,
+    _generation_mode: SearchSqlGenerationMode,
     customer_code: &str,
-) -> Result<String, GenerationError> {
+) -> Result<CompiledSearchQuery, GenerationError> {
     // Get all the final nodes (leaves), for instance, == (lastname, "a%" )
     let filter_conditions = extract_all_conditions(&filter_expression_ast).map_err(tr_fwd!())?;
 
@@ -383,6 +399,7 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
 
     // Generate the {{tag_value_filter}} for all tags condition
     let mut list_of_query_tags: Vec<String> = vec![];
+    let mut condition_stats: Vec<ConditionStatQuery> = vec![];
     for (_, (occurrence, fc)) in filter_conditions.iter() {
         let tag_type = definitions.iter().find(|def| def.tag_names == fc.attribute).map(|def| &def.tag_type).unwrap();
 
@@ -407,6 +424,9 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
 
         log_info!("query_tags: {}", &query_tag);
         list_of_query_tags.push(query_tag);
+
+        // Add the stats related to the filter condition
+        condition_stats.push(build_condition_stat_query(fc, *occurrence, &tag_value_filter));
     }
 
     // build the query filter aka boolean filter
@@ -420,21 +440,6 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     dbg!(&order_columns);
 
     let tag_columns = build_tag_column_with_alias(select_tags, &map_of_tags_with_occurrence).join(",\n    ");
-
-
-    // TODO Super filter implementation
-    if let SearchSqlGenerationMode::Persisted = generation_mode {
-        // Evaluate the count of items from the tag_value_filter
-        ()
-        // determine which ones are selective or not
-
-        // store the stats in the database
-
-        // super filters
-        // Group the terminal "AND" leaves
-
-        // Compute the super filter for all tag_value_filter
-    }
 
     // Build the final SQL
 
@@ -472,7 +477,32 @@ pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
     }
 
     let sql_query = final_sql.to_string().replace("{customer_schema}", format!("cs_{}", customer_code).as_str());
-    Ok(sql_query)
+    for condition_stat in &mut condition_stats {
+        condition_stat.count_sql =
+            condition_stat.count_sql.replace("{customer_schema}", format!("cs_{}", customer_code).as_str());
+    }
+
+    Ok(CompiledSearchQuery { main_sql: sql_query, condition_stats })
+}
+
+pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
+    filter_expression_ast: &FilterExpressionAST,
+    tag_definition_builder: &T,
+    select_tags: &[String],
+    order_tags: &Vec<String>,
+    generation_mode: SearchSqlGenerationMode,
+    customer_code: &str,
+) -> Result<String, GenerationError> {
+    compile_search_query(
+        filter_expression_ast,
+        tag_definition_builder,
+        select_tags,
+        order_tags,
+        generation_mode,
+        customer_code,
+    )
+    .await
+    .map(|compiled| compiled.main_sql)
 }
 
 /// tag_value_filter and tag_super_filter are side by side to avoid a blank line
@@ -501,13 +531,38 @@ fn build_query_tag(
     Ok(query_filter)
 }
 
+fn build_condition_stat_query(
+    filter_condition: &FilterCondition,
+    occurrence: u32,
+    tag_value_filter: &str,
+) -> ConditionStatQuery {
+    let count_sql = format!(
+        r#"SELECT count(*) as value
+FROM {{customer_schema}}.tag_definition td
+JOIN {{customer_schema}}.tag_value tv ON
+    tv.tag_id = td.id
+    AND td."name" = '{}'
+    AND {}"#,
+        &filter_condition.attribute, tag_value_filter
+    );
+
+    ConditionStatQuery {
+        condition_key: filter_condition.key.clone(),
+        attribute: filter_condition.attribute.clone(),
+        operator: format!("{:?}", filter_condition.operator),
+        value_repr: filter_condition.value.to_string(),
+        occurrence,
+        count_sql,
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     // cargo test --color=always --bin document-server engine  [ -- --show-output]
 
     use crate::engine::generator::{
-        build_query_filter, build_tag_value_filter, extract_all_conditions, generate_search_sql,
+        build_query_filter, build_tag_value_filter, compile_search_query, extract_all_conditions, generate_search_sql,
         verify_filter_conditions, GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
     };
     use crate::filter::analyse_expression;
@@ -694,6 +749,55 @@ mod tests {
 
         // validate and assert table names
         let _r = validate_my_engine_query(q);
+    }
+
+    #[tokio::test]
+    pub async fn test_compile_search_query_builds_condition_stats() {
+        init_logger();
+        let input = r#"lastname LIKE "%ab%" OR (postal_code == 30099  AND  lastname LIKE "%h%")"#;
+        let filter_expression_ast = analyse_expression(input).unwrap();
+        let tag_definition_builder = TagDefinitionBuilderMock2 {};
+
+        let compiled = compile_search_query(
+            &filter_expression_ast,
+            &tag_definition_builder,
+            &vec!["lastname".to_string()],
+            &vec!["lastname".to_string(), "postal_code".to_string()],
+            SearchSqlGenerationMode::Persisted,
+            "123456",
+        )
+        .await
+        .unwrap();
+
+        assert!(compiled.main_sql.contains("FROM cs_123456.item i"));
+        assert_eq!(3, compiled.condition_stats.len());
+        assert_eq!(2, compiled.condition_stats.iter().filter(|stat| stat.attribute == "lastname").count());
+        assert_eq!(1, compiled.condition_stats.iter().filter(|stat| stat.attribute == "postal_code").count());
+        assert!(compiled.condition_stats.iter().all(|stat| stat.count_sql.contains("SELECT count(*) as value")
+            && stat.count_sql.contains("cs_123456.tag_value")));
+    }
+
+    #[tokio::test]
+    pub async fn test_compile_search_query_single_leaf_builds_one_count_query() {
+        init_logger();
+        let filter_expression_ast = analyse_expression(r#"(country == "FR")"#).unwrap();
+        let tag_definition_builder = TagDefinitionBuilderMock {};
+
+        let compiled = compile_search_query(
+            &filter_expression_ast,
+            &tag_definition_builder,
+            &vec!["country".to_string()],
+            &vec![],
+            SearchSqlGenerationMode::Persisted,
+            "123456",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(1, compiled.condition_stats.len());
+        assert_eq!("country", compiled.condition_stats[0].attribute);
+        assert!(compiled.condition_stats[0].count_sql.contains(r#"td."name" = 'country'"#));
+        assert!(compiled.condition_stats[0].count_sql.contains("unaccent_lower('FR')"));
     }
 
     #[test]

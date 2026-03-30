@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use axum::extract::{Path, Query};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use log::{error, info};
 use serde_derive::{Deserialize, Serialize};
@@ -19,8 +19,8 @@ use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
 use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest,
-    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply, SimpleMessage, WebType,
-    WebTypeWithContext,
+    BuildQueryReply, BuildQueryRequest, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply,
+    GetTagReply, SimpleMessage, WebType, WebTypeWithContext,
 };
 
 use crate::fulltext::FullTextDelegate;
@@ -73,6 +73,19 @@ pub async fn search_item(
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
 
     delegate.search_item(page.start_page, page.page_size, page.filters, page.order_tags).await
+}
+
+///
+/// 🌟 Build and provisionally store a named search query
+/// **NORM
+///
+/// #[put("/build_query", format = "application/json", data = "<build_query_request>")]
+pub async fn build_query(
+    session_token: SessionToken,
+    build_query_request: Json<BuildQueryRequest>,
+) -> WebTypeWithContext<BuildQueryReply> {
+    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.build_query(build_query_request.0).await
 }
 
 ///
@@ -294,6 +307,7 @@ async fn main() {
     let key_routes = Router::new()
         .route("/item", get(get_all_item))
         .route("/search", get(search_item))
+        .route("/build_query", put(build_query))
         .route("/item/:item_id", get(get_item))
         .route("/item", post(add_item))
         .route("/item/:item_id/tags", post(update_item_tag))

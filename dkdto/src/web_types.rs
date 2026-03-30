@@ -341,6 +341,41 @@ pub struct AddItemTagReply {
     pub status: String,
 }
 
+/// Request body for compiling a reusable search definition.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BuildQueryRequest {
+    pub description: String,
+    pub query_name: String,
+    pub filters: Option<String>,
+    pub order_tag: Option<String>,
+    pub extra_properties: Option<Vec<String>>,
+}
+
+/// Confirmation returned after the query is compiled and provisionally stored.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BuildQueryReply {
+    pub query_name: String,
+    pub description: String,
+    pub compiled: bool,
+    pub stored: bool,
+    pub filters: Option<String>,
+    pub order_tag: Option<String>,
+    pub extra_properties: Option<Vec<String>>,
+    pub matching_item_count: usize,
+    pub condition_stats: Vec<BuildQueryConditionStat>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BuildQueryConditionStat {
+    pub condition_key: String,
+    pub attribute: String,
+    pub operator: String,
+    pub value: String,
+    pub occurrence: u32,
+    pub count_query: String,
+    pub matching_item_count: usize,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetItemReply {
     pub items: Vec<ItemElement>,

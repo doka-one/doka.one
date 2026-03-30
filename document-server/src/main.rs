@@ -25,6 +25,7 @@ use dkdto::web_types::{
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
+use crate::search::SearchDelegate;
 use crate::tag::TagDelegate;
 
 mod char_lib;
@@ -34,6 +35,7 @@ mod ft_tokenizer;
 mod fulltext;
 mod item;
 mod language;
+mod search;
 mod tag;
 
 #[derive(Serialize, Deserialize)]
@@ -70,7 +72,7 @@ pub async fn search_item(
     Query(page): Query<SearchQuery>,
     session_token: SessionToken,
 ) -> WebTypeWithContext<GetItemReply> {
-    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    let delegate = SearchDelegate::new(session_token, XRequestID::from_value(None));
 
     delegate.search_item(page.start_page, page.page_size, page.filters, page.order_tags).await
 }
@@ -84,7 +86,7 @@ pub async fn build_query(
     session_token: SessionToken,
     build_query_request: Json<BuildQueryRequest>,
 ) -> WebTypeWithContext<BuildQueryReply> {
-    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+    let delegate = SearchDelegate::new(session_token, XRequestID::from_value(None));
     delegate.build_query(build_query_request.0).await
 }
 

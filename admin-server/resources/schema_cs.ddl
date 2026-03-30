@@ -108,6 +108,42 @@ CREATE INDEX tag_value_str_sort_btree_idx ON tag_value USING btree (public.unacc
 
 CREATE UNIQUE INDEX tag_value_tag_item_udx ON tag_value  USING btree (tag_id, item_id);
 
+CREATE TABLE compiled_query (
+	id bigserial NOT NULL,
+	query_name varchar(255) NOT NULL,
+	description varchar(1000) NOT NULL,
+	filters text NOT NULL,
+	order_tag varchar(25) NULL,
+	extra_properties_json text NULL,
+	compiled_sql text NOT NULL,
+	matching_item_count int8 NULL,
+	created_gmt timestamp(0) NOT NULL,
+	last_modified_gmt timestamp(0) NOT NULL,
+	CONSTRAINT compiled_query_pk PRIMARY KEY (id),
+	CONSTRAINT compiled_query_name_uk UNIQUE (query_name)
+);
+
+CREATE TABLE compiled_query_condition (
+	id bigserial NOT NULL,
+	compiled_query_id int8 NOT NULL,
+	condition_key varchar(64) NOT NULL,
+	attribute_name varchar(25) NOT NULL,
+	operator varchar(20) NOT NULL,
+	value_text varchar(2000) NOT NULL,
+	occurrence int4 NOT NULL,
+	count_sql text NOT NULL,
+	matching_item_count int8 NULL,
+	is_ic bool NULL,
+	superfilter_sql text NULL,
+	created_gmt timestamp(0) NOT NULL,
+	last_modified_gmt timestamp(0) NOT NULL,
+	CONSTRAINT compiled_query_condition_pk PRIMARY KEY (id),
+	CONSTRAINT compiled_query_condition_fk FOREIGN KEY (compiled_query_id) REFERENCES compiled_query(id),
+	CONSTRAINT compiled_query_condition_key_uk UNIQUE (compiled_query_id, condition_key),
+	CONSTRAINT compiled_query_condition_occ_uk UNIQUE (compiled_query_id, attribute_name, occurrence)
+);
+CREATE INDEX compiled_query_condition_query_idx ON compiled_query_condition USING btree (compiled_query_id);
+
 
 CREATE OR REPLACE PROCEDURE insert_document(file_ref character varying, part_no integer, doc_text character varying, tsv character varying, lang character varying)
  LANGUAGE sql

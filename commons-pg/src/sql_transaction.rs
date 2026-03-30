@@ -806,7 +806,7 @@ mod tests {
 
         if sql_result.next() {
             let id = sql_result.get_int("id");
-            if let Some(val) = id {
+            if let Some(_) = id {
                 assert!(true);
             }
         } else {
@@ -845,14 +845,14 @@ mod tests {
         }
 
         while data_set.next() {
-            let id = data_set.get_int("id");
-            let name = data_set.get_string("name");
-            let the_type = data_set.get_string("type");
-            let created = data_set.get_timestamp("created");
-            let last_modified = data_set.get_timestamp("last_modified");
+            let _id = data_set.get_int("id");
+            let _name = data_set.get_string("name");
+            let _the_type = data_set.get_string("type");
+            let _created = data_set.get_timestamp("created");
+            let _last_modified = data_set.get_timestamp("last_modified");
 
-            let category_id = data_set.get_int("category_id");
-            let tag_country = data_set.get_string("tag_country");
+            let _category_id = data_set.get_int("category_id");
+            let _tag_country = data_set.get_string("tag_country");
         }
 
         assert!(data_set.len() > 0);

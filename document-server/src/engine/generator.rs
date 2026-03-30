@@ -566,11 +566,10 @@ mod tests {
         verify_filter_conditions, GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
     };
     use crate::filter::analyse_expression;
-    use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
+    use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterValue};
     use crate::parser_log;
     use axum::async_trait;
     use commons_error::*;
-    use commons_services::x_request_id::XRequestID;
     use dkdto::web_types::TagType;
     use log::*;
     use sqlparser::ast::{ObjectName, Query, SetExpr, Statement, TableFactor, TableWithJoins};
@@ -600,7 +599,7 @@ mod tests {
     impl TagDefinitionInterface for TagDefinitionBuilderMock {
         async fn get_tag_definition(
             &self,
-            tag_name: &[String],
+            _tag_name: &[String],
             _customer_code: &str,
         ) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
@@ -714,7 +713,7 @@ mod tests {
     impl TagDefinitionInterface for TagDefinitionBuilderMock2 {
         async fn get_tag_definition(
             &self,
-            tag_name: &[String],
+            _tag_name: &[String],
             _customer_code: &str,
         ) -> anyhow::Result<Vec<TagDefinition>> {
             // Write a list of tag definitions
@@ -873,9 +872,9 @@ mod tests {
         let all_conditions = extract_all_conditions(tree1.as_ref()).unwrap();
         parser_log!("all_conditions...{:?}", all_conditions; 0);
         assert_eq!(5, all_conditions.values().len());
-        let count_country = all_conditions.iter().filter(|(c, d)| &d.1.attribute == "country").count();
-        let count_science = all_conditions.iter().filter(|(c, d)| &d.1.attribute == "science").count();
-        let count_is_open = all_conditions.iter().filter(|(c, d)| &d.1.attribute == "is_open").count();
+        let count_country = all_conditions.iter().filter(|(_, d)| &d.1.attribute == "country").count();
+        let count_science = all_conditions.iter().filter(|(_, d)| &d.1.attribute == "science").count();
+        let count_is_open = all_conditions.iter().filter(|(_, d)| &d.1.attribute == "is_open").count();
         assert_eq!(2, count_country);
         assert_eq!(2, count_science);
         assert_eq!(1, count_is_open);

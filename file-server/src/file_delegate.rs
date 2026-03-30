@@ -1901,8 +1901,10 @@ mod file_server_tests {
     use std::process::exit;
     use std::sync::Once;
 
+    #[allow(dead_code)]
     static INIT: Once = Once::new();
 
+    #[allow(dead_code)]
     fn init_log() {
         INIT.call_once(|| {
             // TODO Use the future commons-config

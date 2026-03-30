@@ -144,7 +144,7 @@ mod tests {
     fn encrypt_test(phrases: &[&str]) -> i32 {
         let mut count = 0;
         for phrase in phrases.iter() {
-            let encrypted = DkEncrypt::new(CC20).encrypt_str(phrase, KEY).unwrap();
+            let _encrypted = DkEncrypt::new(CC20).encrypt_str(phrase, KEY).unwrap();
             count += 1;
         }
         count

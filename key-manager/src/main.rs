@@ -145,7 +145,7 @@ mod test {
 
         let new_post = AddKeyRequest { customer_code };
 
-        let reply: AddKeyReply = reqwest::blocking::Client::new()
+        let _reply: AddKeyReply = reqwest::blocking::Client::new()
             .post("http://localhost:30040/key-manager/key")
             .header("token", token.clone())
             .json(&new_post)

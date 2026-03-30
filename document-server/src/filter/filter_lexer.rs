@@ -840,7 +840,7 @@ mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
     use crate::filter::filter_lexer::{
-        lex3, FilterError, FilterErrorCode, LogicalOperator, PositionalToken, Token, TokenSlice,
+        lex3, FilterErrorCode, LogicalOperator, PositionalToken, Token, TokenSlice,
     };
     use crate::filter::tests::init_logger;
     use crate::filter::ComparisonOperator;
@@ -1295,11 +1295,10 @@ mod tests {
     #[test]
     pub fn lexer_incorrect_numeric_fail() {
         init_logger();
-        let pos = vec![1, 3, 5, 7, 11, 14, 17];
         let input = "AA > 10AND BB == 20";
         //                1  3 5 7   11 14 17
         match lex3(input) {
-            Ok(tokens) => {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => {
@@ -1313,7 +1312,7 @@ mod tests {
     pub fn lexer_incorrect_operator_fail() {
         let input = "AA > 10 ANDBB == 20";
         match lex3(input) {
-            Ok(tokens) => {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => {
@@ -1331,10 +1330,7 @@ mod tests {
         // we forgot the closing quote after the ghost
         let input = r#"name == "papin 👻 AND (age >= 20)"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::UnclosedQuote, e.error_code);
                 assert_eq!(9, e.char_position);
@@ -1348,10 +1344,7 @@ mod tests {
         // we forgot the opening quote before 'papin'
         let input = r#"name == papin 👻" AND age >= 20"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::WrongNumericValue, e.error_code);
                 assert_eq!(9, e.char_position);
@@ -1365,10 +1358,7 @@ mod tests {
         // we forgot the opening quote before 'papin'
         let input = r#"name == "papin 👻" XAND age >= 20"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::WrongLogicalOperator, e.error_code);
                 assert_eq!(18, e.char_position);
@@ -1384,10 +1374,7 @@ mod tests {
         // use of a invalid charactere in the attribute name
         let input = r#"na👻me == "papin 👻" XAND age >= 20"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::IncorrectAttributeChar, e.error_code);
                 assert_eq!(3, e.char_position);
@@ -1404,9 +1391,7 @@ mod tests {
 
         match lex3(&input) {
             Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
                 log_debug!("{}", &TokenSlice(&lexemes));
-                // assert_eq!(dummy, lexemes);
             }
             Err(e) => {
                 assert_eq!(FilterErrorCode::InvalidLogicalDepth, e.error_code);
@@ -1422,7 +1407,6 @@ mod tests {
 
         match lex3(&input) {
             Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
                 log_debug!("{}", &TokenSlice(&lexemes));
             }
             Err(e) => {
@@ -1439,7 +1423,6 @@ mod tests {
 
         match lex3(&input) {
             Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
                 log_debug!("{}", &TokenSlice(&lexemes));
             }
             Err(e) => {
@@ -1456,10 +1439,7 @@ mod tests {
         let input = "(A == 1)) AND ((B == 2))";
 
         match lex3(&input) {
-            Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, lexemes);
-            }
+            Ok(lexemes) => panic!("Unexpected tokens: {}", TokenSlice(&lexemes)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::InvalidLogicalDepth, e.error_code);
                 assert_eq!(9, e.char_position);
@@ -1472,10 +1452,7 @@ mod tests {
         init_logger();
         let input = r#"(A == 10) AND B == 20)"#;
         match lex3(&input) {
-            Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, lexemes);
-            }
+            Ok(lexemes) => panic!("Unexpected tokens: {}", TokenSlice(&lexemes)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::InvalidLogicalDepth, e.error_code);
                 assert_eq!(22, e.char_position);

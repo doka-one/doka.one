@@ -65,7 +65,7 @@ mod tests {
     // cargo test --color=always --bin document-server filter  [ -- --show-output]
 
     use crate::filter::filter_ast::to_canonical_form;
-    use crate::filter::{analyse_expression, ComparisonOperator, FilterExpressionAST};
+    use crate::filter::analyse_expression;
     use crate::parser_log;
     use commons_error::*;
     use log::*;
@@ -92,7 +92,7 @@ mod tests {
         init_logger();
         let input = "(A LIKE )";
         match analyse_expression(input) {
-            Ok(ast) => {
+            Ok(_) => {
                 assert_eq!(false, true)
             }
             Err(e) => {

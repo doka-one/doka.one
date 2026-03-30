@@ -2,15 +2,13 @@
 mod test {
     use std::fs;
     use std::fs::File;
-    use std::io::{BufReader, Read, Write};
+    use std::io::{BufReader, Read};
     use std::path::Path;
 
     use serde::Deserialize;
 
     // use crate::dk_crypto::DkEncrypt;
     // use rocket::local::Client;
-    use dkcrypto::dk_crypto::DkEncrypt;
-
     // #[test]
     // fn http_post_add_key() {
     //     let rocket = rocket::ignite();
@@ -68,6 +66,7 @@ mod test {
     //     }
     // }
 
+    #[allow(dead_code)]
     #[derive(Deserialize)]
     struct Record {
         /*    year: u16,
@@ -107,7 +106,7 @@ mod test {
 
             dbg!(&new_folder);
 
-            fs::create_dir_all(Path::new(&new_folder));
+            fs::create_dir_all(Path::new(&new_folder)).expect("Cannot create target folder");
             // find the corresponding file
 
             // move it into the new folder and rename it
@@ -117,7 +116,7 @@ mod test {
             );
             let cible = format!("{}\\{}", new_folder, record.name);
             dbg!(&source, &cible);
-            fs::rename(&source, &cible);
+            fs::rename(&source, &cible).expect("Cannot move generated PDF");
         }
     }
 }

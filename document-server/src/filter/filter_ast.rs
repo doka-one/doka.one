@@ -73,7 +73,7 @@ REF_TAG : DOKA_SEARCH_SQL
 pub(crate) fn to_canonical_form(filter_expression: &FilterExpressionAST) -> Result<String, FilterError> {
     let mut content: String = String::from("");
     match filter_expression {
-        FilterExpressionAST::Condition(FilterCondition { key, attribute, operator, value }) => {
+        FilterExpressionAST::Condition(FilterCondition { key: _, attribute, operator, value }) => {
             let s = format!("{}{}<{:?}>{}{}", COND_OPEN, attribute, operator, value, COND_CLOSE);
             content.push_str(&s);
         }
@@ -292,7 +292,7 @@ mod tests {
         ValueString,
     };
     use crate::filter::filter_ast::{
-        parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator, FilterError, Token,
+        parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator,
     };
     use crate::filter::filter_lexer::{lex3, FilterErrorCode, PositionalToken, TokenSlice};
     use crate::filter::filter_normalizer::normalize_lexeme;
@@ -550,13 +550,6 @@ mod tests {
                 panic!()
             }
         };
-        let tokens = vec![
-            ConditionOpen(PositionalToken::new((), 0)),
-            Attribute(PositionalToken::new(String::from("A"), 0)),
-            Operator(PositionalToken::new(LIKE, 0)),
-            ValueInt(PositionalToken::new(10, 0)),
-            ConditionClose(PositionalToken::new((), 0)),
-        ];
         const EXPECTED: &str = "(([attribut1<GT>10]AND[attribut2<EQ>\nbonjour\n])OR[attribut3<LIKE>den%])";
         assert_eq!(EXPECTED, canonical);
     }
@@ -788,7 +781,7 @@ mod tests {
 
         let r_exp = parse_tokens_with_index(&tokens, &index);
         match r_exp {
-            Ok(v) => {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => match e.error_code {

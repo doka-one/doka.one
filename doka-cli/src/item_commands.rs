@@ -330,20 +330,20 @@ mod tests {
         let prop = "my_prop1:'value:value2':text";
         let x = extract_parts(prop);
 
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
 
         let prop = "my_prop1:value:value2:text";
         let x = extract_parts(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::type";
         let x = extract_parts(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::";
         let x = extract_parts(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         // let (name, value, prop_type) = extract_prop(prop);
         // dbg!(name, value, prop_type);
@@ -354,19 +354,19 @@ mod tests {
     fn test_prop_parsing() {
         let prop = "my_prop1:'value:value2':text";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1:value:value2:text";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::type";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
     }
 
@@ -374,27 +374,27 @@ mod tests {
     fn test_build_tag_value() {
         let prop = "my_double:3.14159:decimal";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_int:456:int";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_bool";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_bool:false:bool";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1:'mon text complet d été':text";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1:'mon text : complet d' été':text";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
     }
 }

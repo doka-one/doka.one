@@ -493,7 +493,7 @@ mod tests {
             return;
         }
         println!("Do it now...");
-        let r = init_pool().await;
+        let _ = init_pool().await;
         // tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         *initialised = true;
         println!("Done");
@@ -505,7 +505,7 @@ mod tests {
 
     async fn create(trans: &mut PgConnection, title: &str) -> anyhow::Result<()> {
         let query = "INSERT INTO public.book (id, title) VALUES(nextval('book_id_seq'), $1)";
-        let r = sqlx::query(query).bind(title).execute(trans).await?;
+        let _ = sqlx::query(query).bind(title).execute(trans).await?;
         Ok(())
     }
 
@@ -539,15 +539,15 @@ mod tests {
 
         println!("The sum is: {}", sum);
 
-        let r = create(pg_trans, "Another book").await?;
-        let r = create(pg_trans, "Dune").await?;
+        create(pg_trans, "Another book").await?;
+        create(pg_trans, "Dune").await?;
 
         trans.commit().await?;
 
         Ok(())
     }
 
-    async fn create_book(trans: &mut SQLTransactionAsync<'_>, title: &str) -> anyhow::Result<()> {
+    async fn create_book(trans: &mut SQLTransactionAsync<'_>, _title: &str) -> anyhow::Result<()> {
         let query = SQLQueryBlockAsync {
             sql_query: "INSERT INTO public.book (id, title) VALUES(nextval('book_id_seq'), 'L''aventurier')"
                 .to_string(),
@@ -556,7 +556,7 @@ mod tests {
             params: Default::default(),
         };
 
-        let r = query.execute(&mut *trans).await?;
+        let _ = query.execute(&mut *trans).await?;
 
         Ok(())
     }
@@ -566,7 +566,7 @@ mod tests {
     #[ignore]
     async fn a15_cnx_and_trans() -> anyhow::Result<()> {
         init();
-        let r = init_pool_once().await;
+        init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnectionAsync::from_pool().await?;
@@ -611,7 +611,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn a20_simple_query() -> anyhow::Result<()> {
-        let r = init_pool_once().await;
+        init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnectionAsync::from_pool().await?;
@@ -628,7 +628,7 @@ mod tests {
             params: params,
         };
 
-        let mut sql_result = query.execute(&mut trans).await?;
+        let _sql_result = query.execute(&mut trans).await?;
 
         trans.commit().await?;
 
@@ -649,7 +649,7 @@ mod tests {
     #[ignore]
     async fn a22_simple_insert() -> anyhow::Result<()> {
         init();
-        let r = init_pool_once().await;
+        init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnectionAsync::from_pool().await?;
@@ -659,7 +659,7 @@ mod tests {
         params.insert("p_title".to_owned(), CellValue::from_raw_str("Game of Thrones"));
         params.insert("p_isbn".to_owned(), CellValue::from_opt_str(None));
 
-        let dt = NaiveDate::from_ymd(2024, 8, 15);
+        let dt = NaiveDate::from_ymd_opt(2024, 8, 15).unwrap();
         params.insert("p_created_dt".to_owned(), CellValue::from_raw_naivedate(dt));
         params.insert("p_precision_time".to_owned(), CellValue::from_raw_systemtime(SystemTime::now()));
 
@@ -673,7 +673,7 @@ mod tests {
             params: params,
         };
 
-        let mut sql_result = query.execute(&mut trans).await?;
+        let _sql_result = query.execute(&mut trans).await?;
 
         trans.commit().await?;
 
@@ -685,7 +685,7 @@ mod tests {
     #[ignore]
     async fn a30_insert_with_sequence() -> anyhow::Result<()> {
         init();
-        let r = init_pool_once().await;
+        init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnectionAsync::from_pool().await?;
@@ -695,7 +695,7 @@ mod tests {
         params.insert("p_title".to_owned(), CellValue::from_raw_str("Game of Thrones"));
         params.insert("p_isbn".to_owned(), CellValue::from_opt_str(None));
 
-        let dt = NaiveDate::from_ymd(2024, 8, 15);
+        let dt = NaiveDate::from_ymd_opt(2024, 8, 15).unwrap();
         params.insert("p_created_dt".to_owned(), CellValue::from_raw_naivedate(dt));
         params.insert("p_precision_time".to_owned(), CellValue::from_raw_systemtime(SystemTime::now()));
 
@@ -722,7 +722,7 @@ mod tests {
     #[ignore]
     async fn a40_query_with_filter() -> anyhow::Result<()> {
         init();
-        let r = init_pool_once().await;
+        init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnectionAsync::from_pool().await?;
@@ -745,7 +745,7 @@ mod tests {
         while sql_result.next() {
             let id = sql_result.get_int_32("id");
             let title = sql_result.get_string("title");
-            let isbn = sql_result.get_string("isbn");
+            let _isbn = sql_result.get_string("isbn");
             let created_dt = sql_result.get_naivedate("created_dt");
             let precision_time = sql_result.get_timestamp("precision_time");
 
@@ -766,7 +766,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn a50_query_with_filter_offset_limit() -> anyhow::Result<()> {
-        let r = init_pool_once().await;
+        init_pool_once().await;
         // init_db_pool2("postgres://doka:doka@localhost:5432/ad_test_03", 3).await?;
 
         let mut cnx = SQLConnectionAsync::from_pool().await?;
@@ -784,7 +784,7 @@ mod tests {
             params: params,
         };
 
-        let mut sql_result = query.execute(&mut trans).await?;
+        let sql_result = query.execute(&mut trans).await?;
         trans.commit().await?;
 
         assert_eq!(5, sql_result.len());
@@ -797,7 +797,7 @@ mod tests {
     #[ignore]
     async fn a50_query_syntax_error() -> anyhow::Result<()> {
         init();
-        let r = init_pool_once().await;
+        init_pool_once().await;
         let mut cnx = SQLConnectionAsync::from_pool().await?;
         let mut trans = cnx.begin().await?;
         let mut params = HashMap::new();
@@ -813,7 +813,7 @@ mod tests {
         };
 
         match query.execute(&mut trans).await {
-            Ok(sql_result) => {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => {
@@ -832,7 +832,7 @@ mod tests {
         params.insert("p_title".to_owned(), CellValue::from_raw_str(format!("{} All games", thread_number).as_str()));
         params.insert("p_isbn".to_owned(), CellValue::from_opt_str(None));
 
-        let dt = NaiveDate::from_ymd(2024, 8, 15);
+        let dt = NaiveDate::from_ymd_opt(2024, 8, 15).unwrap();
         params.insert("p_created_dt".to_owned(), CellValue::from_raw_naivedate(dt));
         params.insert("p_precision_time".to_owned(), CellValue::from_raw_systemtime(SystemTime::now()));
 
@@ -856,7 +856,7 @@ mod tests {
     #[ignore]
     async fn p10_insert_with_sequence_multi() -> anyhow::Result<()> {
         init();
-        let r = init_pool_once().await;
+        init_pool_once().await;
 
         let mut handles = vec![];
         for i in 1..=5 {
@@ -864,8 +864,7 @@ mod tests {
 
             let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
                 // Do some async work
-                let r = task_for_parallel(thread_number).await;
-                Ok(())
+                task_for_parallel(thread_number).await
             });
             handles.push(handle);
         }

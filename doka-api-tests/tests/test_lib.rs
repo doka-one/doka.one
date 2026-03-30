@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
@@ -114,7 +116,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref IS_INIT_MUT: Mutex<bool> = Mutex::new({ false });
+    static ref IS_INIT_MUT: Mutex<bool> = Mutex::new(false);
 }
 
 pub fn read_props() -> HashMap<String, String> {

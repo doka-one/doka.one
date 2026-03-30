@@ -596,7 +596,7 @@ mod test {
 
         match r_dt {
             Ok(dt) => {
-                let d = dt.date();
+                let d = dt.date_naive();
                 assert_eq!(1977, d.year());
                 assert_eq!(4, dt.month());
                 assert_eq!(22, dt.day());

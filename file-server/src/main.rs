@@ -26,10 +26,10 @@ use crate::file_delegate::FileDelegate;
 mod file_delegate;
 
 ///
-/// 🌟  Upload the binary content of a file v2
+/// 🌟  Upload the binary content of a file
 /// item_info : Base64Url encoded information representing a value from the possible target item (for instance, its filename)
 ///
-// #[post("/upload2/<item_info>", data = "<file_data>")]
+// #[post("/upload/<item_info>", data = "<file_data>")]
 pub async fn upload(
     headers: axum::http::HeaderMap,
     session_token: SessionToken,
@@ -43,7 +43,7 @@ pub async fn upload(
     };
 
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.upload2(&item_info, &content_length, &mut file_data).await
+    delegate.upload(&item_info, &content_length, &mut file_data).await
 }
 
 ///
@@ -153,7 +153,7 @@ async fn main() {
     // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
     let key_routes = Router::new()
-        .route("/upload2/:item_info", post(upload))
+        .route("/upload/:item_info", post(upload))
         .route("/loading", get(file_loading))
         .route("/info/:file_ref", get(file_info))
         .route("/stats/:file_ref", get(file_stats))

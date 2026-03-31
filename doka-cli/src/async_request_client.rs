@@ -232,7 +232,7 @@ impl FileServerClientAsync {
 
     pub async fn upload(&self, encoded_item_info: &str, request: Vec<u8>, sid: &str) -> WebResponse<UploadReply> {
         // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
-        let url = self.server.build_url_with_refcode("upload2", encoded_item_info);
+        let url = self.server.build_url_with_refcode("upload", encoded_item_info);
 
         self.server.post_bytes(&url, request, &Sid(sid.to_owned())).await.map_err(|e| e.into_owned())
     }

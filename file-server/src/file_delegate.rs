@@ -459,7 +459,7 @@ impl FileDelegate {
     ///     2.b Clean all the data in the upload table for the file_ref.
     ///         Clean the data for the (customer/user), older than 4 days.
     ///
-    pub async fn upload2(
+    pub async fn upload(
         &mut self,
         item_info: &str,
         content_length: &Option<u64>,

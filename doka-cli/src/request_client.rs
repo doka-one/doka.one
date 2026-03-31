@@ -601,8 +601,8 @@ impl FileServerClient {
 
     pub fn upload(&self, encoded_item_info: &str, request: &Vec<u8>, sid: &str) -> WebResponse<UploadReply> {
         // let url = format!("http://{}:{}/file-server/upload/{}", &self.server.server_name, self.server.port);
-        let url = self.server.build_url_with_refcode("upload2", encoded_item_info);
-        // let url = self.server.build_url("upload2/1ABH234");
+        let url = self.server.build_url_with_refcode("upload", encoded_item_info);
+        // let url = self.server.build_url("upload/1ABH234");
         self.server.post_bytes_retry(&url, request, &Sid(sid.to_string()))
     }
 
@@ -644,11 +644,75 @@ impl FileServerClient {
 #[cfg(test)]
 mod test {
     use base64::Engine;
+    use common_config::conf_reader::{read_config, read_env};
+    use dkdto::web_types::{CreateCustomerRequest, LoginRequest};
+    use rs_uuid::iso::uuid_v4;
     use url::Url;
 
     use dkdto::web_types::TikaParsing;
 
-    use crate::request_client::{DocumentServerClient, TikaServerClient};
+    use crate::request_client::{AdminServerClient, DocumentServerClient, TikaServerClient};
+
+    struct TestLoginContext {
+        customer_code: String,
+        session_id: String,
+        dev_token: String,
+    }
+
+    impl Drop for TestLoginContext {
+        fn drop(&mut self) {
+            let admin_server = AdminServerClient::new("localhost", 30060);
+            let _ = admin_server.delete_customer(&self.customer_code, &self.dev_token);
+        }
+    }
+
+    fn create_test_login() -> anyhow::Result<TestLoginContext> {
+        let props = read_config("doka-test", &read_env("DOKA_UT_ENV"), &Some("DOKA_CLUSTER_PROFILE".to_string()));
+        let dev_token = props
+            .get("dev.token")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Missing doka-test property: dev.token"))?;
+        let customer_name_format = props
+            .get("customer.name.format")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Missing doka-test property: customer.name.format"))?;
+        let email_format = props
+            .get("email.format")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Missing doka-test property: email.format"))?;
+        let admin_password = props
+            .get("admin.password")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Missing doka-test property: admin.password"))?;
+
+        let login_id = uuid_v4();
+        let admin_server = AdminServerClient::new("localhost", 30060);
+        let create_request = CreateCustomerRequest {
+            customer_name: customer_name_format.replace("{}", &login_id),
+            email: email_format.replace("{}", &login_id),
+            admin_password: admin_password.clone(),
+        };
+
+        let create_reply = admin_server
+            .create_customer(&create_request, &dev_token)
+            .map_err(|e| anyhow::anyhow!(e.message.into_owned()))?;
+        admin_server
+            .customer_removable(&create_reply.customer_code, &dev_token)
+            .map_err(|e| anyhow::anyhow!(e.message.into_owned()))?;
+
+        let login_reply = admin_server
+            .login(&LoginRequest {
+                login: create_request.email.clone(),
+                password: admin_password,
+            })
+            .map_err(|e| anyhow::anyhow!(e.message.into_owned()))?;
+
+        Ok(TestLoginContext {
+            customer_code: create_reply.customer_code,
+            session_id: login_reply.session_id,
+            dev_token,
+        })
+    }
 
     fn put_data(url: &str, request: Vec<u8>) -> anyhow::Result<TikaParsing> {
         let request_builder = reqwest::blocking::Client::new().put(Url::parse(url)?);
@@ -709,10 +773,11 @@ mod test {
 
     #[test]
     fn test_post_bytes_basic() -> anyhow::Result<()> {
+        let login = create_test_login()?;
         let byte_buf = std::fs::read("/mnt/blob/Upload/111-Bright_Snow.jpg")?;
         let encoded_item_info = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("very_dicky");
 
-        let url = format!("http://localhost:30080/file-server/upload2/{}", encoded_item_info);
+        let url = format!("http://localhost:30080/file-server/upload/{}", encoded_item_info);
 
         use reqwest::blocking::multipart;
 
@@ -721,10 +786,7 @@ mod test {
 
         let request_builder = reqwest::blocking::Client::new()
             .post(Url::parse(&url)?)
-            .header(
-                "sid",
-                "9ARks93f49KdpZ3sPnPYpSRZUOk9shmbQVZKn9If6RQmwi25yGtCN3vCis4JnYxGO46Hf07hDEZc9LFPRW5ncPFCeO-14VyW-Hdq-Q",
-            )
+            .header("sid", &login.session_id)
             .multipart(form);
 
         let reply = request_builder.send()?.text()?;

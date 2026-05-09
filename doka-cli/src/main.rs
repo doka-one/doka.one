@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
 use std::process::exit;
 
 use anyhow::anyhow;
@@ -35,14 +36,19 @@ const FILE_UPLOAD_FAILED: u16 = 110;
 const FILE_DOWNLOAD_FAILED: u16 = 120;
 const SUCCESS: u16 = 0;
 
-fn read_configuration_file() -> anyhow::Result<()> {
-    let doka_env = read_env("DOKA_CLI_ENV");
-    let props = read_config("doka-cli", &doka_env, &Some("DOKA_CLUSTER_PROFILE".to_string()));
+const DOKA_CONFIG_FILE_NAME: &str = ".doka-config.json";
 
-    // let config_path = get_target_file("config/application.properties")?;
-    // let config_path_str = config_path.to_str().ok_or(anyhow!("Cannot convert path to str"))?;
-    // println!("Define the properties from file : {}", config_path_str);
-    // let props = read_config_from_path( &config_path )?;
+fn read_configuration_file() -> anyhow::Result<()> {
+    // DOKA_CLI_ENV is interpreted as a directory containing the well-known
+    // config file (DOKA_CONFIG_FILE_NAME). When unset, read_config falls back
+    // to the user's home directory.
+    let doka_env = read_env("DOKA_CLI_ENV").map(|dir| {
+        Path::new(&dir)
+            .join(DOKA_CONFIG_FILE_NAME)
+            .to_string_lossy()
+            .into_owned()
+    });
+    let props = read_config("doka-cli", &doka_env, &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
 

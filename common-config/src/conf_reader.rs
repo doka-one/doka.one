@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::{read_to_string, remove_file, File};
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 use std::process::exit;
 
 use anyhow::anyhow;
 use commons_error::*;
-use java_properties::read;
 use serde_derive::Deserialize;
 
 //
@@ -119,66 +118,69 @@ pub fn read_config(
         }
     };
 
-    let (property_file, constants, properties) = if config_file.exists() {
-        let cluster_configs = match read_cluster_configs(&config_file) {
-            Ok(props) => props,
-            Err(_) => {
-                eprintln!("💣 Failed to read config from path: {:?}", config_file);
-                exit(70);
-            }
-        };
-
-        let profile_name = read_cluster_profile(&cluster_var_name).unwrap_or_else(|| {
-            eprintln!("💣 Cluster profile name not found");
-            exit(60);
-        });
-
-        let cluster = cluster_configs.clusters.iter().find(|c| c.name == profile_name).unwrap_or_else(|| {
-            eprintln!("💣 Cluster with profile name '{}' not found", profile_name);
-            exit(10);
-        });
-
-        let os = std::env::consts::OS;
-        let o_system_constants = match os {
-            "windows" => cluster.constants_windows.as_ref(),
-            "linux" => cluster.constants_linux.as_ref(),
-            _ => None,
-        };
-
-        let mut constants = cluster.constants.map.clone();
-
-        // Complete the constants list with the constants for the OS
-        if let Some(os_constants) = o_system_constants {
-            for (k, v) in &os_constants.map {
-                constants.insert(k.clone(), v.clone());
-            }
-        }
-
-        let service = cluster.services.iter().find(|s| s.name == project_code).unwrap_or_else(|| {
-            eprintln!("Service with name '{}' not found", project_code);
-            exit(20);
-        });
-
-        let property_file = service.property_file.clone();
-        let mut properties = match &cluster.properties {
-            None => HashMap::new(),
-            Some(cp) => cp.map.clone(),
-        };
-
-        // Service properties override cluster defaults when keys overlap.
-        for (k, v) in &service.properties.map {
-            properties.insert(k.clone(), v.clone());
-        }
-        let resolved_property_file = replace_value_with_constants(&property_file, &Some(constants.clone()));
-        (Path::new(&resolved_property_file).to_path_buf(), Some(constants), Some(properties))
-    } else {
+    if !config_file.exists() {
         eprintln!("💣 Config file [{}] does not exist", config_file.to_str().unwrap());
         exit(120);
+    }
+
+    let cluster_configs = match read_cluster_configs(&config_file) {
+        Ok(props) => props,
+        Err(_) => {
+            eprintln!("💣 Failed to read config from path: {:?}", config_file);
+            exit(70);
+        }
     };
-    let Ok(props) = read_config_from_path(&property_file, &constants, &properties) else {
-        exit(100);
+
+    let profile_name = read_cluster_profile(&cluster_var_name).unwrap_or_else(|| {
+        eprintln!("💣 Cluster profile name not found");
+        exit(60);
+    });
+
+    let cluster = cluster_configs.clusters.iter().find(|c| c.name == profile_name).unwrap_or_else(|| {
+        eprintln!("💣 Cluster with profile name '{}' not found", profile_name);
+        exit(10);
+    });
+
+    let os = std::env::consts::OS;
+    let o_system_constants = match os {
+        "windows" => cluster.constants_windows.as_ref(),
+        "linux" => cluster.constants_linux.as_ref(),
+        _ => None,
     };
-    props
+
+    let mut constants = cluster.constants.map.clone();
+
+    // Complete the constants list with the constants for the OS
+    if let Some(os_constants) = o_system_constants {
+        for (k, v) in &os_constants.map {
+            constants.insert(k.clone(), v.clone());
+        }
+    }
+
+    let service = cluster.services.iter().find(|s| s.name == project_code).unwrap_or_else(|| {
+        eprintln!("Service with name '{}' not found", project_code);
+        exit(20);
+    });
+
+    let mut properties = match &cluster.properties {
+        None => HashMap::new(),
+        Some(cp) => cp.map.clone(),
+    };
+
+    // Service properties override cluster defaults when keys overlap.
+    for (k, v) in &service.properties.map {
+        properties.insert(k.clone(), v.clone());
+    }
+
+    let constants_opt = Some(constants);
+    let resolved_props: HashMap<String, String> = properties
+        .into_iter()
+        .map(|(key, value)| (key, replace_value_with_constants(&value, &constants_opt)))
+        .collect();
+
+    println!("Resolved properties: {:?}", resolved_props.keys());
+
+    resolved_props
 }
 
 /// Struct matching the JSON structure for cluster configurations
@@ -215,7 +217,6 @@ pub struct FlatProps {
 pub struct Service {
     pub description: Option<String>,
     pub name: String,
-    pub property_file: String,
     pub properties: FlatProps,
 }
 
@@ -245,50 +246,6 @@ pub fn read_cluster_configs(file_path: &Path) -> anyhow::Result<ClusterConfigs> 
     println!("Successfully read configuration");
 
     Ok(configs)
-}
-
-/// Read the configuration file from a direct path
-/// It will first read the props from the application.properties files, then override the values with those in the .doka-config.json
-/// and eventually process the interpolation with the constant value.
-pub fn read_config_from_path(
-    property_file: &PathBuf,
-    constants: &Option<HashMap<String, String>>,
-    properties: &Option<HashMap<String, String>>,
-) -> anyhow::Result<HashMap<String, String>> {
-    println!("Read the properties from the file : {}", property_file.to_str().unwrap_or("Not found"));
-
-    let props = match File::open(&property_file) {
-        Ok(f) => read(BufReader::new(f)).unwrap_or_else(|e| {
-            eprintln!("💣 Cannot read the configuration file, e={}", e);
-            HashMap::new()
-        }),
-        Err(e) => {
-            eprintln!("Cannot open the property file, let's continue, e={}", e);
-            HashMap::new()
-        }
-    };
-
-    // Override the value with the one from the doka-config file
-    let overridden_props = match properties {
-        None => props,
-        Some(p) => {
-            let mut combined_props = props;
-            for (key, value) in p {
-                combined_props.insert(key.clone(), value.clone());
-            }
-            combined_props
-        }
-    };
-
-    // Loop over all the properties and replace the constants in each property
-    let resolved_props: HashMap<String, String> = overridden_props
-        .into_iter()
-        .map(|(key, value)| (key, replace_value_with_constants(&value, constants)))
-        .collect();
-
-    println!("Resolved properties: {:?}", resolved_props.keys());
-
-    Ok(resolved_props)
 }
 
 /// Replaces a single property's value by substituting constants.

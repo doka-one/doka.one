@@ -8,7 +8,6 @@ edition = "2024"
 [dependencies]
 dirs = "^5.0"
 once_cell = "1.19.0"
-java-properties = "^1.2"
 
 chrono = { workspace = true }
 serde = { workspace = true }

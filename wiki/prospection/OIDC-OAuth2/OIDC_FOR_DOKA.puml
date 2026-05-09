@@ -1,0 +1,38 @@
+
+@startuml
+
+title OIDC for Doka
+
+'https://plantuml.com/sequence-diagram
+
+autonumber
+
+participant "Doka Page" as Web_Page
+participant "Login Page" as Login_web_page
+
+participant IdP
+note right of IdP : Session manager
+
+participant Identity_Manager
+note right of Identity_Manager : Admin server (Doka)
+
+Web_Page -> IdP: GET /auth : client_id, response_code, redirect_uri, scope (openid, offline), state
+
+IdP --> Web_Page: 302 REDIRECT /login_page?code=.....
+
+Login_web_page -> Identity_Manager: POST /login : user_name, password
+
+Identity_Manager -> IdP: Setup the session in the IdP
+IdP --> Identity_Manager : Auth_Code
+note left
+maybe it's not good to separate IdP and Identity_Manager
+end note
+
+Identity_Manager --> Login_web_page: 302 REDIRECT http://doka?code=Auth_Code
+
+Web_Page -> Identity_Manager: POST /token : client_id, auth_code, redirect_uri, grant_type
+Identity_Manager -> IdP: /token  client_secret, client_id, auth_code, redirect_uri, grant_type
+IdP --> Identity_Manager : Auth_token + ID Token (JWT)
+Identity_Manager --> Web_Page: Auth_token + ID Token (JWT)
+
+@enduml

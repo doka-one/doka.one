@@ -24,8 +24,8 @@ Notes:
 - There is no `NULL` / missing value — every condition must supply a value.
 - Dates are written as strings in ISO 8601 form (`"YYYY-MM-DD"`) and compared
   lexicographically. There is no dedicated date type.
-- Today, a literal `"`, `%` or `\` cannot appear inside a quoted value. A
-  backslash escape (`\"`, `\%`, `\\`) is planned — see §6.
+- Today, a literal `"`, `%` or `#` cannot appear inside a quoted value. A
+  hash escape (`#"`, `#%`, `##`) is planned — see §6.
 
 ### 2. Operators by type
 
@@ -84,32 +84,42 @@ and `age <40` are all accepted.
 | `"`     | Delimits a string literal. Required for every string value, including dates. No escape syntax. |
 | `%`     | Wildcard — **only meaningful inside a string used with `LIKE`**. Matches zero or more characters. Example: `name LIKE "den%"`. Outside a `LIKE` value it is just a literal `%`. |
 | `(` `)` | Logical grouping (see §3).                                              |
+| `#`     | Escape prefix inside a string literal — see §6. Has no meaning outside a string literal. |
 
 ### 6. Escaping in text constants (planned — not yet implemented)
 
 > **Status:** specified but not yet implemented in the parser. The current
-> lexer does **not** recognise `\` as an escape character; until this is
+> lexer does **not** recognise `#` as an escape character; until this is
 > released, the rules below are forward-looking and the characters listed
 > simply cannot appear in a string value.
 
-Inside a string constant `"..."`, three characters will be forbidden as
+Inside a string constant `"abcd"`, three characters are forbidden as
 literals because they collide with the filter syntax or with the SQL
-wildcard. They must be escaped with a leading backslash:
+wildcard. They must be escaped with a leading `#`:
 
 | Character | Why it's forbidden            | Escape sequence |
 |-----------|-------------------------------|-----------------|
-| `"`       | Ends the string literal       | `\"`            |
-| `%`       | `LIKE` wildcard               | `\%`            |
-| `\`       | The escape character itself   | `\\`            |
+| `"`       | Ends the string literal       | `#"`            |
+| `%`       | `LIKE` wildcard               | `#%`            |
+| `#`       | The escape character itself   | `##`            |
 
 Examples (future syntax):
 
-- `comment == "she said \"hi\""` — embedded double quote.
-- `code LIKE "50\%"` — literal `%` inside a `LIKE` pattern (does *not* act
-  as a wildcard).
-- `path == "C:\\Users\\denis"` — literal backslashes.
+- `category == "super #"extra#" player"` — embedded double quotes; the
+  string value becomes `super "extra" player`.
+- `percent == "less than 10 #%"` — literal `%` (does *not* act as a
+  wildcard); the value becomes `less than 10 %`.
+- `comment == "see paragraph ##6"` — literal `#`; the value becomes
+  `see paragraph #6`.
 
-Any other character following `\` will be an error.
+A `#` inside a string literal **must** be the start of one of the three
+escape sequences above. A `#` that is **not** followed by `#`, `%` or `"`
+is a syntax error (`InvalidEscapeSequence`). For example,
+`"see paragraph #6"` is rejected because the `#` is followed by `6`; the
+correct form is `"see paragraph ##6"`. A trailing `#` at the very end of a
+literal (e.g. `"hello #"`) is also rejected, but as `UnclosedQuote` rather
+than `InvalidEscapeSequence` — the `#"` is consumed as an escaped quote, so
+the string is left unterminated.
 
 ### 7. Parenthesis combinations — worked examples
 
@@ -125,6 +135,8 @@ shapes shown are exact.
 | `age < 40 OR age > 21 AND detail == "bonjour"`                        | `(([age<LT>40]OR[age<GT>21])AND[detail<EQ>bonjour])` *(implicit precedence)*                    |
 | `(attribut3 LIKE "den%")`                                             | `([attribut3<LIKE>den%])`                                                                       |
 | `((country == "FR" AND (science >= 40)) OR (lost_in_hell == "TRUE"))` | `(([country<EQ>FR]AND[science<GTE>40])OR[lost_in_hell<EQ>TRUE])`                                |
+| `category == "super #"extra#" player"` *(planned, see §6)*            | `([category<EQ>super "extra" player])` — `#"` is unescaped to `"` before the value is printed   |
+| `percent == "less than 10 #%"` *(planned, see §6)*                    | `([percent<EQ>less than 10 %])` — `#%` is unescaped to `%`                                      |
 
 ### 8. Canonical / debug form
 
@@ -144,34 +156,41 @@ This is the bridge between what you typed and what the server reports.
 
 ---
 
-## Part 2 — Usage (to be written)
+## Part 2 — Usage
 
-This part is a placeholder. The following points are known open questions and
-must be specified before the section is filled in:
+### 9. `doka-cli` filter syntax and escaping
 
-### 9. `doka-cli` filter syntax — still to be defined
+The CLI passes the `-f` argument through to the parser verbatim — it does
+**not** strip outer quotes or unescape anything. So two layers of escaping
+apply, and they are independent:
 
-How a filter string is passed on the command line is **not yet fully
-specified**. Open points include:
+1. **Shell layer** — the user wraps the filter in shell-quotes and escapes
+   any inner `"` according to the host shell's rules (`\"` in `bash` and
+   `cmd.exe`, backtick-quoting in `PowerShell`, etc.). This layer is
+   resolved before `doka-cli` even sees the argument.
+2. **DFS layer (§6)** — once the parser receives the string, the `#`-prefix
+   escape applies: `#"` → `"`, `#%` → `%`, `##` → `#`. Inside a `LIKE`
+   value, a bare `%` is still legal and keeps its wildcard meaning.
 
-- How the shell's own quoting (PowerShell vs. Bash vs. `cmd.exe`) interacts
-  with the filter's double-quoted string constants — i.e. what the user must
-  actually type around `-f "..."`.
-- Whether the CLI accepts a filter from a file (`-f @path/to/filter.txt`) or
-  from stdin, to avoid shell-quoting issues entirely.
+Example (bash / cmd.exe), combining both layers:
+
+```bash
+doka-cli item search -f "(category == \"super #\"extra#\" player\") AND (note == \"see paragraph ##6\")"
+```
+
+After the shell strips its own escapes, the parser sees:
+
+```
+(category == "super #"extra#" player") AND (note == "see paragraph ##6")
+```
+
+and produces the canonical form:
+
+```
+([category<EQ>super "extra" player]AND[note<EQ>see paragraph #6])
+```
+
+Open points still to be defined:
+
 - The exact error reporting the CLI surfaces when the parser rejects a
   filter (position, error code, hint).
-
-### 10. CLI-level escaping — still to be defined
-
-Independent of the parser-level escaping described in §6, the CLI needs its
-own rules for getting `"`, `%`, `\` and shell meta-characters from the
-keyboard into the filter string. Open points:
-
-- Whether the CLI does any pre-processing of `-f` (e.g. strip outer quotes,
-  unescape `\"`) or passes the argument through verbatim to the parser.
-- Recommended cross-shell idioms for each supported shell.
-- Interaction with the parser's planned `\` escape (§6) — do users have to
-  double-escape on the command line?
-
-Both items above need a design decision before this section can be written.

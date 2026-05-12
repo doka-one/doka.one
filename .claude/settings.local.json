@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(ls -R \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\\\\test_9\" 2>&1 | head -100)",
-      "Bash(ls \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\\\\test_9\" \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\" 2>&1)"
+      "Bash(ls \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\\\\test_9\" \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\" 2>&1)",
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(ls ../wiki/ 2>&1)"
     ]
   }
 }

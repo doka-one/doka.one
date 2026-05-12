@@ -176,6 +176,7 @@ pub(crate) enum FilterErrorCode {
     AttributeExpected,
     OpeningExpected,
     ClosingExpected,
+    InvalidEscapeSequence,
 }
 
 #[derive(Debug)]
@@ -229,6 +230,9 @@ impl FilterError {
             }
             FilterErrorCode::ClosingExpected => {
                 format!("A closing parenthesis was expected at position {}", self.char_position)
+            }
+            FilterErrorCode::InvalidEscapeSequence => {
+                format!("Invalid escape sequence in string literal at position {}", self.char_position)
             }
         }
     }
@@ -445,6 +449,7 @@ fn condition_lexer_index(
     let mut value: String = String::new();
     let mut fop: String = String::new();
     let mut text_mode = false;
+    let mut was_string = false;
 
     parser_log!(
         "Condition reading start at {}", *index.borrow();
@@ -466,7 +471,7 @@ fn condition_lexer_index(
                         error_code: FilterErrorCode::InvalidLogicalDepth,
                     });
                 } else {
-                    append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
+                    append_value(&mut value, was_string, &mut tokens, *index.borrow(), offset)?;
                     break;
                 }
             }
@@ -490,7 +495,7 @@ fn condition_lexer_index(
                         } else {
                             // for non text value, it marks the end of the condition
                             if !value.is_empty() {
-                                append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
+                                append_value(&mut value, false, &mut tokens, *index.borrow(), offset)?;
                                 break; // Here is the end of the condition processing
                             }
                         }
@@ -506,11 +511,11 @@ fn condition_lexer_index(
                 if text_mode {
                     // Cannot exit condition processing if we are in text mode
                     return Err(FilterError {
-                        char_position: *index.borrow() - value.chars().count(),
+                        char_position: *index.borrow() - value.chars().count() - 1,
                         error_code: FilterErrorCode::UnclosedQuote,
                     });
                 }
-                append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
+                append_value(&mut value, was_string, &mut tokens, *index.borrow(), offset)?;
                 *index.borrow_mut() -= 1;
                 break;
             }
@@ -553,17 +558,50 @@ fn condition_lexer_index(
                         }
                     }
                     ConditionExpectedLexeme::Value => {
-                        value.push(c);
-                        if c == '"' {
-                            text_mode = !text_mode;
-
-                            if !text_mode {
-                                parser_log!("COND Read a QUOTE - Exit text mode"; depth);
-                                append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
-                                break; // Here is the end of the condition processing
-                            } else {
-                                parser_log!("COND Read a QUOTE - Enter text mode"; depth);
+                        if text_mode {
+                            match c {
+                                '"' => {
+                                    parser_log!("COND Read a QUOTE - Exit text mode"; depth);
+                                    append_value(&mut value, true, &mut tokens, *index.borrow(), offset)?;
+                                    break;
+                                }
+                                '#' => {
+                                    *index.borrow_mut() += 1;
+                                    match read_char_at_index(&index, &input_chars, depth) {
+                                        Some('"') => value.push('"'),
+                                        Some('%') => value.push('%'),
+                                        Some('#') => value.push('#'),
+                                        _ => {
+                                            return Err(FilterError {
+                                                char_position: *index.borrow() - 1 + offset,
+                                                error_code: FilterErrorCode::InvalidEscapeSequence,
+                                            });
+                                        }
+                                    }
+                                }
+                                '%' => {
+                                    // bare `%` is legal only as a LIKE wildcard
+                                    let is_like = matches!(
+                                        tokens.last(),
+                                        Some(Token::Operator(pt)) if pt.token == ComparisonOperator::LIKE
+                                    );
+                                    if is_like {
+                                        value.push('%');
+                                    } else {
+                                        return Err(FilterError {
+                                            char_position: *index.borrow() + offset,
+                                            error_code: FilterErrorCode::InvalidEscapeSequence,
+                                        });
+                                    }
+                                }
+                                other => value.push(other),
                             }
+                        } else if c == '"' {
+                            text_mode = true;
+                            was_string = true;
+                            parser_log!("COND Read a QUOTE - Enter text mode"; depth);
+                        } else {
+                            value.push(c);
                         }
                     }
                 }
@@ -810,11 +848,16 @@ fn append_attribute(
     Ok(())
 }
 
-fn append_value(value: &mut String, tokens: &mut Vec<Token>, index: usize, offset: usize) -> Result<(), FilterError> {
-    let lexeme = if value.starts_with("\"") {
-        let raw_value = value.trim_matches('"').to_string();
-        let n = raw_value.chars().count();
-        Token::ValueString(PositionalToken::new(raw_value, index + offset - n))
+fn append_value(
+    value: &mut String,
+    is_string: bool,
+    tokens: &mut Vec<Token>,
+    index: usize,
+    offset: usize,
+) -> Result<(), FilterError> {
+    let lexeme = if is_string {
+        let n = value.chars().count();
+        Token::ValueString(PositionalToken::new(value.clone(), index + offset - n))
     } else if value == TRUE {
         Token::ValueBool(PositionalToken::new(true, index + offset - TRUE.len()))
     } else if value == FALSE {

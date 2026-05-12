@@ -37,6 +37,14 @@ doka-cli item search
 > ~~Don't use simple or double quote with text operator.~~
 > ~~Use a "+" sign in the front of very selective condition~~
 
+> Inside a quoted string value, the characters `"`, `%` and `#` must be escaped with a leading `#`:
+> `#"` → `"`, `#%` → `%`, `##` → `#`. Bare `%` is still allowed inside a `LIKE` value where it
+> keeps its wildcard meaning.
+
+```bash
+doka-cli item search -f "(category == \"super #\"extra#\" player\") AND (note == \"see paragraph ##6\")"
+```
+
 ### ~~Upload a file~~ 
 
 > ~~To upload a file, simply use the file upload command with the path of your file and upload identifier.~~

@@ -4,14 +4,10 @@ const TEST_TO_RUN: &[&str] = &[
     "t10_search_valid",
     "t20_search_invalid_operator",
     "t30_search_unbalanced_parens",
-<<<<<<< HEAD
-    "t40_search_no_filter",
-=======
     // FIXME: re-enable once the server accepts a missing filter as "match all".
     //        Currently search_delegate.rs:63 defaults to analysing "()", which is
     //        an invalid filter expression and returns 400.
     // "t40_search_no_filter",
->>>>>>> 580cfce (IT for the filter conditions)
 ];
 
 #[cfg(test)]
@@ -22,8 +18,8 @@ mod api_item_search_tests {
     use dkdto::web_types::{AddItemRequest, AddTagValue, EnumTagValue};
     use doka_cli::request_client::{AdminServerClient, DocumentServerClient};
 
-    use crate::test_lib::{get_login_request, Lookup};
     use crate::TEST_TO_RUN;
+    use crate::test_lib::{Lookup, get_login_request};
 
     /// Happy path: create an item with a tag, then search by `(tag == "value")`
     /// and confirm the item is returned.
@@ -43,8 +39,7 @@ mod api_item_search_tests {
             tag_name: Some(tag_name.clone()),
             value: EnumTagValue::Text(Some(tag_value.clone())),
         };
-        let request =
-            AddItemRequest { name: "Search target".to_string(), file_ref: None, properties: Some(vec![p]) };
+        let request = AddItemRequest { name: "Search target".to_string(), file_ref: None, properties: Some(vec![p]) };
 
         let document_server = DocumentServerClient::new("localhost", 30070);
         let item_reply = document_server.create_item(&request, &login_reply.session_id)?;
@@ -102,15 +97,11 @@ mod api_item_search_tests {
     }
 
     /// Search without a filter must return at least every item we just created.
-<<<<<<< HEAD
-    #[test]
-=======
     // FIXME: disabled — server returns 400 because search_delegate.rs:63 falls
     //        back to analysing "()" when no filter is passed. Re-enable once the
     //        server handles a missing filter as "match all".
     #[test]
     #[ignore]
->>>>>>> 580cfce (IT for the filter conditions)
     fn t40_search_no_filter() -> Result<(), ApiError<'static>> {
         let lookup = Lookup::new("t40_search_no_filter", TEST_TO_RUN);
         let props = lookup.props();
@@ -118,8 +109,7 @@ mod api_item_search_tests {
         let admin_server = AdminServerClient::new("localhost", 30060);
         let login_reply = admin_server.login(&get_login_request(&props))?;
 
-        let request =
-            AddItemRequest { name: "Unfiltered target".to_string(), file_ref: None, properties: None };
+        let request = AddItemRequest { name: "Unfiltered target".to_string(), file_ref: None, properties: None };
 
         let document_server = DocumentServerClient::new("localhost", 30070);
         let item_reply = document_server.create_item(&request, &login_reply.session_id)?;

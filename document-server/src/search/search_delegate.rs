@@ -17,8 +17,8 @@ use dkdto::web_types::{
 use doka_cli::request_client::TokenType;
 
 use crate::engine::generator::{
-    compile_search_query, generate_search_sql, GenerationError, SearchSqlGenerationMode, TagDefinition,
-    TagDefinitionBuilder, TagDefinitionInterface,
+    GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionBuilder, TagDefinitionInterface,
+    compile_search_query, generate_search_sql,
 };
 use crate::filter::analyse_expression;
 use crate::filter::filter_ast::FilterExpressionAST;
@@ -189,7 +189,14 @@ impl SearchDelegate {
 
         let dao = SearchDao::new(self.follower.clone());
         let Ok(items) = dao
-            .search_item_from_query(&mut trans, &compiled_query.main_sql, None, None, &select_tags, &projected_definitions)
+            .search_item_from_query(
+                &mut trans,
+                &compiled_query.main_sql,
+                None,
+                None,
+                &select_tags,
+                &projected_definitions,
+            )
             .await
         else {
             log_error!("💣 Cannot execute compiled search request, follower=[{}]", &self.follower);
@@ -198,7 +205,8 @@ impl SearchDelegate {
 
         let mut condition_stats = vec![];
         for condition_stat_query in &compiled_query.condition_stats {
-            let Ok(matching_item_count) = dao.execute_count_query(&mut trans, &condition_stat_query.count_sql).await else {
+            let Ok(matching_item_count) = dao.execute_count_query(&mut trans, &condition_stat_query.count_sql).await
+            else {
                 log_error!("💣 Cannot execute IC count query, follower=[{}]", &self.follower);
                 return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
             };

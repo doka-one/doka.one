@@ -99,6 +99,37 @@
     ]
   },
   {
+    "name": "session",
+    "sub": [
+      {
+        "name": "login",
+        "description": "Open a session by logging in with a user name and password",
+        "options": [
+          {
+            "description": "User name",
+            "flags": [
+              "-u",
+              "--username"
+            ],
+            "required": true,
+            "hasValue": true,
+            "key": "username"
+          },
+          {
+            "description": "User password",
+            "flags": [
+              "-p",
+              "--password"
+            ],
+            "required": true,
+            "hasValue": true,
+            "key": "password"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "name": "item",
     "sub": [
       {
@@ -151,6 +182,16 @@
         "name": "search",
         "description": "Search items",
         "options": [
+          {
+            "flags": [
+              "-f",
+              "--filter"
+            ],
+            "description": "Filter expression (e.g. \"category=test\")",
+            "required": false,
+            "hasValue": true,
+            "key": "filter"
+          }
         ]
       },
       {

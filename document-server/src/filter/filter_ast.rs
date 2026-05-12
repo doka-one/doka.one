@@ -291,10 +291,8 @@ mod tests {
         Attribute, BinaryLogicalOperator, ConditionClose, ConditionOpen, LogicalClose, LogicalOpen, Operator, ValueInt,
         ValueString,
     };
-    use crate::filter::filter_ast::{
-        parse_tokens, parse_tokens_with_index, to_canonical_form, ComparisonOperator,
-    };
-    use crate::filter::filter_lexer::{lex3, FilterErrorCode, PositionalToken, TokenSlice};
+    use crate::filter::filter_ast::{ComparisonOperator, parse_tokens, parse_tokens_with_index, to_canonical_form};
+    use crate::filter::filter_lexer::{FilterErrorCode, PositionalToken, TokenSlice, lex3};
     use crate::filter::filter_normalizer::normalize_lexeme;
     use crate::filter::tests::init_logger;
 

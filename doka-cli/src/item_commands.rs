@@ -43,14 +43,15 @@ pub(crate) fn get_item(id: &str) -> anyhow::Result<()> {
 }
 
 ///
-pub(crate) fn search_item() -> anyhow::Result<()> {
-    println!("👶 Getting the item...");
+pub(crate) fn search_item(filter: Option<&str>) -> anyhow::Result<()> {
+    println!("👶 Searching items...");
+
     let server_host = get_prop_value("server.host")?;
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
     println!("Document server port : {}", document_server_port);
     let client = DocumentServerClient::new(&server_host, document_server_port);
     let sid = read_session_id()?;
-    let wr_reply = client.search_item(&sid);
+    let wr_reply = client.search_item(filter, &sid);
 
     match wr_reply {
         Ok(reply) => {
@@ -58,7 +59,7 @@ pub(crate) fn search_item() -> anyhow::Result<()> {
             let _r = show_items(&reply, INLINE); // TODO handle error and use eprint_fwd!
             Ok(())
         }
-        Err(e) => Err(anyhow!("{}", e.message)),
+        Err(e) => Err(anyhow!("{} - {}", e.http_error_code, e.message)),
     }
 }
 

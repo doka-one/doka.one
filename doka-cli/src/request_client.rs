@@ -475,10 +475,15 @@ impl DocumentServerClient {
     ///
     /// TODO might be merged with get_item
     ///
-    pub fn search_item(&self, sid: &str) -> WebResponse<GetItemReply> {
-        // let url = format!("http://{}:{}/document-server/item/", &self.server.server_name, self.server.port,
-        //                   item_id );
-        let url = self.server.build_url("item");
+    pub fn search_item(&self, filter: Option<&str>, sid: &str) -> WebResponse<GetItemReply> {
+        let end_point = match filter {
+            Some(f) => format!(
+                "search?filters={}",
+                utf8_percent_encode(f, NON_ALPHANUMERIC)
+            ),
+            None => "search".to_string(),
+        };
+        let url = self.server.build_url(&end_point);
         self.server.get_data_retry(&url, &Sid(sid.to_string()))
     }
 

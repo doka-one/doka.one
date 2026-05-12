@@ -9,7 +9,7 @@ use common_config::conf_reader::{read_config, read_env};
 use common_config::properties::{get_prop_value, set_prop_values};
 use commons_error::*;
 
-use crate::command_options::{display_commands, load_commands, parse_args, Command, Params};
+use crate::command_options::{Command, Params, display_commands, load_commands, parse_args};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
 use crate::file_commands::{file_download, file_info, file_list, file_loading, file_upload};
 use crate::item_commands::{create_item, get_item, item_tag_delete, item_tag_update, search_item};
@@ -42,12 +42,8 @@ fn read_configuration_file() -> anyhow::Result<()> {
     // DOKA_CLI_ENV is interpreted as a directory containing the well-known
     // config file (DOKA_CONFIG_FILE_NAME). When unset, read_config falls back
     // to the user's home directory.
-    let doka_env = read_env("DOKA_CLI_ENV").map(|dir| {
-        Path::new(&dir)
-            .join(DOKA_CONFIG_FILE_NAME)
-            .to_string_lossy()
-            .into_owned()
-    });
+    let doka_env =
+        read_env("DOKA_CLI_ENV").map(|dir| Path::new(&dir).join(DOKA_CONFIG_FILE_NAME).to_string_lossy().into_owned());
     let props = read_config("doka-cli", &doka_env, &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
@@ -144,8 +140,13 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
             success_or_err(err, CREATE_ITEM_FAILED)
         }
         ("item", "search") => {
-            let _err = search_item();
-            0
+            let o_filter = extract_option(&params.options, "-f")
+                .ok()
+                .flatten()
+                .or_else(|| extract_option(&params.options, "--filter").ok().flatten());
+            let err = search_item(o_filter.as_deref()).map_err(eprint_fwd!("Search items failed"));
+            dbg!(&err);
+            success_or_err(err, GET_ITEM_FAILED)
         }
         ("item", "get") => {
             let Ok(id) = extract_mandatory_option(&params.options, "-id").map_err(eprint_fwd!("Error")) else {
@@ -229,11 +230,7 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
 }
 
 fn success_or_err(err: anyhow::Result<()>, err_code: u16) -> u16 {
-    if err.is_err() {
-        err_code
-    } else {
-        SUCCESS
-    }
+    if err.is_err() { err_code } else { SUCCESS }
 }
 
 ///
@@ -261,7 +258,10 @@ fn main() -> () {
 
     if !is_known_object(&commands, &params.object) {
         eprintln!("💣 Unknown object [{}]", &params.object);
-        eprintln!("Expected one of: {}", commands.iter().map(|command| command.name.as_str()).collect::<Vec<_>>().join(", "));
+        eprintln!(
+            "Expected one of: {}",
+            commands.iter().map(|command| command.name.as_str()).collect::<Vec<_>>().join(", ")
+        );
         display_commands(&commands);
         exit_program(PARAMETER_ERROR as i32);
     }

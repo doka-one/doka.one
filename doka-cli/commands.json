@@ -182,6 +182,16 @@
         "name": "search",
         "description": "Search items",
         "options": [
+          {
+            "flags": [
+              "-f",
+              "--filter"
+            ],
+            "description": "Filter expression (e.g. \"category=test\")",
+            "required": false,
+            "hasValue": true,
+            "key": "filter"
+          }
         ]
       },
       {

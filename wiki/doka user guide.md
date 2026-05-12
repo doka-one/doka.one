@@ -10,23 +10,6 @@ doka-cli token generate -c %DOKA_ENV%\document-server\keys\cek.key
 
 ---
 
-~~**TODO** : the doka admin APIs must be accessible through an internal sysadmin user. The internal user has a password defined at the install procedure, and it is stored in a \keys\sysadmin.secret file  ( = encrypt("<file_content>", HASH(sys-password)))~~
-
-~~==> uniformize the access to the sysadmin via the session-manager also, improve the locally generated token...~~
-
-```bash
-doka-cli session sysadmin -p "<sys-password>" --> call token generate API with the sys password
-```
-
----
-
-````bash
-doka-cli customer create -n "Denis International Company" -e "denis.4@inc.com" -ap "Myadmin123;"
-````
-
-````bash
-doka-cli session login -u denis.4@inc.com  -p "Myadmin123;"
-````
 
 ### ~~Define and manipulate items~~
 
@@ -70,4 +53,3 @@ doka-cli file upload -pt "C:\Users\denis\Dropbox\Upload\38M.m4v" -ii "item_name_
 ````bash
 doka-cli item create -fr d2043bbb-f75e-45b8-7fcc-61c29649c74b -n rapport_activité -p "(private)(level:6)"
 ````
-

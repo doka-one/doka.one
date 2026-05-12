@@ -40,7 +40,7 @@ Domain created: dev_1
 dk customer create    
 		-n  --customer_name denis@isd.lu    
 		-e  --email denis@isd.lu  
-		-ap --admin_password <user_passord>   
+		-ap --admin_password <user_password>   
 ```
 
 Customer created, code : fd2da7e1
@@ -66,7 +66,7 @@ Customer disabled
 ```bash
 dk session login 
     -u --username denis@isd.lu  		
-    -p --password '<user_passord>' 
+    -p --password '<user_password>' 
 ```
 
 Session opened with token : lkasjdf4sdfa6[...]
@@ -280,8 +280,3 @@ dk item get
 id:459   planet.pdf       category:astro       email_number:789845
 
 > Show the item and its properties
-
-
-
-
-

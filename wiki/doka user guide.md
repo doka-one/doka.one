@@ -26,24 +26,40 @@ doka-cli item create -n item3 -p "(my_email:t@t.com)(tag2:blabla)"
 doka-cli item tag -id 2 -u "(to:1:link)"
 ````
 
-### ~~Search items~~
+### Search items
 
 ```bash
-doka-cli item search  
-	-f "(lastname LIKE a%) OR (+postal_code = 34500 AND lastname LIKE %h%)" 
-	-s "lastname desc"
+doka-cli item search
+    -f "(lastname LIKE \"a%\") OR (postal_code == 34500 AND lastname LIKE \"%h%\")"
+    -s "lastname desc"
 ```
 
-> ~~Don't use simple or double quote with text operator.~~
-> ~~Use a "+" sign in the front of very selective condition~~
+The filter follows the Doka Filter Syntax (DFS). Rules:
 
-> Inside a quoted string value, the characters `"`, `%` and `#` must be escaped with a leading `#`:
-> `#"` → `"`, `#%` → `%`, `##` → `#`. Bare `%` is still allowed inside a `LIKE` value where it
-> keeps its wildcard meaning.
+- Conditions are `attribute <op> value` with `<op>` ∈ `== != < <= > >= LIKE`.
+  Use `==`, not `=`. A single `=` is rejected.
+- String values are always double-quoted. Numbers and `TRUE` / `FALSE` are not.
+- Inside a quoted string, the characters `"`, `%` and `#` must be escaped with
+  a leading `#`: `#"` → `"`, `#%` → `%`, `##` → `#`.
+- In a `LIKE` value, a bare `%` is the wildcard (any sequence of characters).
+  Use `#%` for a literal percent. A bare `%` outside a `LIKE` value, or any
+  unescaped `#` / `"` / `%`, is a syntax error (`InvalidEscapeSequence`).
+- Combine with `AND` / `OR` (case-insensitive) and group with `( ... )`.
+  `AND` binds tighter than `OR`; use parentheses to override.
+
+Example combining escapes:
 
 ```bash
 doka-cli item search -f "(category == \"super #\"extra#\" player\") AND (note == \"see paragraph ##6\")"
 ```
+
+The parser receives:
+
+```
+(category == "super #"extra#" player") AND (note == "see paragraph ##6")
+```
+
+and stores `super "extra" player` and `see paragraph #6` as the two values.
 
 ### ~~Upload a file~~ 
 

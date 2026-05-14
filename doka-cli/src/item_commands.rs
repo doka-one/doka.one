@@ -3,11 +3,13 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 use anyhow::anyhow;
+use base64::Engine;
+use colored::Colorize;
 use regex::Regex;
 
+use common_config::properties::get_prop_value;
 use commons_error::*;
-use dkconfig::properties::get_prop_value;
-use dkdto::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
+use dkdto::web_types::{AddItemRequest, AddItemTagRequest, AddTagValue, EnumTagValue, GetItemReply};
 use doka_cli::request_client::{DocumentServerClient, FileServerClient};
 
 use crate::item_commands::DisplayFormat::{INLINE, JSON};
@@ -41,14 +43,15 @@ pub(crate) fn get_item(id: &str) -> anyhow::Result<()> {
 }
 
 ///
-pub(crate) fn search_item() -> anyhow::Result<()> {
-    println!("👶 Getting the item...");
+pub(crate) fn search_item(filter: Option<&str>) -> anyhow::Result<()> {
+    println!("👶 Searching items...");
+
     let server_host = get_prop_value("server.host")?;
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
     println!("Document server port : {}", document_server_port);
     let client = DocumentServerClient::new(&server_host, document_server_port);
     let sid = read_session_id()?;
-    let wr_reply = client.search_item(&sid);
+    let wr_reply = client.search_item(filter, &sid);
 
     match wr_reply {
         Ok(reply) => {
@@ -56,7 +59,7 @@ pub(crate) fn search_item() -> anyhow::Result<()> {
             let _r = show_items(&reply, INLINE); // TODO handle error and use eprint_fwd!
             Ok(())
         }
-        Err(e) => Err(anyhow!("{}", e.message)),
+        Err(e) => Err(anyhow!("{} - {}", e.http_error_code, e.message)),
     }
 }
 
@@ -80,10 +83,7 @@ fn show_items(items: &GetItemReply, display_format: DisplayFormat) -> anyhow::Re
                 };
                 let default_value = "none".to_string();
                 let file_ref = item.file_ref.as_ref().unwrap_or(&default_value);
-                println!(
-                    "id:{}\tname:{}\tfile_ref:{}\t{}",
-                    item.item_id, item.name, file_ref, prop_str
-                );
+                println!("id:{}\tname:{}\tfile_ref:{}\t{}", item.item_id, item.name, file_ref, prop_str);
             }
         }
         DisplayFormat::JSON => {
@@ -124,11 +124,7 @@ fn parse_property(prop: &str) -> anyhow::Result<(String, Option<String>, Option<
         1 => {
             let separator = prop.find(":").unwrap_or(prop.len());
             let (name, value) = prop.split_at(separator);
-            (
-                name.to_owned(),
-                Some(value.replace(":", "").trim_matches('\'').to_owned()),
-                None,
-            )
+            (name.to_owned(), Some(value.replace(":", "").trim_matches('\'').to_owned()), None)
         }
         _ => {
             let (opt_name, opt_value, opt_type) = extract_parts(prop).unwrap();
@@ -158,20 +154,13 @@ fn build_item_tag(param_value: &str) -> anyhow::Result<AddTagValue> {
             match r {
                 Ok(v) => v,
                 Err(_e) => {
-                    return Err(anyhow!(
-                        "Property type and value does not match: {}",
-                        param_value
-                    ));
+                    return Err(anyhow!("Unknown property type in {}. Expected: text, bool, int, decimal, date, datetime, link", param_value));
                 }
             }
         }
     };
 
-    Ok(AddTagValue {
-        tag_id: None,
-        tag_name: Some(tag_name),
-        value: enum_tag_value,
-    })
+    Ok(AddTagValue { tag_id: None, tag_name: Some(tag_name), value: enum_tag_value })
 }
 
 ///
@@ -201,7 +190,8 @@ pub(crate) fn create_item(
             let mut buf_reader = BufReader::new(file);
             let mut binary: Vec<u8> = vec![];
             let _n = buf_reader.read_to_end(&mut binary)?;
-            let fs_reply = file_server_client.upload(&item_name, &binary, &sid);
+            let encoded_item_info = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(item_name);
+            let fs_reply = file_server_client.upload(&encoded_item_info, &binary, &sid);
 
             if let Err(e) = fs_reply {
                 eprintln!("File upload failed, {}", &e.message);
@@ -239,11 +229,7 @@ pub(crate) fn create_item(
         }
     };
 
-    let add_item_request = AddItemRequest {
-        name: item_name.to_owned(),
-        file_ref,
-        properties: Some(properties),
-    };
+    let add_item_request = AddItemRequest { name: item_name.to_owned(), file_ref, properties: Some(properties) };
 
     // dbg!(&add_item_request);
     let wt_create_item_reply = document_server_client.create_item(&add_item_request, &sid);
@@ -271,11 +257,8 @@ pub fn item_tag_update(id: &str, o_add_props: Option<&str>) -> anyhow::Result<()
     let document_server_port: u16 = get_prop_value("ds.port")?.parse()?;
 
     let document_server_client = DocumentServerClient::new(&server_host, document_server_port);
-    let add_item_tag_request = AddItemTagRequest {
-        /*item_id,*/ properties,
-    };
-    let r_add_item_tag =
-        document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
+    let add_item_tag_request = AddItemTagRequest { /*item_id,*/ properties };
+    let r_add_item_tag = document_server_client.update_item_tag(item_id, &add_item_tag_request, &sid);
 
     match r_add_item_tag {
         Ok(_reply) => {
@@ -292,11 +275,7 @@ pub fn item_tag_delete(id: &str, o_delete_props: Option<&str>) -> anyhow::Result
     let item_id: i64 = id.parse()?;
     // dbg!(&o_delete_props);
 
-    let tag_names: Vec<String> = o_delete_props
-        .unwrap_or("")
-        .split(',')
-        .map(|tag| tag.to_string())
-        .collect();
+    let tag_names: Vec<String> = o_delete_props.unwrap_or("").split(',').map(|tag| tag.to_string()).collect();
 
     dbg!(&tag_names);
 
@@ -323,7 +302,15 @@ fn build_properties_from_string(o_props: Option<&str>) -> anyhow::Result<Vec<Add
         let mut props: Vec<AddTagValue> = vec![];
         for cap in re.captures_iter(props_str) {
             dbg!(&cap[1]);
-            let tag = build_item_tag(&cap[1]).map_err(eprint_fwd!("Cannot read the tag value"))?;
+            let tag = match build_item_tag(&cap[1]) {
+                Ok(tag) => tag,
+                Err(e) => {
+                    eprintln!();
+                    eprintln!("{}", format!("[{}]", e).red().bold());
+                    eprintln!();
+                    return Err(anyhow!(e.to_string()));
+                }
+            };
             props.push(tag);
         }
         props
@@ -344,20 +331,20 @@ mod tests {
         let prop = "my_prop1:'value:value2':text";
         let x = extract_parts(prop);
 
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
 
         let prop = "my_prop1:value:value2:text";
         let x = extract_parts(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::type";
         let x = extract_parts(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::";
         let x = extract_parts(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         // let (name, value, prop_type) = extract_prop(prop);
         // dbg!(name, value, prop_type);
@@ -368,19 +355,19 @@ mod tests {
     fn test_prop_parsing() {
         let prop = "my_prop1:'value:value2':text";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1:value:value2:text";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::type";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1::";
         let x = parse_property(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
     }
 
@@ -388,27 +375,27 @@ mod tests {
     fn test_build_tag_value() {
         let prop = "my_double:3.14159:decimal";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_int:456:int";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_bool";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_bool:false:bool";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1:'mon text complet d été':text";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
         let prop = "my_prop1:'mon text : complet d' été':text";
         let x = build_item_tag(prop);
-        dbg!(x);
+        dbg!(&x);
         println!("-------------");
     }
 }

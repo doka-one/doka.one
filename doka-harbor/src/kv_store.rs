@@ -1,5 +1,5 @@
 use log::*;
-use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tokio::task;
 
 use commons_error::*;
@@ -13,20 +13,13 @@ pub(crate) struct KvStore {
 
 impl KvStore {
     pub fn new(bucket: &str, secret16: &str) -> KvStore {
-        KvStore {
-            bucket: bucket.to_string(),
-            secret16: "0123456789ABCDEF".to_string(),
-        }
+        KvStore { bucket: bucket.to_string(), secret16: secret16.to_string() }
     }
 
     pub async fn read_from_nats(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
         // Connect to the NATS server
         let client = async_nats::connect("localhost:4222").await?;
-        log_info!(
-            "Connected to NATS for reading, {} {}",
-            &self.bucket,
-            &key[0..12]
-        );
+        log_info!("Connected to NATS for reading, {} {}", &self.bucket, &key[0..12]);
 
         // Create a JetStream context
         let jetstream = async_nats::jetstream::new(client);
@@ -61,18 +54,15 @@ impl KvStore {
 
         let secret = self.secret16.clone();
         let decrypted_chunks: Vec<Vec<u8>> = task::spawn_blocking(move || {
-            use rayon::iter::ParallelIterator;
             encrypted_chunks
                 .par_iter()
                 .map(|chunk| {
                     // TODO we can switch to the self.secret16 as soon as we placed the IV
                     //      at the first 16 bytes of the data
-                    DkEncrypt::new(AES)
-                        .decrypt_vec(&chunk, &secret)
-                        .unwrap_or_else(|e| {
-                            log_error!("Cannot decrypt the chunk data: {:?}", e);
-                            vec![]
-                        })
+                    DkEncrypt::new(AES).decrypt_vec(&chunk, &secret).unwrap_or_else(|e| {
+                        log_error!("Cannot decrypt the chunk data: {:?}", e);
+                        vec![]
+                    })
                 })
                 .collect()
         })
@@ -97,12 +87,7 @@ impl KvStore {
     pub async fn store_to_nats(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
         // Connect to the NATS server
         let client = async_nats::connect("localhost:4222").await?;
-        log_info!(
-            "Connected to NATS for storing, {} {}, size: {}",
-            &self.bucket,
-            &key[0..12],
-            data.len()
-        );
+        log_info!("Connected to NATS for storing, {} {}, size: {}", &self.bucket, &key[0..12], data.len());
 
         // Create a JetStream context
         let jetstream = async_nats::jetstream::new(client);
@@ -122,19 +107,12 @@ impl KvStore {
         // Process each chunk in parallel using Rayon
         use rayon::iter::ParallelIterator;
 
-        let chunks: Vec<(usize, Vec<u8>)> = data
-            .chunks(CHUNK_SIZE)
-            .enumerate()
-            .map(|(i, chunk)| (i, chunk.to_vec()))
-            .collect();
+        let chunks: Vec<(usize, Vec<u8>)> =
+            data.chunks(CHUNK_SIZE).enumerate().map(|(i, chunk)| (i, chunk.to_vec())).collect();
 
         let secret = self.secret16.clone();
         let encrypted_chunks: Vec<Vec<u8>> = task::spawn_blocking(move || {
-            use rayon::iter::ParallelIterator;
-            chunks
-                .par_iter()
-                .map(|(i, chunk)| DkEncrypt::new(AES).encrypt_vec(chunk, &secret).unwrap())
-                .collect()
+            chunks.par_iter().map(|(_, chunk)| DkEncrypt::new(AES).encrypt_vec(chunk, &secret).unwrap()).collect()
         })
         .await
         .map_err(err_fwd!("Cannot encrypt the data"))?;

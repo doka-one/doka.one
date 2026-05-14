@@ -1,10 +1,8 @@
-use std::error::Error;
-
 use aes_gcm::aead::Nonce;
-use aes_gcm::{AeadCore, AeadInPlace, Aes128Gcm, Key, KeyInit};
-use anyhow::{ensure, Context, Result};
-use rand::RngCore;
+use aes_gcm::{AeadInPlace, Aes128Gcm, Key, KeyInit};
+use anyhow::{ensure, Result};
 
+#[allow(dead_code)]
 fn get_once_from_str(none_12: &str) -> Result<Nonce<Aes128Gcm>> {
     let mut nonce_bytes = [0u8; 12];
     let bytes = none_12.as_bytes();
@@ -33,11 +31,7 @@ fn get_key_from_password(hash128: &str) -> Result<Key<Aes128Gcm>> {
     Ok(Key::<Aes128Gcm>::clone_from_slice(key))
 }
 
-fn encrypt_data(
-    key: &Key<Aes128Gcm>,
-    nonce: &Nonce<Aes128Gcm>,
-    plaintext: &[u8],
-) -> anyhow::Result<Vec<u8>> {
+fn encrypt_data(key: &Key<Aes128Gcm>, nonce: &Nonce<Aes128Gcm>, plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
     let cipher = Aes128Gcm::new(key);
     let mut buffer: Vec<u8> = Vec::with_capacity(plaintext.len() + 16); // 16 bytes overhead for auth tag
     buffer.extend_from_slice(plaintext);
@@ -45,11 +39,7 @@ fn encrypt_data(
     Ok(buffer)
 }
 
-fn decrypt_data(
-    key: &Key<Aes128Gcm>,
-    nonce: &Nonce<Aes128Gcm>,
-    ciphertext: &[u8],
-) -> Result<Vec<u8>> {
+fn decrypt_data(key: &Key<Aes128Gcm>, nonce: &Nonce<Aes128Gcm>, ciphertext: &[u8]) -> Result<Vec<u8>> {
     let cipher = Aes128Gcm::new(key);
     let mut buffer: Vec<u8> = Vec::from(ciphertext);
     cipher.decrypt_in_place(nonce, b"", &mut buffer).unwrap(); // TODO
@@ -115,7 +105,7 @@ mod tests {
         let orignal_text = "Un text utf-8 et plus ❤❤  ⡌⠁⠧⠑ ⠼⠁⠒  ⡍⠜⠇⠑⠹⠰⠎ ⡣⠕⠌";
         let bytes = orignal_text.as_bytes();
         let password_128 = "0123456789ABCDEF"; // 16 bytes for the key
-        let nonce = "0123456789ABC".as_bytes(); // and 12 bytes for the nonce
+        let nonce = "0123456789AB".as_bytes(); // 12 bytes for the nonce
 
         let r = encrypt_aes128(bytes, password_128, nonce).unwrap();
         let str = general_purpose::STANDARD.encode(&r);

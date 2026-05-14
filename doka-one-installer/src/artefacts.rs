@@ -19,10 +19,7 @@ fn get_binary_data(url: &str) -> anyhow::Result<bytes::Bytes> {
 fn download_file(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
     println!("Downloading artefacts {artefact_name}");
     let zip_file = format!("{}.zip", artefact_name);
-    let p = Path::new(&config.installation_path)
-        .join("artefacts")
-        .join(&config.release_number)
-        .join(&zip_file);
+    let p = Path::new(&config.installation_path).join("artefacts").join(&config.release_number).join(&zip_file);
 
     match p.exists() {
         true => {
@@ -30,10 +27,7 @@ fn download_file(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
         }
         false => {
             // TODO test the https when the certificate is correct...
-            let url = format!(
-                "http://doka.one/artefacts/{}/{}",
-                &config.release_number, zip_file
-            );
+            let url = format!("http://doka.one/artefacts/{}/{}", &config.release_number, zip_file);
 
             let bin_artefact = get_binary_data(&url)?;
 
@@ -50,23 +44,17 @@ fn unzip(config: &Config, artefact_name: &str) -> anyhow::Result<()> {
     let zip_file = format!("{}.zip", artefact_name);
 
     // Already exists
-    let path = Path::new(&config.installation_path)
-        .join("artefacts")
-        .join(&config.release_number)
-        .join(&zip_file);
+    let path = Path::new(&config.installation_path).join("artefacts").join(&config.release_number).join(&zip_file);
     let archive = std::fs::read(path)?;
 
     // Already exists
-    let target_dir = Path::new(&config.installation_path)
-        .join("bin")
-        .join(artefact_name);
+    let target_dir = Path::new(&config.installation_path).join("bin").join(artefact_name);
 
     // dbg!(&target_dir);
 
     // The third parameter allows you to strip away toplevel directories.
     // If `archive` contained a single directory, its contents would be extracted instead.
-    let _ = zip_extract::extract(Cursor::new(archive), &target_dir, true)
-        .map_err(eprint_fwd!("Cannot unzip"))?;
+    let _ = zip_extract::extract(Cursor::new(archive), &target_dir, true).map_err(eprint_fwd!("Cannot unzip"))?;
 
     println!("Done");
 

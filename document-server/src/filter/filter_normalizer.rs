@@ -1,5 +1,4 @@
-use crate::filter::filter_ast::{LogicalOperator, PositionalToken, Token, TokenSlice};
-use crate::filter::filter_lexer::{FilterError, FilterErrorCode};
+use crate::filter::filter_lexer::{LogicalOperator, PositionalToken, Token, TokenSlice};
 use commons_error::*;
 use log::*;
 
@@ -37,14 +36,8 @@ fn n3_binary_logical_operator_for_op(tokens: &mut Vec<Token>, for_lop: LogicalOp
             Some((x, y)) => {
                 let y_positional = 0;
                 let x_positional = 0;
-                tokens.insert(
-                    y as usize,
-                    Token::LogicalClose(PositionalToken::new((), y_positional)),
-                );
-                tokens.insert(
-                    x as usize,
-                    Token::LogicalOpen(PositionalToken::new((), x_positional)),
-                );
+                tokens.insert(y as usize, Token::LogicalClose(PositionalToken::new((), y_positional)));
+                tokens.insert(x as usize, Token::LogicalOpen(PositionalToken::new((), x_positional)));
             }
         }
     }
@@ -89,11 +82,9 @@ enum Direction {
 
 fn check_binary_logical_operator(tokens: &Vec<Token>, position_counter: u32) -> Option<(u32, u32)> {
     // Check forward
-    let left: CheckLogicalBoundary =
-        check_logical_one_direction(tokens, position_counter, Direction::Backward);
+    let left: CheckLogicalBoundary = check_logical_one_direction(tokens, position_counter, Direction::Backward);
     // Check backward
-    let right: CheckLogicalBoundary =
-        check_logical_one_direction(tokens, position_counter, Direction::Forward);
+    let right: CheckLogicalBoundary = check_logical_one_direction(tokens, position_counter, Direction::Forward);
     match (left.boundary_type, right.boundary_type) {
         (BoundaryType::WithLogical, BoundaryType::WithLogical) => {
             // In case we found logical operators surrounding the AND/OR
@@ -130,11 +121,7 @@ fn check_logical_one_direction(
 ) -> CheckLogicalBoundary {
     let mut depth: i32 = 0;
     let mut index: i32 = position_counter as i32;
-    let step: i32 = if direction == Direction::Backward {
-        -1
-    } else {
-        1
-    };
+    let step: i32 = if direction == Direction::Backward { -1 } else { 1 };
     let mut position: u32 = index as u32;
     let mut boundary_type = BoundaryType::WithoutLogical;
 
@@ -161,15 +148,12 @@ fn check_logical_one_direction(
             }
             Some(tt) => {
                 match tt {
-                    Token::LogicalOpen(pt) => {
+                    Token::LogicalOpen(_pt) => {
                         // If we are backward, an opening is a decrease of the depth (+step)
                         depth += step;
                         if direction == Direction::Backward {
-                            let local_logical_close =
-                                Token::LogicalClose(PositionalToken::new((), 0));
-                            let next_t = tokens
-                                .get((index - 1) as usize)
-                                .unwrap_or(&local_logical_close);
+                            let local_logical_close = Token::LogicalClose(PositionalToken::new((), 0));
+                            let next_t = tokens.get((index - 1) as usize).unwrap_or(&local_logical_close);
 
                             // (count == 0  and lexeme is not LC/LO)
                             if depth == 0 && !(next_t.is_logical_open()) {
@@ -185,18 +169,15 @@ fn check_logical_one_direction(
                             }
                         }
                     }
-                    Token::LogicalClose(pt) => {
+                    Token::LogicalClose(_pt) => {
                         // If we are forward, a closing is an increase of the depth (-step)
                         depth += -1 * step;
 
                         // The depth is back to 0 so we look at the next token
                         // to check if we need a LC at this position
                         if depth == 0 && direction == Direction::Forward {
-                            let local_logical_open =
-                                Token::LogicalOpen(PositionalToken::new((), 0));
-                            let next_t = tokens
-                                .get((index + 1) as usize)
-                                .unwrap_or(&local_logical_open);
+                            let local_logical_open = Token::LogicalOpen(PositionalToken::new((), 0));
+                            let next_t = tokens.get((index + 1) as usize).unwrap_or(&local_logical_open);
 
                             if !(next_t.is_logical_close()) {
                                 // Insert the ) _after_ the ]
@@ -213,14 +194,11 @@ fn check_logical_one_direction(
                             }
                         }
                     }
-                    Token::ConditionOpen(pt) => {
+                    Token::ConditionOpen(_pt) => {
                         // The depth is back to 0 so we look at the next lexeme
                         if depth == 0 && direction == Direction::Backward {
-                            let local_logical_close =
-                                Token::LogicalClose(PositionalToken::new((), 0));
-                            let next_t = tokens
-                                .get((index - 1) as usize)
-                                .unwrap_or(&local_logical_close);
+                            let local_logical_close = Token::LogicalClose(PositionalToken::new((), 0));
+                            let next_t = tokens.get((index - 1) as usize).unwrap_or(&local_logical_close);
 
                             // Insert the ( _before_ the [
                             position = index as u32;
@@ -231,14 +209,11 @@ fn check_logical_one_direction(
                             break;
                         }
                     }
-                    Token::ConditionClose(pt) => {
+                    Token::ConditionClose(_pt) => {
                         // (count == 0  and lexeme is not LC/LO)
                         if depth == 0 && direction == Direction::Forward {
-                            let local_logical_open =
-                                Token::LogicalOpen(PositionalToken::new((), 0));
-                            let next_t = tokens
-                                .get((index + 1) as usize)
-                                .unwrap_or(&local_logical_open);
+                            let local_logical_open = Token::LogicalOpen(PositionalToken::new((), 0));
+                            let next_t = tokens.get((index + 1) as usize).unwrap_or(&local_logical_open);
 
                             // Insert the ) _after_ the ]
                             position = (index + 1) as u32;
@@ -254,10 +229,7 @@ fn check_logical_one_direction(
             }
         }
     }
-    CheckLogicalBoundary {
-        position,
-        boundary_type,
-    }
+    CheckLogicalBoundary { position, boundary_type }
 }
 
 /// Normalization N2
@@ -285,11 +257,9 @@ fn n2_mark_condition_open_close(tokens: &mut Vec<Token>) {
                 let pre_position = position_counter - 1;
                 let post_position = position_counter + 3;
 
-                let is_logical_opening =
-                    check_logical_open_delimiter(&tokens, pre_position as usize);
+                let is_logical_opening = check_logical_open_delimiter(&tokens, pre_position as usize);
 
-                let is_logical_closing =
-                    check_logical_close_delimiter(&tokens, post_position as usize);
+                let is_logical_closing = check_logical_close_delimiter(&tokens, post_position as usize);
 
                 match (is_logical_opening, is_logical_closing) {
                     (true, true) => {
@@ -401,33 +371,27 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
 
     for token in tokens.iter() {
         match token {
-            Token::LogicalOpen(pt) => {
+            Token::LogicalOpen(_pt) => {
                 depth += 1;
                 // We check if the previous LO was next to this one
                 if let Some(loi) = last_open_info {
                     // if delta is 0
                     if position_counter - (loi.1 + 1) == 0 {
-                        open_delta_zero.push(PairPosition {
-                            position: loi.1,
-                            x: loi.0,
-                            y: depth,
-                        });
+                        open_delta_zero.push(PairPosition { position: loi.1, x: loi.0, y: depth });
                     }
                 }
                 last_open_info = Some((depth, position_counter));
                 log_debug!("Open Delta Zero {:?}", &open_delta_zero);
             }
-            Token::LogicalClose(pt) => {
+            Token::LogicalClose(_pt) => {
                 depth -= 1;
 
                 // We check if the previous LC was next to this one
-                if let Some((last_close_depth, last_close_position)) = last_close_info {
+                if let Some((_last_close_depth, last_close_position)) = last_close_info {
                     // if delta is 0
                     if position_counter - (last_close_position + 1) == 0 {
                         // The depth variable is actually late of 1 step when we go over the closings, so we must suppose we are at depth + 1
-                        if let Some(matching_pair) =
-                            open_delta_zero.iter_mut().find(|m| m.x == depth + 1)
-                        {
+                        if let Some(matching_pair) = open_delta_zero.iter_mut().find(|m| m.x == depth + 1) {
                             // mark the couple to be removed
                             to_be_removed.push(matching_pair.position);
                             to_be_removed.push(position_counter);
@@ -444,9 +408,7 @@ fn n1_remove_successive_logical_open_close(tokens: &mut Vec<Token>) {
             _ => {
                 if let Some((last_close_depth, last_close_position)) = last_close_info {
                     if position_counter - (last_close_position + 1) == 0 {
-                        if let Some(matching_pair) =
-                            open_delta_zero.iter_mut().find(|m| m.x == last_close_depth)
-                        {
+                        if let Some(matching_pair) = open_delta_zero.iter_mut().find(|m| m.x == last_close_depth) {
                             // The pair is no longer usable
                             matching_pair.x = -1;
                             matching_pair.y = -1;
@@ -476,14 +438,13 @@ fn extract_position_info(token: &Token) -> usize {
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter::filter_ast::{PositionalToken, Token, TokenSlice};
-    use crate::filter::filter_lexer::{lex3, FilterError};
+    use crate::filter::filter_lexer::{PositionalToken, Token, TokenSlice};
+    use crate::filter::filter_lexer::LogicalOperator;
     use crate::filter::filter_normalizer::{
-        n1_remove_successive_logical_open_close, n2_mark_condition_open_close,
-        n3_binary_logical_operator,
+        n1_remove_successive_logical_open_close, n2_mark_condition_open_close, n3_binary_logical_operator,
     };
     use crate::filter::tests::init_logger;
-    use crate::filter::{ComparisonOperator, LogicalOperator};
+    use crate::filter::ComparisonOperator;
     use commons_error::*;
     use log::*;
 

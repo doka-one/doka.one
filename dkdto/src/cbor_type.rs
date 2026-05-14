@@ -1,5 +1,6 @@
+use crate::api_error::ApiError;
 use crate::error_codes::INTERNAL_TECHNICAL_ERROR;
-use crate::{ErrorSet, SimpleMessage, WebTypeBuilder};
+use crate::web_types::{SimpleMessage, WebTypeBuilder};
 use ciborium::into_writer;
 use http::header::CONTENT_TYPE;
 use http::{HeaderName, StatusCode};
@@ -25,9 +26,7 @@ where
     fn into(self) -> CborBytes {
         let binary = match self.result {
             Ok(value) => serialize_to_bytes(&value),
-            Err(error) => serialize_to_bytes(&SimpleMessage {
-                message: error.message.to_string(),
-            }),
+            Err(error) => serialize_to_bytes(&SimpleMessage { message: error.message.to_string() }),
         };
 
         (self.http_code, [(CONTENT_TYPE, "application/cbor")], binary)
@@ -38,36 +37,28 @@ fn serialize_to_bytes<T: Serialize>(value: &T) -> bytes::Bytes {
     let mut cbor_data = Vec::new();
     match into_writer(value, &mut cbor_data) {
         Ok(_) => bytes::Bytes::from(cbor_data),
-        Err(_) => bytes::Bytes::from(INTERNAL_TECHNICAL_ERROR.err_message.as_bytes()),
+        Err(_) => bytes::Bytes::from(INTERNAL_TECHNICAL_ERROR.message.as_bytes()),
     }
 }
 
-impl<T> WebTypeBuilder<T> for CborType<T>
+impl<T> WebTypeBuilder<T, SimpleMessage> for CborType<T>
 where
     T: de::DeserializeOwned + Serialize,
 {
     fn from_simple(code: u16, simple: SimpleMessage) -> Self {
-        Self {
-            http_code: StatusCode::from_u16(code).unwrap(),
-            result: Err(simple),
-        }
+        Self { http_code: StatusCode::from_u16(code).unwrap(), result: Err(simple) }
     }
 
     /// Convert an item to a CborType
     fn from_item(code: u16, item: T) -> Self {
-        Self {
-            http_code: StatusCode::from_u16(code).unwrap(),
-            result: Ok(item),
-        }
+        Self { http_code: StatusCode::from_u16(code).unwrap(), result: Ok(item) }
     }
 
-    /// Convert an ErrorSet to a CborType
-    fn from_errorset(error: &ErrorSet<'static>) -> Self {
+    /// Convert an ApiError to a CborType
+    fn from_api_error(error: &ApiError<'static>) -> Self {
         Self {
             http_code: StatusCode::from_u16(error.http_error_code).unwrap(),
-            result: Err(SimpleMessage {
-                message: error.err_message.to_string(),
-            }),
+            result: Err(SimpleMessage { message: error.message.to_string() }),
         }
     }
 }

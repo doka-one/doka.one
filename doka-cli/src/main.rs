@@ -1,19 +1,20 @@
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
 use std::process::exit;
 
 use anyhow::anyhow;
 
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_value, set_prop_values};
 use commons_error::*;
-use dkconfig::conf_reader::{read_config, read_config_from_path, read_doka_env};
-use dkconfig::properties::{get_prop_value, set_prop_values};
 
-use crate::command_options::{display_commands, load_commands, parse_args, Command, Params};
+use crate::command_options::{Command, Params, display_commands, load_commands, parse_args};
 use crate::customer_commands::{create_customer, delete_customer, disable_customer};
 use crate::file_commands::{file_download, file_info, file_list, file_loading, file_upload};
 use crate::item_commands::{create_item, get_item, item_tag_delete, item_tag_update, search_item};
 use crate::session_commands::session_login;
-use crate::token_commands::{get_target_file, token_generate};
+use crate::token_commands::token_generate;
 
 mod command_options;
 mod customer_commands;
@@ -35,46 +36,37 @@ const FILE_UPLOAD_FAILED: u16 = 110;
 const FILE_DOWNLOAD_FAILED: u16 = 120;
 const SUCCESS: u16 = 0;
 
-fn read_configuration_file() -> anyhow::Result<()> {
-    let doka_env = read_doka_env("DOKA_CLI_ENV");
-    let props = read_config(
-        "doka-cli",
-        &doka_env,
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+const DOKA_CONFIG_FILE_NAME: &str = ".doka-config.json";
 
-    // let config_path = get_target_file("config/application.properties")?;
-    // let config_path_str = config_path.to_str().ok_or(anyhow!("Cannot convert path to str"))?;
-    // println!("Define the properties from file : {}", config_path_str);
-    // let props = read_config_from_path( &config_path )?;
+fn read_configuration_file() -> anyhow::Result<()> {
+    // DOKA_CLI_ENV is interpreted as a directory containing the well-known
+    // config file (DOKA_CONFIG_FILE_NAME). When unset, read_config falls back
+    // to the user's home directory.
+    let doka_env =
+        read_env("DOKA_CLI_ENV").map(|dir| Path::new(&dir).join(DOKA_CONFIG_FILE_NAME).to_string_lossy().into_owned());
+    let props = read_config("doka-cli", &doka_env, &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
 
     Ok(())
 }
 
-fn extract_mandatory_option(
-    options: &HashMap<String, Option<String>>,
-    key: &str,
-) -> anyhow::Result<String> {
-    let opt_value = options
-        .get(key)
-        .ok_or_else(|| anyhow!("💣 Unknown parameter, option=[{}]", key))?;
-    let value = opt_value
-        .as_ref()
-        .ok_or_else(|| anyhow!("💣 Unknown parameter, option=[{}]", key))?;
+fn extract_mandatory_option(options: &HashMap<String, Option<String>>, key: &str) -> anyhow::Result<String> {
+    let opt_value = options.get(key).ok_or_else(|| anyhow!("💣 Unknown parameter, option=[{}]", key))?;
+    let value = opt_value.as_ref().ok_or_else(|| anyhow!("💣 Unknown parameter, option=[{}]", key))?;
     Ok(value.to_owned())
 }
 
-fn extract_option(
-    options: &HashMap<String, Option<String>>,
-    key: &str,
-) -> anyhow::Result<Option<String>> {
+fn extract_option(options: &HashMap<String, Option<String>>, key: &str) -> anyhow::Result<Option<String>> {
     let opt_value = options.get(key);
     match opt_value {
         None => Ok(None),
         Some(o_value) => Ok(o_value.to_owned()),
     }
+}
+
+fn is_known_object(commands: &[Command], object: &str) -> bool {
+    commands.iter().any(|command| command.name == object)
 }
 
 fn dispatch(params: &Params, commands: &[Command]) -> u16 {
@@ -84,33 +76,28 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
             SUCCESS
         }
         ("token", "generate") => {
-            let Ok(cek_file) =
-                extract_mandatory_option(&params.options, "-c").map_err(eprint_fwd!("Error"))
-            else {
+            let Ok(cek_file) = extract_mandatory_option(&params.options, "-c").map_err(eprint_fwd!("Error")) else {
                 return PARAMETER_ERROR;
             };
             let err = token_generate(&cek_file);
             success_or_err(err, GENERATE_TOKEN_FAILED)
         }
         ("customer", "create") => {
-            let Ok((customer_name, email, admin_password)) =
-                (|| -> anyhow::Result<(String, String, String)> {
-                    Ok((
-                        extract_mandatory_option(&params.options, "-n")?,
-                        extract_mandatory_option(&params.options, "-e")?,
-                        extract_mandatory_option(&params.options, "-ap")?,
-                    ))
-                })()
-                .map_err(eprint_fwd!("Error"))
-            else {
+            let Ok((customer_name, email, admin_password)) = (|| -> anyhow::Result<(String, String, String)> {
+                Ok((
+                    extract_mandatory_option(&params.options, "-n")?,
+                    extract_mandatory_option(&params.options, "-e")?,
+                    extract_mandatory_option(&params.options, "-ap")?,
+                ))
+            })()
+            .map_err(eprint_fwd!("Error")) else {
                 return PARAMETER_ERROR;
             };
             let err = create_customer(&customer_name, &email, &admin_password);
             success_or_err(err, CREATE_CUSTOMER_FAILED)
         }
         ("customer", "disable") => {
-            let Ok(customer_code) =
-                extract_mandatory_option(&params.options, "-cc").map_err(eprint_fwd!("Error"))
+            let Ok(customer_code) = extract_mandatory_option(&params.options, "-cc").map_err(eprint_fwd!("Error"))
             else {
                 return PARAMETER_ERROR;
             };
@@ -118,8 +105,7 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
             success_or_err(err, DISABLE_CUSTOMER_FAILED)
         }
         ("customer", "delete") => {
-            let Ok(customer_code) =
-                extract_mandatory_option(&params.options, "-cc").map_err(eprint_fwd!("Error"))
+            let Ok(customer_code) = extract_mandatory_option(&params.options, "-cc").map_err(eprint_fwd!("Error"))
             else {
                 return PARAMETER_ERROR;
             };
@@ -128,10 +114,7 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
         }
         ("session", "login") => {
             let Ok((user_name, user_password)) = (|| -> anyhow::Result<(String, String)> {
-                Ok((
-                    extract_mandatory_option(&params.options, "-u")?,
-                    extract_mandatory_option(&params.options, "-p")?,
-                ))
+                Ok((extract_mandatory_option(&params.options, "-u")?, extract_mandatory_option(&params.options, "-p")?))
             })()
             .map_err(eprint_fwd!("Error")) else {
                 return PARAMETER_ERROR;
@@ -153,22 +136,20 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
             else {
                 return CREATE_ITEM_FAILED;
             };
-            let err = create_item(
-                &item_name,
-                o_file_ref.as_deref(),
-                o_path.as_deref(),
-                o_properties.as_deref(),
-            );
+            let err = create_item(&item_name, o_file_ref.as_deref(), o_path.as_deref(), o_properties.as_deref());
             success_or_err(err, CREATE_ITEM_FAILED)
         }
         ("item", "search") => {
-            let _err = search_item();
-            0
+            let o_filter = extract_option(&params.options, "-f")
+                .ok()
+                .flatten()
+                .or_else(|| extract_option(&params.options, "--filter").ok().flatten());
+            let err = search_item(o_filter.as_deref()).map_err(eprint_fwd!("Search items failed"));
+            dbg!(&err);
+            success_or_err(err, GET_ITEM_FAILED)
         }
         ("item", "get") => {
-            let Ok(id) =
-                extract_mandatory_option(&params.options, "-id").map_err(eprint_fwd!("Error"))
-            else {
+            let Ok(id) = extract_mandatory_option(&params.options, "-id").map_err(eprint_fwd!("Error")) else {
                 return PARAMETER_ERROR;
             };
             let err = get_item(&id);
@@ -222,20 +203,19 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
             success_or_err(err, FILE_DOWNLOAD_FAILED)
         }
         ("file", "info") => {
-            let Ok(file_ref) = (|| -> anyhow::Result<String> {
-                Ok(extract_mandatory_option(&params.options, "-fr")?)
-            })()
-            .map_err(eprint_fwd!("Error")) else {
+            let Ok(file_ref) =
+                (|| -> anyhow::Result<String> { Ok(extract_mandatory_option(&params.options, "-fr")?) })()
+                    .map_err(eprint_fwd!("Error"))
+            else {
                 return PARAMETER_ERROR;
             };
             let err = file_info(&file_ref);
             success_or_err(err, FILE_DOWNLOAD_FAILED)
         }
         ("file", "list") => {
-            let Ok(pattern) = (|| -> anyhow::Result<String> {
-                Ok(extract_mandatory_option(&params.options, "-m")?)
-            })()
-            .map_err(eprint_fwd!("Error")) else {
+            let Ok(pattern) = (|| -> anyhow::Result<String> { Ok(extract_mandatory_option(&params.options, "-m")?) })()
+                .map_err(eprint_fwd!("Error"))
+            else {
                 return PARAMETER_ERROR;
             };
             let err = file_list(&pattern);
@@ -250,11 +230,7 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
 }
 
 fn success_or_err(err: anyhow::Result<()>, err_code: u16) -> u16 {
-    if err.is_err() {
-        err_code
-    } else {
-        SUCCESS
-    }
+    if err.is_err() { err_code } else { SUCCESS }
 }
 
 ///
@@ -279,6 +255,16 @@ fn main() -> () {
     };
 
     // dbg!(&params);
+
+    if !is_known_object(&commands, &params.object) {
+        eprintln!("💣 Unknown object [{}]", &params.object);
+        eprintln!(
+            "Expected one of: {}",
+            commands.iter().map(|command| command.name.as_str()).collect::<Vec<_>>().join(", ")
+        );
+        display_commands(&commands);
+        exit_program(PARAMETER_ERROR as i32);
+    }
 
     match read_configuration_file() {
         Ok(_) => {}

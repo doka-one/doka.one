@@ -2,7 +2,7 @@
 name = "commons-error"
 version = "0.3.0"
 authors = ["dpapin1118 <denis.pro@isd.lu>"]
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,4 +12,5 @@ log = { workspace = true }
 log4rs = { workspace = true }
 
 #[dev-dependencies]
+serde_json = { workspace = true }
 #log4rs = { workspace = true }

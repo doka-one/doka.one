@@ -8,17 +8,17 @@ use axum::Router;
 use log::*;
 use tower_http::cors::{Any, CorsLayer};
 
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use common_config::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_error::*;
 use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
-use dkdto::{
-    DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply,
-    ListOfUploadInfoReply, UploadReply, WebType,
+use dkdto::web_types::{
+    DownloadReply, GetFileInfoReply, GetFileInfoShortReply, ListOfFileInfoReply, ListOfUploadInfoReply, UploadReply,
+    WebType,
 };
 
 use crate::file_delegate::FileDelegate;
@@ -26,17 +26,24 @@ use crate::file_delegate::FileDelegate;
 mod file_delegate;
 
 ///
-/// 🌟  Upload the binary content of a file v2
+/// 🌟  Upload the binary content of a file
 /// item_info : Base64Url encoded information representing a value from the possible target item (for instance, its filename)
 ///
-// #[post("/upload2/<item_info>", data = "<file_data>")]
+// #[post("/upload/<item_info>", data = "<file_data>")]
 pub async fn upload(
+    headers: axum::http::HeaderMap,
     session_token: SessionToken,
     Path(item_info): Path<String>,
     mut file_data: Multipart,
 ) -> WebType<UploadReply> {
+    // Read the file size from the headers
+    let content_length = match headers.get(axum::http::header::CONTENT_LENGTH) {
+        Some(value) => value.to_str().unwrap_or("0").parse::<u64>().ok(),
+        None => None,
+    };
+
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
-    delegate.upload2(&item_info, &mut file_data).await
+    delegate.upload(&item_info, &content_length, &mut file_data).await
 }
 
 ///
@@ -49,10 +56,7 @@ pub async fn file_loading(session_token: SessionToken) -> WebType<ListOfUploadIn
 }
 
 //#[get("/info/<file_ref>")]
-pub async fn file_info(
-    session_token: SessionToken,
-    Path(file_ref): Path<String>,
-) -> WebType<Option<GetFileInfoReply>> {
+pub async fn file_info(session_token: SessionToken, Path(file_ref): Path<String>) -> WebType<Option<GetFileInfoReply>> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.file_info(&file_ref).await
 }
@@ -61,20 +65,14 @@ pub async fn file_info(
 /// 🌟 Get the information about the loading status of a file [file_ref]
 ///
 // #[get("/stats/<file_ref>")]
-pub async fn file_stats(
-    session_token: SessionToken,
-    Path(file_ref): Path<String>,
-) -> WebType<GetFileInfoShortReply> {
+pub async fn file_stats(session_token: SessionToken, Path(file_ref): Path<String>) -> WebType<GetFileInfoShortReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.file_stats(&file_ref).await
 }
 
 /// 🌟 Get the information about the composition of files [pattern of file_ref]
 // #[get("/list/<pattern>")]
-pub async fn file_list(
-    session_token: SessionToken,
-    Path(pattern): Path<String>,
-) -> WebType<ListOfFileInfoReply> {
+pub async fn file_list(session_token: SessionToken, Path(pattern): Path<String>) -> WebType<ListOfFileInfoReply> {
     let mut delegate = FileDelegate::new(session_token, XRequestID::from_value(None));
     delegate.file_list(&pattern).await
 }
@@ -102,22 +100,12 @@ async fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!(
-        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
-        PROJECT_CODE, VAR_NAME
-    );
+    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(
-        PROJECT_CODE,
-        &read_doka_env(&VAR_NAME),
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+    let props = read_config(PROJECT_CODE, &read_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
-        .unwrap_or("".to_string())
-        .parse::<u16>()
-    else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -144,35 +132,28 @@ async fn main() {
     read_cek_and_store();
 
     // Init DB pool
-    let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information"))
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{:?}", e);
-            exit(-64);
-        }
-    };
+    let (connect_string, db_pool_size) =
+        match get_prop_pg_connect_string().map_err(err_fwd!("Cannot read the database connection information")) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("{:?}", e);
+                exit(-64);
+            }
+        };
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
     log_info!("🚀 Start {} on port {}", PROGRAM_NAME, port);
 
     let cors = CorsLayer::new()
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::OPTIONS,
-            Method::PATCH,
-            Method::DELETE,
-        ])
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::PATCH, Method::DELETE])
         .allow_origin(Any) // You can restrict origins instead of using Any
         .allow_headers(Any);
 
     // Build our application with some routes
     let base_url = format!("/{}", PROJECT_CODE);
     let key_routes = Router::new()
-        .route("/upload2/:item_info", post(upload))
+        .route("/upload/:item_info", post(upload))
         .route("/loading", get(file_loading))
         .route("/info/:file_ref", get(file_info))
         .route("/stats/:file_ref", get(file_stats))
@@ -197,12 +178,12 @@ mod test {
     // use std::process::exit;
     // use commons_pg::{init_db_pool, SQLConnection, SQLTransaction};
     // use commons_services::database_lib::open_transaction;
-    // use dkconfig::conf_reader::read_config;
-    // use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+    // use common_config::conf_reader::read_config;
+    // use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
     // //use crate::{insert_document_part, parse_content, select_tsvector};
     // use log::{error,info};
     // use commons_error::*;
-    // use dkconfig::property_name::LOG_CONFIG_FILE_PROPERTY;
+    // use common_config::property_name::LOG_CONFIG_FILE_PROPERTY;
     //
     // fn init_test() {
     //     const PROGRAM_NAME: &str = "Test File Server";
@@ -251,7 +232,7 @@ mod test {
     // #[test]
     // fn test_parse_content() -> anyhow::Result<()> {
     //     init_test();
-    //     let mem_file: Vec<u8> = std::fs::read("C:/Users/denis/wks-poc/tika/big_planet.pdf")?;
+    //     let mem_file: Vec<u8> = std::fs::read("/mnt/blob/Upload/tokenizer_tests/big_planet.pdf")?;
     //     let ret = parse_content("0f373b54-5dbb-4c75-98e7-98fd141593dc", mem_file, "f1248fab", "MY_SID")?;
     //     Ok(())
     // }

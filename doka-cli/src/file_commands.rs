@@ -3,14 +3,15 @@ use std::io::{BufReader, Cursor, Read};
 use std::path::Path;
 
 use anyhow::anyhow;
+use base64::Engine;
 
-use dkconfig::properties::get_prop_value;
+use common_config::properties::get_prop_value;
 use doka_cli::request_client::FileServerClient;
 
 use crate::session_commands::read_session_id;
 
 ///
-pub(crate) fn file_upload(item_info: &str, path :&str) -> anyhow::Result<()> {
+pub(crate) fn file_upload(item_info: &str, path: &str) -> anyhow::Result<()> {
     println!("👶 Uploading the file...");
 
     let server_host = get_prop_value("server.host")?;
@@ -22,25 +23,27 @@ pub(crate) fn file_upload(item_info: &str, path :&str) -> anyhow::Result<()> {
 
     let file = File::open(Path::new(&path))?;
     let mut buf_reader = BufReader::new(file);
-    let mut binary : Vec<u8> = vec![];
+    let mut binary: Vec<u8> = vec![];
     let _n = buf_reader.read_to_end(&mut binary)?;
-    let wr_reply = client.upload(&item_info, &binary, &sid);
+    let encoded_item_info = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(item_info);
+    let wr_reply = client.upload(&encoded_item_info, &binary, &sid);
 
     match wr_reply {
         Ok(reply) => {
-            println!("😎 File successfully uploaded, reference : {}, number of blocks : {} ", reply.file_ref, reply.block_count);
+            println!(
+                "😎 File successfully uploaded, reference : {}, number of blocks : {} ",
+                reply.file_ref, reply.block_count
+            );
             Ok(())
         }
-        Err(e) => {
-            Err(anyhow!("{}", e.message))
-        }
+        Err(e) => Err(anyhow!("{}", e.message)),
     }
 }
 
 ///
 /// Download the content behind the reference into the file at the path
 ///
-pub(crate) fn file_download(path : &str, file_ref: &str) -> anyhow::Result<()> {
+pub(crate) fn file_download(path: &str, file_ref: &str) -> anyhow::Result<()> {
     println!("👶 Downloading the file...");
 
     let server_host = get_prop_value("server.host")?;
@@ -140,13 +143,15 @@ pub(crate) fn file_loading() -> anyhow::Result<()> {
         Ok(reply) => {
             println!("ref.\tinfo\tsession\tstart\tcount\tencrypted");
             for upload in reply.list_of_upload_info {
-                println!("{}\t{}\t{}\t{}\t{}\t{}",
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
                     &upload.file_reference,
                     &upload.item_info,
                     &upload.session_number,
                     &upload.start_date_time,
                     &upload.uploaded_count,
-                    &upload.encrypted_count);
+                    &upload.encrypted_count
+                );
             }
         }
         Err(e) => {

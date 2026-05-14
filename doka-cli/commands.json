@@ -26,13 +26,18 @@
       {
         "name": "generate",
         "description": "Generate a token like the login process but require a secret key instead",
-        "options": [{
-          "description": "Master key of the system",
-          "flags": ["-c", "--cekfile"],
-          "required": true,
-          "hasValue": true,
-          "key": "cekfile"
-        }]
+        "options": [
+          {
+            "description": "Master key of the system",
+            "flags": [
+              "-c",
+              "--cekfile"
+            ],
+            "required": true,
+            "hasValue": true,
+            "key": "cekfile"
+          }
+        ]
       }
     ]
   },
@@ -45,21 +50,30 @@
         "options": [
           {
             "description": "Customer name",
-            "flags": ["-n", "--name"],
+            "flags": [
+              "-n",
+              "--name"
+            ],
             "required": true,
             "hasValue": true,
             "key": "name"
           },
           {
             "description": "Customer email",
-            "flags": ["-e", "--email"],
+            "flags": [
+              "-e",
+              "--email"
+            ],
             "required": true,
             "hasValue": true,
             "key": "email"
           },
           {
             "description": "Admin user password",
-            "flags": ["-ap", "--admin-password"],
+            "flags": [
+              "-ap",
+              "--admin-password"
+            ],
             "required": true,
             "hasValue": true,
             "key": "admin-password"
@@ -72,7 +86,10 @@
         "options": [
           {
             "description": "Customer name",
-            "flags": ["-n", "--name"],
+            "flags": [
+              "-n",
+              "--name"
+            ],
             "required": true,
             "hasValue": true,
             "key": "name"
@@ -82,35 +99,78 @@
     ]
   },
   {
-    "name": "item",
-    "sub" : [
+    "name": "session",
+    "sub": [
       {
-        "name" : "create",
-        "description" : "Create a new item",
+        "name": "login",
+        "description": "Open a session by logging in with a user name and password",
         "options": [
           {
-            "flags": ["-n", "--name"],
+            "description": "User name",
+            "flags": [
+              "-u",
+              "--username"
+            ],
+            "required": true,
+            "hasValue": true,
+            "key": "username"
+          },
+          {
+            "description": "User password",
+            "flags": [
+              "-p",
+              "--password"
+            ],
+            "required": true,
+            "hasValue": true,
+            "key": "password"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item",
+    "sub": [
+      {
+        "name": "create",
+        "description": "Create a new item",
+        "options": [
+          {
+            "flags": [
+              "-n",
+              "--name"
+            ],
             "description": "item name",
             "required": true,
             "hasValue": true,
             "key": "name"
           },
           {
-            "flags": ["-fr", "--file-ref"],
+            "flags": [
+              "-fr",
+              "--file-ref"
+            ],
             "description": "File reference",
             "required": false,
             "hasValue": true,
             "key": "_"
           },
           {
-            "flags": ["-pt", "--path"],
+            "flags": [
+              "-pt",
+              "--path"
+            ],
             "description": "File path",
             "required": false,
             "hasValue": true,
             "key": "_"
           },
           {
-            "flags": ["-p", "--properties"],
+            "flags": [
+              "-p",
+              "--properties"
+            ],
             "description": "List of properties",
             "required": false,
             "hasValue": true,
@@ -119,17 +179,29 @@
         ]
       },
       {
-        "name" : "search",
-        "description" : "Search items",
+        "name": "search",
+        "description": "Search items",
         "options": [
+          {
+            "flags": [
+              "-f",
+              "--filter"
+            ],
+            "description": "Filter expression (e.g. \"category=test\")",
+            "required": false,
+            "hasValue": true,
+            "key": "filter"
+          }
         ]
       },
       {
-        "name" : "get",
-        "description" : "Get items info",
+        "name": "get",
+        "description": "Get items info",
         "options": [
           {
-            "flags": ["-id"],
+            "flags": [
+              "-id"
+            ],
             "description": "item identifier",
             "required": true,
             "hasValue": true,
@@ -138,25 +210,33 @@
         ]
       },
       {
-        "name" : "tag",
-        "description" : "Manage the item tags",
+        "name": "tag",
+        "description": "Manage the item tags",
         "options": [
           {
-            "flags": ["-id"],
+            "flags": [
+              "-id"
+            ],
             "description": "item identifier",
             "required": true,
             "hasValue": true,
             "key": "id"
           },
           {
-            "flags": ["-d", "--delete"],
+            "flags": [
+              "-d",
+              "--delete"
+            ],
             "description": "delete the tags",
             "required": false,
             "hasValue": true,
             "key": "d"
           },
           {
-            "flags": ["-u", "--update"],
+            "flags": [
+              "-u",
+              "--update"
+            ],
             "description": "add the tags or change the values",
             "required": true,
             "hasValue": true,

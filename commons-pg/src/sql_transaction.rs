@@ -7,10 +7,10 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use lazy_static::*;
 use log::*;
 use mut_static::MutStatic;
-use postgres::{NoTls, Transaction};
 use postgres::types::ToSql;
-use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use postgres::{NoTls, Transaction};
 use r2d2_postgres::r2d2::{Pool, PooledConnection};
+use r2d2_postgres::{r2d2, PostgresConnectionManager};
 
 use commons_error::*;
 
@@ -20,13 +20,8 @@ lazy_static! {
 
 // TODO forward the error
 pub fn init_db_pool(connect_string: &str, pool_size: u32) {
-    let pool = SQLPool::new(connect_string, pool_size)
-        .map_err(err_fwd!("Cannot create the static pool"))
-        .unwrap();
-    let _ = SQL_POOL
-        .set(pool)
-        .map_err(err_fwd!("Cannot create the static pool"))
-        .unwrap();
+    let pool = SQLPool::new(connect_string, pool_size).map_err(err_fwd!("Cannot create the static pool")).unwrap();
+    let _ = SQL_POOL.set(pool).map_err(err_fwd!("Cannot create the static pool")).unwrap();
 }
 
 /// Analyse the template query with named params and compare it to the list of input parameters.
@@ -90,30 +85,27 @@ pub struct SQLPool {
 
 impl SQLPool {
     pub fn new(connect_string: &str, pool_size: u32) -> anyhow::Result<Self> {
+        Self::new_with_timeout(connect_string, pool_size, Duration::from_secs(2 * 3600))
+    }
+
+    fn new_with_timeout(connect_string: &str, pool_size: u32, connection_timeout: Duration) -> anyhow::Result<Self> {
         let manager = PostgresConnectionManager::new(connect_string.parse()?, NoTls);
 
         let pool = r2d2::Pool::builder()
             .max_size(pool_size)
-            .connection_timeout(Duration::from_secs(2 * 3600))
+            .connection_timeout(connection_timeout)
             //.idle_timeout(Some(Duration::from_secs(3600)))
             .build(manager)
-            .map_err(err_fwd!(
-                "Cannot create the PG connection pool for db [{}]",
-                connect_string
-            ))?;
+            .map_err(err_fwd!("Cannot create the PG connection pool for db [{}]", connect_string))?;
 
         Ok(Self { pool })
     }
 
-    pub fn pick_connection(
-        &self,
-    ) -> anyhow::Result<PooledConnection<PostgresConnectionManager<NoTls>>> {
+    pub fn pick_connection(&self) -> anyhow::Result<PooledConnection<PostgresConnectionManager<NoTls>>> {
         // Pick a connection from the pool and get the transaction
         let mut my_pool = self.pool.clone();
         let pool = my_pool.borrow_mut();
-        let client = pool
-            .get()
-            .map_err(err_fwd!("Client from the Connection pool failed"))?;
+        let client = pool.get().map_err(err_fwd!("Client from the Connection pool failed"))?;
         Ok(client)
     }
 }
@@ -136,27 +128,18 @@ impl SQLConnection {
         //     }
         // };
 
-        let c = pool
-            .pick_connection()
-            .map_err(err_fwd!("Connection pickup failed"))?;
+        let c = pool.pick_connection().map_err(err_fwd!("Connection pickup failed"))?;
         Ok(SQLConnection { client: c })
     }
 
     pub fn from_sql_pool(sql_pool: &SQLPool) -> anyhow::Result<SQLConnection> {
-        let client = sql_pool
-            .pick_connection()
-            .map_err(err_fwd!("Connection pickup failed"))?;
+        let client = sql_pool.pick_connection().map_err(err_fwd!("Connection pickup failed"))?;
         Ok(SQLConnection { client })
     }
 
     pub fn sql_transaction(&'_ mut self) -> anyhow::Result<SQLTransaction<'_>> {
-        let t = self
-            .client
-            .transaction()
-            .map_err(err_fwd!("Open transaction failed"))?;
-        Ok(SQLTransaction {
-            inner_transaction: t,
-        })
+        let t = self.client.transaction().map_err(err_fwd!("Open transaction failed"))?;
+        Ok(SQLTransaction { inner_transaction: t })
     }
 }
 
@@ -200,6 +183,14 @@ impl SQLDataSet {
 
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    pub fn get_cell(&self, col_name: &str) -> Option<&CellValue> {
+        if self.position < 1 || self.position > self.data.len() {
+            return None;
+        }
+
+        self.data.deref().get(self.position - 1)?.get(col_name)
     }
 
     pub fn get_int(&self, col_name: &str) -> Option<i64> {
@@ -278,9 +269,7 @@ impl SQLDataSet {
             return None;
         }
 
-        let opt_dt = self
-            .get_timestamp(col_name)
-            .map(|st| Self::system_time_to_date_time(&st));
+        let opt_dt = self.get_timestamp(col_name).map(|st| Self::system_time_to_date_time(&st));
         opt_dt
     }
 
@@ -311,9 +300,7 @@ pub fn iso_to_datetime(dt_str: &str) -> anyhow::Result<DateTime<Utc>> {
 
 pub fn iso_to_naivedate(d_str: &str) -> anyhow::Result<NaiveDate> {
     let dt_s = format!("{}T12:00:00Z", d_str);
-    let dt = DateTime::parse_from_rfc3339(&dt_s)?
-        .with_timezone(&Utc)
-        .date_naive();
+    let dt = DateTime::parse_from_rfc3339(&dt_s)?.with_timezone(&Utc).date_naive();
     anyhow::Result::Ok(dt)
 }
 
@@ -332,8 +319,9 @@ pub fn naivedatetime_to_iso(d: &NaiveDateTime) -> String {
 // TODO we can get rid of it when we replace SystemTime with NaiveDateTime
 pub fn naive_datetime_to_system_time(opt_naive: Option<NaiveDateTime>) -> Option<SystemTime> {
     opt_naive.map(|naive| {
-        let duration_since_epoch = Duration::from_secs(naive.timestamp() as u64)
-            + Duration::from_nanos(naive.timestamp_subsec_nanos() as u64);
+        let utc = naive.and_utc();
+        let duration_since_epoch =
+            Duration::from_secs(utc.timestamp() as u64) + Duration::from_nanos(utc.timestamp_subsec_nanos() as u64);
         UNIX_EPOCH + duration_since_epoch
     })
 }
@@ -520,8 +508,7 @@ impl SQLQueryBlock {
         // p_name => 0, p_id => 1
 
         let null_str = "".to_owned();
-        let (mut new_sql_string, v_params) =
-            parse_query(self.sql_query.as_str(), &self.params, &null_str);
+        let (mut new_sql_string, v_params) = parse_query(self.sql_query.as_str(), &self.params, &null_str);
 
         match self.length {
             None => {
@@ -535,10 +522,7 @@ impl SQLQueryBlock {
         let result_set = sql_transaction
             .inner_transaction
             .query(new_sql_string.as_str(), v_params.as_slice())
-            .map_err(err_fwd!(
-                "Sql query failed, sql [{}]",
-                new_sql_string.as_str()
-            ))?;
+            .map_err(err_fwd!("Sql query failed, sql [{}]", new_sql_string.as_str()))?;
 
         let mut result: Vec<HashMap<String, CellValue>> = vec![];
 
@@ -607,10 +591,7 @@ impl SQLQueryBlock {
             result.push(my_row);
         }
 
-        Ok(SQLDataSet {
-            position: 0,
-            data: Box::new(result),
-        })
+        Ok(SQLDataSet { position: 0, data: Box::new(result) })
     }
 }
 
@@ -627,27 +608,20 @@ impl SQLChange {
         let _ = sql_transaction
             .inner_transaction
             .batch_execute(self.sql_query.as_str())
-            .map_err(err_fwd!(
-                "Batch execution failed, sql [{}]",
-                self.sql_query.as_str()
-            ))?;
+            .map_err(err_fwd!("Batch execution failed, sql [{}]", self.sql_query.as_str()))?;
 
         Ok(())
     }
 
     fn execute(&self, sql_transaction: &mut SQLTransaction) -> anyhow::Result<u64> {
         let null_str = "".to_owned();
-        let (new_sql_string, v_params) =
-            parse_query(self.sql_query.as_str(), &self.params, &null_str);
+        let (new_sql_string, v_params) = parse_query(self.sql_query.as_str(), &self.params, &null_str);
 
         log_debug!("New sql query : [{}]", &new_sql_string);
         let change_query_info = sql_transaction
             .inner_transaction
             .execute(new_sql_string.as_str(), v_params.as_slice())
-            .map_err(err_fwd!(
-                "Query execution failed, sql [{}]",
-                new_sql_string.as_str()
-            ))?;
+            .map_err(err_fwd!("Query execution failed, sql [{}]", new_sql_string.as_str()))?;
 
         log_debug!("change query info: [{}]", &change_query_info);
         Ok(change_query_info)
@@ -685,6 +659,7 @@ impl SQLChange {
     }
 }
 
+/// All the tests are ignored because to specific for a database schema.
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -695,16 +670,93 @@ mod tests {
 
     use commons_error::*;
 
-    use crate::sql_transaction::{
-        CellValue, init_db_pool, SQLChange, SQLConnection, SQLPool, SQLQueryBlock,
-    };
+    use serde_json::Value;
+    use std::env;
+    use std::fs::read_to_string;
+
+    fn replace_value_with_constants(value: &str, constants: &HashMap<String, String>) -> String {
+        let mut resolved_value = value.to_string();
+
+        for (const_key, const_value) in constants {
+            let placeholder = format!("${{{}}}", const_key);
+            if resolved_value.contains(&placeholder) {
+                resolved_value = resolved_value.replace(&placeholder, const_value);
+            }
+        }
+
+        resolved_value
+    }
+
+    fn session_manager_log_config_from_file(config_file: &Path) -> anyhow::Result<std::path::PathBuf> {
+        let json_data = read_to_string(config_file)?;
+        let root: Value = serde_json::from_str(&json_data)?;
+        let clusters =
+            root.get("clusters").and_then(Value::as_array).ok_or_else(|| anyhow::anyhow!("Missing clusters array"))?;
+
+        let profile = env::var("DOKA_CLUSTER_PROFILE").expect("DOKA_CLUSTER_PROFILE must be set for commons-pg tests");
+        let selected_cluster = clusters
+            .iter()
+            .find(|cluster| cluster.get("name").and_then(Value::as_str) == Some(profile.as_str()))
+            .ok_or_else(|| anyhow::anyhow!("Cluster profile not found: {}", profile))?;
+
+        let mut constants = HashMap::new();
+        if let Some(obj) = selected_cluster.get("constants").and_then(Value::as_object) {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    constants.insert(k.clone(), s.to_string());
+                }
+            }
+        }
+        let os_key = if cfg!(target_os = "linux") {
+            Some("constants_linux")
+        } else if cfg!(target_os = "windows") {
+            Some("constants_windows")
+        } else {
+            None
+        };
+        if let Some(os_key) = os_key {
+            if let Some(obj) = selected_cluster.get(os_key).and_then(Value::as_object) {
+                for (k, v) in obj {
+                    if let Some(s) = v.as_str() {
+                        constants.insert(k.clone(), s.to_string());
+                    }
+                }
+            }
+        }
+
+        let service = selected_cluster
+            .get("services")
+            .and_then(Value::as_array)
+            .and_then(|services| {
+                services.iter().find(|service| service.get("name").and_then(Value::as_str) == Some("session-manager"))
+            })
+            .ok_or_else(|| anyhow::anyhow!("session-manager service not found"))?;
+
+        let log_config = service
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|props| props.get("log4rs.config"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("session-manager.log4rs.config not found"))?;
+
+        Ok(std::path::PathBuf::from(replace_value_with_constants(log_config, &constants)))
+    }
+
+    use crate::sql_transaction::{init_db_pool, CellValue, SQLChange, SQLConnection, SQLPool, SQLQueryBlock};
+    use std::time::Duration;
 
     static INIT: Once = Once::new();
 
     fn init() {
         INIT.call_once(|| {
-            let log_config: String = "E:/doka-configs/dev/ppm/config/log4rs.yaml".to_string();
-            let log_config_path = Path::new(&log_config);
+            let doka_env = env::var("DOKA_ENV").expect("DOKA_ENV must be set for commons-pg tests");
+            let log_config_path = match session_manager_log_config_from_file(Path::new(&doka_env)) {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("Cannot resolve session-manager log4rs.config from {:?}: {:?}", &doka_env, e);
+                    exit(-59);
+                }
+            };
 
             match log4rs::init_file(&log_config_path, Default::default()) {
                 Err(e) => {
@@ -716,48 +768,45 @@ mod tests {
         });
     }
 
+    #[ignore]
     #[test]
     fn a10_faulty_connection() {
         init();
 
-        let r_sql_pool = SQLPool::new(
+        let r_sql_pool = SQLPool::new_with_timeout(
             "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=wrong_pass.",
             1,
+            Duration::from_secs(1),
         )
         .map_err(err_fwd!("Fail the pool"));
 
         assert!(r_sql_pool.is_err());
     }
 
+    #[ignore]
     #[test]
     fn a20_simple_query() -> anyhow::Result<()> {
         init();
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
         let mut cnx = SQLConnection::new().map_err(err_fwd!("New Sql connection failed"))?;
-        let mut trans = cnx
-            .sql_transaction()
-            .map_err(err_fwd!("Error transaction"))?;
+        let mut trans = cnx.sql_transaction().map_err(err_fwd!("Error transaction"))?;
 
         let query = SQLQueryBlock {
-            sql_query: "SELECT id, customer_name, ciphered_password FROM public.keys ORDER BY customer_name".to_string(),
+            sql_query: "SELECT id, customer_name, ciphered_password FROM public.keys ORDER BY customer_name"
+                .to_string(),
             start: 0,
             length: Some(10),
             params: HashMap::new(),
         };
 
-        let mut sql_result = query
-            .execute(&mut trans)
-            .map_err(err_fwd!("Query failed"))?;
+        let mut sql_result = query.execute(&mut trans).map_err(err_fwd!("Query failed"))?;
 
         trans.commit()?;
 
         if sql_result.next() {
             let id = sql_result.get_int("id");
-            if let Some(val) = id {
+            if let Some(_) = id {
                 assert!(true);
             }
         } else {
@@ -767,6 +816,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn a30_param_request() {
         init();
@@ -776,33 +826,17 @@ mod tests {
                                     WHERE name like :p_name AND ( :p_name IS NOT NULL )
                                     AND id > :p_id AND  :p_id < 400 "#;
 
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
-        let mut cnx = SQLConnection::new()
-            .map_err(err_fwd!("Connection issue"))
-            .unwrap();
+        let mut cnx = SQLConnection::new().map_err(err_fwd!("Connection issue")).unwrap();
 
-        let mut trans = cnx
-            .sql_transaction()
-            .map_err(err_fwd!("Transaction issue"))
-            .unwrap();
+        let mut trans = cnx.sql_transaction().map_err(err_fwd!("Transaction issue")).unwrap();
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
-        params.insert(
-            "p_name".to_owned(),
-            CellValue::from_raw_string("A%".to_owned()),
-        );
+        params.insert("p_name".to_owned(), CellValue::from_raw_string("A%".to_owned()));
         params.insert("p_id".to_owned(), CellValue::from_raw_int(180));
 
-        let query = SQLQueryBlock {
-            sql_query: sql_string.to_string(),
-            start: 0,
-            length: Some(10),
-            params,
-        };
+        let query = SQLQueryBlock { sql_query: sql_string.to_string(), start: 0, length: Some(10), params };
 
         let mut data_set = query.execute(&mut trans).unwrap();
 
@@ -811,46 +845,37 @@ mod tests {
         }
 
         while data_set.next() {
-            let id = data_set.get_int("id");
-            let name = data_set.get_string("name");
-            let the_type = data_set.get_string("type");
-            let created = data_set.get_timestamp("created");
-            let last_modified = data_set.get_timestamp("last_modified");
+            let _id = data_set.get_int("id");
+            let _name = data_set.get_string("name");
+            let _the_type = data_set.get_string("type");
+            let _created = data_set.get_timestamp("created");
+            let _last_modified = data_set.get_timestamp("last_modified");
 
-            let category_id = data_set.get_int("category_id");
-            let tag_country = data_set.get_string("tag_country");
+            let _category_id = data_set.get_int("category_id");
+            let _tag_country = data_set.get_string("tag_country");
         }
 
         assert!(data_set.len() > 0);
         assert_eq!(data_set.position, data_set.len());
     }
 
+    #[ignore]
     #[test]
     fn a40_insert_row() {
         init();
 
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
-        let mut cnx = SQLConnection::new()
-            .map_err(err_fwd!("Connection issue"))
-            .unwrap();
-        let mut trans = cnx
-            .sql_transaction()
-            .map_err(err_fwd!("Transaction issue"))
-            .unwrap();
+        let mut cnx = SQLConnection::new().map_err(err_fwd!("Connection issue")).unwrap();
+        let mut trans = cnx.sql_transaction().map_err(err_fwd!("Transaction issue")).unwrap();
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
         params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(26));
-        params.insert(
-            "p_customer_key".to_owned(),
-            CellValue::from_raw_string("The Encrypted Key".to_string()),
-        );
+        params.insert("p_customer_key".to_owned(), CellValue::from_raw_string("The Encrypted Key".to_string()));
 
         let query = SQLChange {
-            sql_query: "INSERT INTO keys (customer_name, ciphered_password) VALUES (:p_customer_id, :p_customer_key)".to_string(),
+            sql_query: "INSERT INTO keys (customer_name, ciphered_password) VALUES (:p_customer_id, :p_customer_key)"
+                .to_string(),
             params,
             sequence_name: "keys_id_seq".to_string(),
         };
@@ -863,27 +888,23 @@ mod tests {
         assert!(id > 10)
     }
 
+    #[ignore]
     #[test]
     fn update_row() {
         init();
 
-        init_db_pool(
-            "host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.",
-            2,
-        );
+        init_db_pool("host=pg13 port=5432 dbname=p2_prod_2 user=denis password=Oratece4.", 2);
 
         let mut cnx = SQLConnection::new().unwrap();
         let mut trans = cnx.sql_transaction().unwrap();
 
         let mut params: HashMap<String, CellValue> = HashMap::new();
         params.insert("p_customer_id".to_owned(), CellValue::from_raw_int(10));
-        params.insert(
-            "p_customer_key".to_owned(),
-            CellValue::from_raw_string("N/A".to_string()),
-        );
+        params.insert("p_customer_key".to_owned(), CellValue::from_raw_string("N/A".to_string()));
 
         let query = SQLChange {
-            sql_query: "UPDATE public.keys SET ciphered_password = :p_customer_key WHERE id > :p_customer_id".to_string(),
+            sql_query: "UPDATE public.keys SET ciphered_password = :p_customer_key WHERE id > :p_customer_id"
+                .to_string(),
             params,
             sequence_name: "".to_string(),
         };
@@ -902,6 +923,7 @@ mod tests {
         }
     }
 
+    #[ignore]
     #[test]
     fn test_anyhow_4() {
         init();
@@ -911,23 +933,19 @@ mod tests {
         // let _res = open_file_anyhow_4().map_err(err_fwd!("Second error by anyhow [{}] [{}]", &var, &txt) );
 
         let filename = "bar.txt";
-        let _f = File::open(filename).map_err(err_fwd!(
-            "First error managed by anyhow, filename=[{}]",
-            filename
-        ));
+        let _f = File::open(filename).map_err(err_fwd!("First error managed by anyhow, filename=[{}]", filename));
     }
 
+    #[ignore]
     #[test]
     fn test_pg() {
         use postgres::{Client, NoTls};
 
         init();
 
-        let mut client = Client::connect(
-            "host=postgresql95-c1 port=5433 dbname=p2_prod_2 user=denis password=Oratece4.",
-            NoTls,
-        )
-        .unwrap();
+        let mut client =
+            Client::connect("host=postgresql95-c1 port=5433 dbname=p2_prod_2 user=denis password=Oratece4.", NoTls)
+                .unwrap();
 
         //     client.batch_execute("
         // CREATE TABLE person (
@@ -944,12 +962,7 @@ mod tests {
         //     &[&name, &data],
         // )?;
 
-        for row in client
-            .query(
-                "SELECT customer_id, customer_key FROM public.keys ORDER BY customer_id",
-                &[],
-            )
-            .unwrap()
+        for row in client.query("SELECT customer_id, customer_key FROM public.keys ORDER BY customer_id", &[]).unwrap()
         {
             let id: i64 = row.get(0);
             let name: &str = row.get(1);

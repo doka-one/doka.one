@@ -3,8 +3,8 @@ use std::io::{BufReader, Read, Write};
 
 use anyhow::anyhow;
 
-use dkconfig::properties::get_prop_value;
-use dkdto::LoginRequest;
+use common_config::properties::get_prop_value;
+use dkdto::web_types::LoginRequest;
 use doka_cli::request_client::AdminServerClient;
 
 use crate::token_commands::get_target_file;
@@ -13,15 +13,12 @@ use crate::token_commands::get_target_file;
 pub(crate) fn session_login(user_name: &str, user_password: &str) -> anyhow::Result<()> {
     println!("👶 Open a session...");
 
-    let working_folder = get_prop_value("working.folder")?;
+    let _working_folder = get_prop_value("working.folder")?;
     let server_host = get_prop_value("server.host")?;
     let admin_server_port: u16 = get_prop_value("as.port")?.parse()?;
     println!("Admin server port : {}", admin_server_port);
     let client = AdminServerClient::new(&server_host, admin_server_port);
-    let login_request = LoginRequest {
-        login: user_name.to_owned(),
-        password: user_password.to_owned(),
-    };
+    let login_request = LoginRequest { login: user_name.to_owned(), password: user_password.to_owned() };
 
     match client.login(&login_request) {
         Ok(reply) => {
@@ -29,10 +26,7 @@ pub(crate) fn session_login(user_name: &str, user_password: &str) -> anyhow::Res
             println!("Connected as customer {}", &customer_code);
             write_session_id(&reply.session_id)?;
 
-            println!(
-                "😎 Session successfully opened, session id : {}... ",
-                &reply.session_id[0..7]
-            );
+            println!("😎 Session successfully opened, session id : {}... ", &reply.session_id[0..7]);
             Ok(())
         }
         Err(e) => {

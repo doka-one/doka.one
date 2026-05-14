@@ -24,9 +24,8 @@ pub const TAMIL: LanguageCode = ("tamil", "ta", "tam");
 pub const TURKISH: LanguageCode = ("turkish", "tr", "tur");
 
 pub static LANGUAGES: [LanguageCode; 22] = [
-    ARABIC, DANISH, DUTCH, ENGLISH, FINNISH, FRENCH, GERMAN, GREEK, HUNGARIAN, INDONESIAN, IRISH,
-    ITALIAN, LITHUANIAN, NEPALI, NORWEGIAN, PORTUGUESE, ROMANIAN, RUSSIAN, SPANISH, SWEDISH, TAMIL,
-    TURKISH,
+    ARABIC, DANISH, DUTCH, ENGLISH, FINNISH, FRENCH, GERMAN, GREEK, HUNGARIAN, INDONESIAN, IRISH, ITALIAN, LITHUANIAN,
+    NEPALI, NORWEGIAN, PORTUGUESE, ROMANIAN, RUSSIAN, SPANISH, SWEDISH, TAMIL, TURKISH,
 ];
 
 // pub(crate) fn lang_code_2_from( lang_name: &'_ str) -> &'_ str {
@@ -85,7 +84,7 @@ mod test {
     // use lingua::Language::{English, French, German, Spanish};
     use crate::language::{lang_name_from_code_2, map_code};
 
-// #[test]
+    // #[test]
     // fn test_search_code2() {
     //     let code = lang_code_2_from("french");
     //     assert_eq!("fr", code);

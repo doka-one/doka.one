@@ -1,12 +1,172 @@
 use std::cell::RefCell;
+use std::fmt;
 
-use crate::filter::filter_ast::Token::{LogicalClose, LogicalOpen};
-use crate::filter::filter_ast::{LogicalOperator, PositionalToken, Token};
+use crate::filter::filter_lexer::Token::{LogicalClose, LogicalOpen};
+use crate::filter::ComparisonOperator;
 use crate::filter::ComparisonOperator::{EQ, GT, GTE, LIKE, LT, LTE, NEQ};
 use commons_error::*;
-use log::{debug, error, info};
+use log::error;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogicalOperator {
+    AND,
+    OR,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PositionalToken<T> {
+    pub token: T,
+    pub position: usize,
+}
+
+impl<T> PositionalToken<T> {
+    pub fn new(token: T, position: usize) -> Self {
+        Self { token, position }
+    }
+}
+
+/// One segment of a `LIKE` value, as captured by the lexer.
+///
+/// A bare `%` in the source (inside a `LIKE` string literal) becomes an
+/// `AnySequence`. An escaped `#%` is consumed as a literal `%` and ends up
+/// inside the surrounding `Literal(...)` segment. Adjacent literal characters
+/// are merged into a single `Literal`; consecutive `AnySequence` parts are
+/// collapsed into one. See F0001.md for the full spec.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PatternPart {
+    Literal(String),
+    AnySequence,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Token {
+    Attribute(PositionalToken<String>),
+    Operator(PositionalToken<ComparisonOperator>),
+    ValueInt(PositionalToken<i32>),
+    ValueString(PositionalToken<String>),
+    ValuePattern(PositionalToken<Vec<PatternPart>>),
+    ValueBool(PositionalToken<bool>),
+    BinaryLogicalOperator(PositionalToken<LogicalOperator>),
+    ConditionOpen(PositionalToken<()>),  // [
+    ConditionClose(PositionalToken<()>), // ]
+    LogicalOpen(PositionalToken<()>),    // (
+    LogicalClose(PositionalToken<()>),   // ]
+}
+
+impl Token {
+    /// Test if the token is LogicalOpen
+    pub fn is_logical_open(&self) -> bool {
+        matches!(self, Token::LogicalOpen(_))
+    }
+
+    /// Test if the token is LogicalClose
+    pub fn is_logical_close(&self) -> bool {
+        matches!(self, Token::LogicalClose(_))
+    }
+
+    /// Test if the token is ConditionOpen
+    pub fn is_condition_open(&self) -> bool {
+        matches!(self, Token::ConditionOpen(_))
+    }
+
+    /// Test if the token is ConditionClose
+    pub fn is_condition_close(&self) -> bool {
+        matches!(self, Token::ConditionClose(_))
+    }
+
+    /// Extracts the position from the PositionalToken, regardless of the variant.
+    pub fn position(&self) -> usize {
+        match self {
+            Token::Attribute(p) => p.position,
+            Token::Operator(p) => p.position,
+            Token::ValueInt(p) => p.position,
+            Token::ValueString(p) => p.position,
+            Token::ValuePattern(p) => p.position,
+            Token::ValueBool(p) => p.position,
+            Token::BinaryLogicalOperator(p) => p.position,
+            Token::ConditionOpen(p) => p.position,
+            Token::ConditionClose(p) => p.position,
+            Token::LogicalOpen(p) => p.position,
+            Token::LogicalClose(p) => p.position,
+        }
+    }
+
+    pub fn move_position(&mut self, nb: i32) {
+        match self {
+            Token::Attribute(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::Operator(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValueInt(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValueString(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValuePattern(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValueBool(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::BinaryLogicalOperator(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ConditionOpen(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ConditionClose(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::LogicalOpen(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::LogicalClose(p) => p.position = (p.position as i32 + nb) as usize,
+        }
+    }
+}
+
+pub struct TokenSlice<'a>(pub &'a [Token]);
+
+impl<'a> fmt::Display for TokenSlice<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for token in self.0 {
+            write!(f, "{} ", token)?;
+        }
+        Ok(())
+    }
+}
+
+// for debug only
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Token::Attribute(pt) => write!(f, "{}", pt.token),
+            Token::Operator(pt) => write!(
+                f,
+                "{}",
+                match pt.token {
+                    ComparisonOperator::EQ => "=",
+                    ComparisonOperator::NEQ => "!=",
+                    ComparisonOperator::GT => ">",
+                    ComparisonOperator::GTE => ">=",
+                    ComparisonOperator::LT => "<",
+                    ComparisonOperator::LTE => "<=",
+                    ComparisonOperator::LIKE => "LIKE",
+                }
+            ),
+            Token::ValueInt(pt) => write!(f, "{}", pt.token),
+            Token::ValueString(pt) => write!(f, "\"{}\"", pt.token),
+            Token::ValuePattern(pt) => {
+                write!(f, "\"")?;
+                for part in &pt.token {
+                    match part {
+                        PatternPart::Literal(s) => write!(f, "{}", s)?,
+                        PatternPart::AnySequence => write!(f, r"\%\")?,
+                    }
+                }
+                write!(f, "\"")
+            }
+            Token::ValueBool(pt) => write!(f, "{}", pt.token),
+            Token::BinaryLogicalOperator(pt) => write!(
+                f,
+                "{}",
+                match pt.token {
+                    LogicalOperator::AND => "AND",
+                    LogicalOperator::OR => "OR",
+                }
+            ),
+            Token::ConditionOpen(_) => write!(f, "["),
+            Token::ConditionClose(_) => write!(f, "]"),
+            Token::LogicalOpen(_) => write!(f, "("),
+            Token::LogicalClose(_) => write!(f, ")"),
+        }
+    }
+}
 
 enum ExpressionExpectedLexeme {
     ExpressionOrCondition,
@@ -42,6 +202,7 @@ pub(crate) enum FilterErrorCode {
     AttributeExpected,
     OpeningExpected,
     ClosingExpected,
+    InvalidEscapeSequence,
 }
 
 #[derive(Debug)]
@@ -53,63 +214,52 @@ pub(crate) struct FilterError {
 impl FilterError {
     pub(crate) fn human_error_message(&self) -> String {
         match self.error_code {
-            FilterErrorCode::EmptyCondition => format!(
-                "Nothing to read inside a condition at position {}",
-                self.char_position
-            ),
-            FilterErrorCode::EmptyLogicalOperation => format!(
-                "Nothing to read inside a logical operation at position  {}",
-                self.char_position
-            ),
+            FilterErrorCode::EmptyCondition => {
+                format!("Nothing to read inside a condition at position {}", self.char_position)
+            }
+            FilterErrorCode::EmptyLogicalOperation => {
+                format!("Nothing to read inside a logical operation at position  {}", self.char_position)
+            }
             FilterErrorCode::WrongLogicalOperator => {
-                format!(
-                    "Unknown logical operator at position {}",
-                    self.char_position
-                )
+                format!("Unknown logical operator at position {}", self.char_position)
             }
             FilterErrorCode::UnknownFilterOperator => {
                 format!("Unknown filter operator at position {}", self.char_position)
             }
-            FilterErrorCode::WrongNumericValue => format!(
-                "The value in the condition is not a valid number at position {}",
-                self.char_position
-            ),
+            FilterErrorCode::WrongNumericValue => {
+                format!("The value in the condition is not a valid number at position {}", self.char_position)
+            }
             FilterErrorCode::UnclosedQuote => {
                 format!("Missing closing quote  at position {}", self.char_position)
             }
             FilterErrorCode::IncorrectAttributeChar => {
                 format!("Wrong char in attribute at position {}", self.char_position)
             }
-            FilterErrorCode::IncompleteExpression => format!(
-                "Looks like your filter is not complete at position {}",
-                self.char_position
-            ),
+            FilterErrorCode::IncompleteExpression => {
+                format!("Looks like your filter is not complete at position {}", self.char_position)
+            }
             FilterErrorCode::InvalidLogicalDepth => {
                 format!("Too many parenthesis at position {}", self.char_position)
             }
             FilterErrorCode::ValueExpected => {
                 format!("A value was expected at position {}", self.char_position)
             }
-            FilterErrorCode::LogicalOperatorExpected => format!(
-                "A logical operator was expected at position {}",
-                self.char_position
-            ),
-            FilterErrorCode::OperatorExpected => format!(
-                "An operator was expected at position {}",
-                self.char_position
-            ),
-            FilterErrorCode::AttributeExpected => format!(
-                "An attribute was expected at position {}",
-                self.char_position
-            ),
-            FilterErrorCode::OpeningExpected => format!(
-                "An opening parenthesis was expected at position {}",
-                self.char_position
-            ),
-            FilterErrorCode::ClosingExpected => format!(
-                "A closing parenthesis was expected at position {}",
-                self.char_position
-            ),
+            FilterErrorCode::LogicalOperatorExpected => {
+                format!("A logical operator was expected at position {}", self.char_position)
+            }
+            FilterErrorCode::OperatorExpected => format!("An operator was expected at position {}", self.char_position),
+            FilterErrorCode::AttributeExpected => {
+                format!("An attribute was expected at position {}", self.char_position)
+            }
+            FilterErrorCode::OpeningExpected => {
+                format!("An opening parenthesis was expected at position {}", self.char_position)
+            }
+            FilterErrorCode::ClosingExpected => {
+                format!("A closing parenthesis was expected at position {}", self.char_position)
+            }
+            FilterErrorCode::InvalidEscapeSequence => {
+                format!("Invalid escape sequence in string literal at position {}", self.char_position)
+            }
         }
     }
 }
@@ -129,9 +279,7 @@ const FOP_LTE_2: &str = "=<";
 const FOP_GT: &str = ">";
 const FOP_LT: &str = "<";
 const FOP_LIKE: &str = "LIKE";
-const LIST_OF_FOP: &[&str] = &[
-    FOP_EQ, FOP_NEQ, FOP_GTE_1, FOP_GTE_2, FOP_LTE_1, FOP_LTE_2, FOP_GT, FOP_LT, FOP_LIKE,
-];
+const LIST_OF_FOP: &[&str] = &[FOP_EQ, FOP_NEQ, FOP_GTE_1, FOP_GTE_2, FOP_LTE_1, FOP_LTE_2, FOP_GT, FOP_LT, FOP_LIKE];
 
 #[macro_export]
 macro_rules! parser_log {
@@ -154,7 +302,7 @@ pub(crate) fn lex3(input: &str) -> Result<Vec<Token>, FilterError> {
 }
 
 /**
-REF_TAG : Parsing doka search expressions.md
+REF_TAG : DOKA_SEARCH_SQL
 */
 pub(crate) fn lex3_with_offset(input: &str, offset: usize) -> Result<Vec<Token>, FilterError> {
     let closed_input = format!("+{}", input); // Encapsulate the conditions in a root ()
@@ -213,10 +361,7 @@ fn exp_lexer_index(
     let mut tokens: Vec<Token> = vec![];
     let mut expected_lexem = ExpressionExpectedLexeme::ExpressionOrCondition; // or an attribute
 
-    tokens.push(LogicalOpen(PositionalToken::new(
-        (),
-        *index.borrow() + offset,
-    )));
+    tokens.push(LogicalOpen(PositionalToken::new((), *index.borrow() + offset)));
     let mut expression_marker: i32 = -1;
     loop {
         parser_log!("EXP Move 1 step"; depth);
@@ -267,8 +412,7 @@ fn exp_lexer_index(
                 match expected_lexem {
                     ExpressionExpectedLexeme::ExpressionOrCondition => {
                         // Here we are at a "expression" level, so the chars is the start for a new condition
-                        let sub_tokens =
-                            condition_lexer_index(&index, &mut input_chars, offset, depth)?;
+                        let sub_tokens = condition_lexer_index(&index, &mut input_chars, offset, depth)?;
 
                         parser_log!(
                             "EXP Condition Sub token: {:?}", &sub_tokens;
@@ -276,7 +420,6 @@ fn exp_lexer_index(
                         );
                         let out_char = read_char_at_index(&index, &input_chars, depth);
                         tokens.extend(sub_tokens);
-                        expected_lexem = ExpressionExpectedLexeme::LogicalOperatorOrNothing;
 
                         match out_char {
                             None => {
@@ -297,8 +440,7 @@ fn exp_lexer_index(
                     }
                     ExpressionExpectedLexeme::LogicalOperatorOrNothing => {
                         // Here we are at a "expression" level, so the chars is the start for a new condition
-                        let sub_tokens =
-                            lopexp_lexer_index(&index, &mut input_chars, offset, depth)?;
+                        let sub_tokens = lopexp_lexer_index(&index, &mut input_chars, offset, depth)?;
                         parser_log!("EXP LOP EXP Sub token: {:?}", &sub_tokens; depth);
                         tokens.extend(sub_tokens);
                     }
@@ -310,18 +452,12 @@ fn exp_lexer_index(
         }
     }
     parser_log!("EXP out of the loop"; depth);
-    tokens.push(LogicalClose(PositionalToken::new(
-        (),
-        *index.borrow() + offset,
-    )));
+    tokens.push(LogicalClose(PositionalToken::new((), *index.borrow() + offset)));
 
     // Control if we did not exit the loop because of a extra closing parenthesis,
     // ignore the last closing parenthesis in the length comparison
     if depth == 0 && *index.borrow() < (input_chars.len() - 1) {
-        return Err(FilterError {
-            char_position: *index.borrow(),
-            error_code: FilterErrorCode::InvalidLogicalDepth,
-        });
+        return Err(FilterError { char_position: *index.borrow(), error_code: FilterErrorCode::InvalidLogicalDepth });
     }
     Ok(tokens)
 }
@@ -339,6 +475,11 @@ fn condition_lexer_index(
     let mut value: String = String::new();
     let mut fop: String = String::new();
     let mut text_mode = false;
+    let mut was_string = false;
+    // text-mode accumulators: build a structured pattern in case the value is for LIKE.
+    // For non-LIKE operators, `append_value` will flatten this into a plain ValueString.
+    let mut pattern_parts: Vec<PatternPart> = Vec::new();
+    let mut lit_buf: String = String::new();
 
     parser_log!(
         "Condition reading start at {}", *index.borrow();
@@ -360,7 +501,14 @@ fn condition_lexer_index(
                         error_code: FilterErrorCode::InvalidLogicalDepth,
                     });
                 } else {
-                    append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
+                    append_value(
+                        &mut value,
+                        &mut pattern_parts,
+                        was_string,
+                        &mut tokens,
+                        *index.borrow(),
+                        offset,
+                    )?;
                     break;
                 }
             }
@@ -372,31 +520,27 @@ fn condition_lexer_index(
                 match expected_lexeme {
                     ConditionExpectedLexeme::Attribute => {
                         // Add the attribute and change the expected lexeme to FilterOperator
-                        append_attribute(
-                            &mut attribute,
-                            &mut expected_lexeme,
-                            &mut tokens,
-                            *index.borrow(),
-                            offset,
-                        )?;
+                        append_attribute(&mut attribute, &mut expected_lexeme, &mut tokens, *index.borrow(), offset)?;
                     }
                     ConditionExpectedLexeme::FilterOperator => {
                         // Add the filter operator and change the expected lexeme to Value
-                        append_fop(
-                            &mut fop,
-                            &mut expected_lexeme,
-                            &mut tokens,
-                            *index.borrow(),
-                            offset,
-                        )?;
+                        append_fop(&mut fop, &mut expected_lexeme, &mut tokens, *index.borrow(), offset)?;
                     }
                     ConditionExpectedLexeme::Value => {
                         if text_mode {
-                            value.push(grapheme_at_index);
+                            // A space inside a string literal — part of the current literal segment.
+                            lit_buf.push(grapheme_at_index);
                         } else {
                             // for non text value, it marks the end of the condition
                             if !value.is_empty() {
-                                append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
+                                append_value(
+                                    &mut value,
+                                    &mut pattern_parts,
+                                    false,
+                                    &mut tokens,
+                                    *index.borrow(),
+                                    offset,
+                                )?;
                                 break; // Here is the end of the condition processing
                             }
                         }
@@ -410,13 +554,24 @@ fn condition_lexer_index(
                 );
 
                 if text_mode {
-                    // Cannot exit condition processing if we are in text mode
+                    // Cannot exit condition processing if we are in text mode.
+                    // Char count in the string-in-progress is split between `lit_buf`
+                    // (the literal segment we are currently building) and `pattern_parts`
+                    // (segments already flushed). The `-1` accounts for the opening `"`.
+                    let text_chars: usize = lit_buf.chars().count()
+                        + pattern_parts
+                            .iter()
+                            .map(|p| match p {
+                                PatternPart::Literal(s) => s.chars().count(),
+                                PatternPart::AnySequence => 1,
+                            })
+                            .sum::<usize>();
                     return Err(FilterError {
-                        char_position: *index.borrow() - value.chars().count(),
+                        char_position: *index.borrow() - text_chars - 1,
                         error_code: FilterErrorCode::UnclosedQuote,
                     });
                 }
-                append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
+                append_value(&mut value, &mut pattern_parts, was_string, &mut tokens, *index.borrow(), offset)?;
                 *index.borrow_mut() -= 1;
                 break;
             }
@@ -454,28 +609,67 @@ fn condition_lexer_index(
                         if find_possible_operator_with(c, &fop, LIST_OF_FOP) {
                             fop.push(c)
                         } else {
-                            append_fop(
-                                &mut fop,
-                                &mut expected_lexeme,
-                                &mut tokens,
-                                *index.borrow(),
-                                offset,
-                            )?;
+                            append_fop(&mut fop, &mut expected_lexeme, &mut tokens, *index.borrow(), offset)?;
                             *index.borrow_mut() -= 1;
                         }
                     }
                     ConditionExpectedLexeme::Value => {
-                        value.push(c);
-                        if c == '"' {
-                            text_mode = !text_mode;
-
-                            if !text_mode {
-                                parser_log!("COND Read a QUOTE - Exit text mode"; depth);
-                                append_value(&mut value, &mut tokens, *index.borrow(), offset)?;
-                                break; // Here is the end of the condition processing
-                            } else {
-                                parser_log!("COND Read a QUOTE - Enter text mode"; depth);
+                        if text_mode {
+                            match c {
+                                '"' => {
+                                    parser_log!("COND Read a QUOTE - Exit text mode"; depth);
+                                    flush_lit_buf(&mut lit_buf, &mut pattern_parts);
+                                    append_value(
+                                        &mut value,
+                                        &mut pattern_parts,
+                                        true,
+                                        &mut tokens,
+                                        *index.borrow(),
+                                        offset,
+                                    )?;
+                                    break;
+                                }
+                                '#' => {
+                                    *index.borrow_mut() += 1;
+                                    match read_char_at_index(&index, &input_chars, depth) {
+                                        Some('"') => lit_buf.push('"'),
+                                        Some('%') => lit_buf.push('%'),
+                                        Some('#') => lit_buf.push('#'),
+                                        _ => {
+                                            return Err(FilterError {
+                                                char_position: *index.borrow() - 1 + offset,
+                                                error_code: FilterErrorCode::InvalidEscapeSequence,
+                                            });
+                                        }
+                                    }
+                                }
+                                '%' => {
+                                    // bare `%` is legal only as a LIKE wildcard
+                                    let is_like = matches!(
+                                        tokens.last(),
+                                        Some(Token::Operator(pt)) if pt.token == ComparisonOperator::LIKE
+                                    );
+                                    if is_like {
+                                        flush_lit_buf(&mut lit_buf, &mut pattern_parts);
+                                        // collapse consecutive AnySequence into one
+                                        if !matches!(pattern_parts.last(), Some(PatternPart::AnySequence)) {
+                                            pattern_parts.push(PatternPart::AnySequence);
+                                        }
+                                    } else {
+                                        return Err(FilterError {
+                                            char_position: *index.borrow() + offset,
+                                            error_code: FilterErrorCode::InvalidEscapeSequence,
+                                        });
+                                    }
+                                }
+                                other => lit_buf.push(other),
                             }
+                        } else if c == '"' {
+                            text_mode = true;
+                            was_string = true;
+                            parser_log!("COND Read a QUOTE - Enter text mode"; depth);
+                        } else {
+                            value.push(c);
                         }
                     }
                 }
@@ -591,8 +785,7 @@ fn lopexp_lexer_index(
                     LopexpExpectedLexeme::ExpressionOrCondition => {
                         // Here we are at a "lop exp" level, expecting a condition or an expression, so the chars is the start for a new condition
                         parser_log!("LOP EXP new condition is starting"; depth);
-                        let sub_tokens =
-                            condition_lexer_index(&index, &mut input_chars, offset, depth)?;
+                        let sub_tokens = condition_lexer_index(&index, &mut input_chars, offset, depth)?;
                         parser_log!("Condition Sub token: {:?}", &sub_tokens; depth);
                         let out_char = read_char_at_index(&index, &input_chars, depth);
                         tokens.extend(sub_tokens);
@@ -673,34 +866,19 @@ fn create_fop(fop: &str, index: usize, offset: usize) -> Result<Token, FilterErr
     if !fop.is_empty() {
         match fop.as_ref() {
             FOP_EQ => Ok(Token::Operator(PositionalToken::new(EQ, char_pos + offset))),
-            FOP_NEQ => Ok(Token::Operator(PositionalToken::new(
-                NEQ,
-                char_pos + offset,
-            ))),
+            FOP_NEQ => Ok(Token::Operator(PositionalToken::new(NEQ, char_pos + offset))),
             FOP_GT => Ok(Token::Operator(PositionalToken::new(GT, char_pos + offset))),
-            FOP_GTE_1 | FOP_GTE_2 => Ok(Token::Operator(PositionalToken::new(
-                GTE,
-                char_pos + offset,
-            ))),
+            FOP_GTE_1 | FOP_GTE_2 => Ok(Token::Operator(PositionalToken::new(GTE, char_pos + offset))),
             FOP_LT => Ok(Token::Operator(PositionalToken::new(LT, char_pos + offset))),
-            FOP_LTE_1 | FOP_LTE_2 => Ok(Token::Operator(PositionalToken::new(
-                LTE,
-                char_pos + offset,
-            ))),
-            FOP_LIKE => Ok(Token::Operator(PositionalToken::new(
-                LIKE,
-                char_pos + offset,
-            ))),
+            FOP_LTE_1 | FOP_LTE_2 => Ok(Token::Operator(PositionalToken::new(LTE, char_pos + offset))),
+            FOP_LIKE => Ok(Token::Operator(PositionalToken::new(LIKE, char_pos + offset))),
             _ => Err(FilterError {
                 char_position: char_pos + offset,
                 error_code: FilterErrorCode::UnknownFilterOperator,
             }),
         }
     } else {
-        Err(FilterError {
-            char_position: char_pos + offset,
-            error_code: FilterErrorCode::UnknownFilterOperator,
-        })
+        Err(FilterError { char_position: char_pos + offset, error_code: FilterErrorCode::UnknownFilterOperator })
     }
 }
 
@@ -733,34 +911,63 @@ fn append_attribute(
         attribute.clear();
         *expected_lexeme = ConditionExpectedLexeme::FilterOperator;
     } else {
-        return Err(FilterError {
-            char_position: index + offset,
-            error_code: FilterErrorCode::WrongNumericValue,
-        });
+        return Err(FilterError { char_position: index + offset, error_code: FilterErrorCode::WrongNumericValue });
     }
     Ok(())
 }
 
+/// Flush the in-progress literal buffer into `pattern_parts` as a new `Literal`
+/// segment, if non-empty. No-op when empty. The buffer is cleared in any case.
+fn flush_lit_buf(lit_buf: &mut String, pattern_parts: &mut Vec<PatternPart>) {
+    if !lit_buf.is_empty() {
+        pattern_parts.push(PatternPart::Literal(std::mem::take(lit_buf)));
+    }
+}
+
 fn append_value(
     value: &mut String,
+    pattern_parts: &mut Vec<PatternPart>,
+    is_string: bool,
     tokens: &mut Vec<Token>,
     index: usize,
     offset: usize,
 ) -> Result<(), FilterError> {
-    let lexeme = if value.starts_with("\"") {
-        let raw_value = value.trim_matches('"').to_string();
-        let n = raw_value.chars().count();
+    let lexeme = if is_string {
+        // Total char count of the value as it appeared in the source (without quotes).
+        let n: usize = pattern_parts
+            .iter()
+            .map(|p| match p {
+                PatternPart::Literal(s) => s.chars().count(),
+                PatternPart::AnySequence => 1,
+            })
+            .sum();
 
-        Token::ValueString(PositionalToken::new(raw_value, index + offset - n))
+        // Use ValuePattern only when the operator we just emitted is LIKE.
+        // For every other operator, bare `%` is forbidden upstream, so
+        // `pattern_parts` contains at most one `Literal` segment.
+        let is_like = matches!(
+            tokens.last(),
+            Some(Token::Operator(pt)) if pt.token == ComparisonOperator::LIKE
+        );
+        if is_like {
+            Token::ValuePattern(PositionalToken::new(std::mem::take(pattern_parts), index + offset - n))
+        } else {
+            let flat: String = pattern_parts
+                .drain(..)
+                .map(|p| match p {
+                    PatternPart::Literal(s) => s,
+                    PatternPart::AnySequence => String::from("%"),
+                })
+                .collect();
+            Token::ValueString(PositionalToken::new(flat, index + offset - n))
+        }
     } else if value == TRUE {
         Token::ValueBool(PositionalToken::new(true, index + offset - TRUE.len()))
     } else if value == FALSE {
         Token::ValueBool(PositionalToken::new(false, index + offset - FALSE.len()))
     } else {
         match value.parse() {
-            Ok(parsed) => {
-                Token::ValueInt(PositionalToken::new(parsed, index + offset - value.len()))
-            }
+            Ok(parsed) => Token::ValueInt(PositionalToken::new(parsed, index + offset - value.len())),
             Err(_) => {
                 return Err(FilterError {
                     char_position: index + offset - value.len(),
@@ -778,11 +985,12 @@ fn append_value(
 mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
-    use crate::filter::filter_ast::{PositionalToken, Token, TokenSlice};
-    use crate::filter::filter_lexer::{lex3, FilterError, FilterErrorCode};
+    use crate::filter::filter_lexer::{
+        lex3, FilterErrorCode, LogicalOperator, PatternPart, PositionalToken, Token, TokenSlice,
+    };
     use crate::filter::tests::init_logger;
+    use crate::filter::ComparisonOperator;
     use crate::filter::ComparisonOperator::EQ;
-    use crate::filter::{ComparisonOperator, LogicalOperator};
     use commons_error::*;
     use log::*;
 
@@ -920,8 +1128,7 @@ mod tests {
     pub fn lexer_triple_grouped_with_boolean() {
         init_logger();
         let pos = vec![1, 3, 13, 16, 22, 26, 36, 40, 48, 50, 53, 54, 64, 70, 76];
-        let input =
-            r#"( attribut1 == FALSE AND attribut2 == "bonjour") OR (attribut3 LIKE "den%" )"#;
+        let input = r#"( attribut1 == FALSE AND attribut2 == "bonjour") OR (attribut3 LIKE "den%" )"#;
         //     1 3         13 16    22  26        36  40      48 50 53 54     64    70     76
         let tokens = lex3(input).unwrap();
         let expected: Vec<Token> = vec![
@@ -939,7 +1146,10 @@ mod tests {
             Token::LogicalOpen(PositionalToken::new((), pos[10])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[11])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[12])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[13])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[13],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[14])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)),
         ];
@@ -974,9 +1184,7 @@ mod tests {
     #[test]
     pub fn lexer_two_level_s() {
         init_logger();
-        let pos = vec![
-            1, 2, 3, 5, 7, 10, 12, 16, 18, 20, 23, 25, 26, 28, 31, 33, 35, 38, 40,
-        ];
+        let pos = vec![1, 2, 3, 5, 7, 10, 12, 16, 18, 20, 23, 25, 26, 28, 31, 33, 35, 38, 40];
         //                1 3   7    12    18   23 26   31  35   40
         let input = "((A > 10 ) AND ( B == 5 )) OR ( C == 2 )";
         //                 2  5    10     16 20   25 28   33   38
@@ -1010,9 +1218,7 @@ mod tests {
     #[test]
     pub fn lexer_two_level() {
         init_logger();
-        let pos = [
-            1, 2, 3, 13, 15, 18, 20, 24, 26, 36, 40, 44, 45, 47, 50, 52, 62, 68, 74,
-        ];
+        let pos = [1, 2, 3, 13, 15, 18, 20, 24, 26, 36, 40, 44, 45, 47, 50, 52, 62, 68, 74];
         let input =
         //     1 3           15   20    26            40    45   50          62          74
             r#"((attribut1 > 10 ) AND ( attribut2 == "你好" )) OR ( attribut3 LIKE "den%" )"#;
@@ -1037,7 +1243,10 @@ mod tests {
             Token::LogicalOpen(PositionalToken::new((), pos[14])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[15])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[16])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[17])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[17],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[18])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)), // fixed pos value
         ];
@@ -1047,9 +1256,7 @@ mod tests {
     #[test]
     pub fn lexer_two_level_2() {
         init_logger();
-        let pos = vec![
-            1, 2, 12, 16, 18, 20, 24, 25, 27, 41, 45, 47, 50, 52, 62, 68, 74, 75,
-        ];
+        let pos = vec![1, 2, 12, 16, 18, 20, 24, 25, 27, 41, 45, 47, 50, 52, 62, 68, 74, 75];
 
         let input =
         //     1          12    18    24 27                 45    50         62          74
@@ -1070,7 +1277,10 @@ mod tests {
             Token::BinaryLogicalOperator(PositionalToken::new(LogicalOperator::OR, pos[9])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[10])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[11])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[12])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[12],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[13])),
             Token::LogicalClose(PositionalToken::new((), pos[14])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)), // fixed pos value
@@ -1081,10 +1291,8 @@ mod tests {
     #[test]
     pub fn lexer_three_levels() {
         init_logger();
-        let pos = vec![
-            1, 2, 3, 6, 9, 11, 13, 17, 18, 19, 22, 25, 26, 28, 31, 33, 36, 39, 41, 42, 43, 45, 48,
-            50, 53, 56, 58,
-        ];
+        let pos =
+            vec![1, 2, 3, 6, 9, 11, 13, 17, 18, 19, 22, 25, 26, 28, 31, 33, 36, 39, 41, 42, 43, 45, 48, 50, 53, 56, 58];
         //                1 3      9   13  18  22  26   31   36   41 43   48   53  58
         let input = "((AA => 10) AND ((DD == 6) OR ( BB == 5 ))) OR ( CC == 4 )";
         //                 2   6    11    17 19   25 28   33    39 42 45   50     56
@@ -1154,9 +1362,7 @@ mod tests {
     #[test]
     pub fn lexer_triple() {
         init_logger();
-        let pos = vec![
-            1, 3, 6, 8, 11, 13, 17, 19, 22, 25, 28, 30, 33, 35, 38, 41, 44,
-        ];
+        let pos = vec![1, 3, 6, 8, 11, 13, 17, 19, 22, 25, 28, 30, 33, 35, 38, 41, 44];
         //                 1   6    11     17  22    28    33  38    44
         let input = "( AA > 10 ) AND ( BB == 20 ) OR ( CC == 30 )";
         //                  3     8   13    19    25   30    35   41
@@ -1232,7 +1438,10 @@ mod tests {
             Token::LogicalOpen(PositionalToken::new((), pos[10])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[11])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[12])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[13])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[13],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[14])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)), // fixed pos value
         ];
@@ -1244,11 +1453,10 @@ mod tests {
     #[test]
     pub fn lexer_incorrect_numeric_fail() {
         init_logger();
-        let pos = vec![1, 3, 5, 7, 11, 14, 17];
         let input = "AA > 10AND BB == 20";
         //                1  3 5 7   11 14 17
         match lex3(input) {
-            Ok(tokens) => {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => {
@@ -1262,7 +1470,7 @@ mod tests {
     pub fn lexer_incorrect_operator_fail() {
         let input = "AA > 10 ANDBB == 20";
         match lex3(input) {
-            Ok(tokens) => {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => {
@@ -1280,10 +1488,7 @@ mod tests {
         // we forgot the closing quote after the ghost
         let input = r#"name == "papin 👻 AND (age >= 20)"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::UnclosedQuote, e.error_code);
                 assert_eq!(9, e.char_position);
@@ -1297,10 +1502,7 @@ mod tests {
         // we forgot the opening quote before 'papin'
         let input = r#"name == papin 👻" AND age >= 20"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::WrongNumericValue, e.error_code);
                 assert_eq!(9, e.char_position);
@@ -1314,10 +1516,7 @@ mod tests {
         // we forgot the opening quote before 'papin'
         let input = r#"name == "papin 👻" XAND age >= 20"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::WrongLogicalOperator, e.error_code);
                 assert_eq!(18, e.char_position);
@@ -1333,10 +1532,7 @@ mod tests {
         // use of a invalid charactere in the attribute name
         let input = r#"na👻me == "papin 👻" XAND age >= 20"#;
         match lex3(input) {
-            Ok(tokens) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, tokens);
-            }
+            Ok(tokens) => panic!("Unexpected tokens: {}", TokenSlice(&tokens)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::IncorrectAttributeChar, e.error_code);
                 assert_eq!(3, e.char_position);
@@ -1353,9 +1549,7 @@ mod tests {
 
         match lex3(&input) {
             Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
                 log_debug!("{}", &TokenSlice(&lexemes));
-                // assert_eq!(dummy, lexemes);
             }
             Err(e) => {
                 assert_eq!(FilterErrorCode::InvalidLogicalDepth, e.error_code);
@@ -1371,7 +1565,6 @@ mod tests {
 
         match lex3(&input) {
             Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
                 log_debug!("{}", &TokenSlice(&lexemes));
             }
             Err(e) => {
@@ -1388,7 +1581,6 @@ mod tests {
 
         match lex3(&input) {
             Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
                 log_debug!("{}", &TokenSlice(&lexemes));
             }
             Err(e) => {
@@ -1405,10 +1597,7 @@ mod tests {
         let input = "(A == 1)) AND ((B == 2))";
 
         match lex3(&input) {
-            Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, lexemes);
-            }
+            Ok(lexemes) => panic!("Unexpected tokens: {}", TokenSlice(&lexemes)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::InvalidLogicalDepth, e.error_code);
                 assert_eq!(9, e.char_position);
@@ -1421,10 +1610,7 @@ mod tests {
         init_logger();
         let input = r#"(A == 10) AND B == 20)"#;
         match lex3(&input) {
-            Ok(lexemes) => {
-                let dummy: Vec<Token> = vec![];
-                assert_eq!(dummy, lexemes);
-            }
+            Ok(lexemes) => panic!("Unexpected tokens: {}", TokenSlice(&lexemes)),
             Err(e) => {
                 assert_eq!(FilterErrorCode::InvalidLogicalDepth, e.error_code);
                 assert_eq!(22, e.char_position);
@@ -1441,34 +1627,13 @@ mod tests {
         let input = r#"()(A == 10)"#;
 
         let expected: Vec<Token> = vec![
-            Token::LogicalOpen(PositionalToken {
-                token: (),
-                position: 1,
-            }),
-            Token::LogicalClose(PositionalToken {
-                token: (),
-                position: 2,
-            }),
-            Token::LogicalOpen(PositionalToken {
-                token: (),
-                position: 3,
-            }),
-            Token::Attribute(PositionalToken {
-                token: "A".to_string(),
-                position: 4,
-            }),
-            Token::Operator(PositionalToken {
-                token: EQ,
-                position: 6,
-            }),
-            Token::ValueInt(PositionalToken {
-                token: 10,
-                position: 9,
-            }),
-            Token::LogicalClose(PositionalToken {
-                token: (),
-                position: 11,
-            }),
+            Token::LogicalOpen(PositionalToken { token: (), position: 1 }),
+            Token::LogicalClose(PositionalToken { token: (), position: 2 }),
+            Token::LogicalOpen(PositionalToken { token: (), position: 3 }),
+            Token::Attribute(PositionalToken { token: "A".to_string(), position: 4 }),
+            Token::Operator(PositionalToken { token: EQ, position: 6 }),
+            Token::ValueInt(PositionalToken { token: 10, position: 9 }),
+            Token::LogicalClose(PositionalToken { token: (), position: 11 }),
         ];
 
         match lex3(&input) {

@@ -17,11 +17,12 @@ pub(crate) fn format_date_in_timezone(iso_date_time: &str, timezone_offset: i32)
     };
 
     // Apply the desired timezone offset (in hours)
-    let offset = FixedOffset::east(timezone_offset * 3600); // timezone_offset is in hours
+    let Some(offset) = FixedOffset::east_opt(timezone_offset * 3600) else {
+        return "Invalid date".to_string();
+    }; // timezone_offset is in hours
     let dt_in_timezone = dt.with_timezone(&offset);
 
     // Extract the components of the formatted date
-    let month = dt_in_timezone.month0() + 1; // months in chrono are 0-indexed
     let day = dt_in_timezone.day();
     let year = dt_in_timezone.year();
     let hour = dt_in_timezone.hour();
@@ -40,8 +41,5 @@ pub(crate) fn format_date_in_timezone(iso_date_time: &str, timezone_offset: i32)
     let time_formatted = format!("{:02}:{:02}", hour, minute);
 
     // Final formatted output
-    format!(
-        "{}, {}{}, {}  {}",
-        month_name, day, day_suffix, year, time_formatted
-    )
+    format!("{}, {}{}, {}  {}", month_name, day, day_suffix, year, time_formatted)
 }

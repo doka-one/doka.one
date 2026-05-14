@@ -44,18 +44,14 @@ const KEY: &str = "fqYVyce-Nh0HwpPQ7ZGZLog5s7PBLnwFMAW2OMnNPUs";
 fn criterion_benchmark_1(c: &mut Criterion) {
     let mut c = c.benchmark_group("encrypt");
     c.sample_size(10);
-    c.bench_function(BenchmarkId::new("encrypt 1", ""), |b| {
-        b.iter(|| d10_performance_CC20())
-    });
+    c.bench_function(BenchmarkId::new("encrypt 1", ""), |b| b.iter(|| d10_performance_CC20()));
     c.finish();
 }
 
 fn criterion_benchmark_2(c: &mut Criterion) {
     let mut c = c.benchmark_group("encrypt");
     c.sample_size(10);
-    c.bench_function(BenchmarkId::new("encrypt 2", ""), |b| {
-        b.iter(|| d10_performance_AES128())
-    });
+    c.bench_function(BenchmarkId::new("encrypt 2", ""), |b| b.iter(|| d10_performance_AES128()));
     c.finish();
 }
 

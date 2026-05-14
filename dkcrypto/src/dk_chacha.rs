@@ -1,7 +1,7 @@
-use anyhow::{bail, Context, ensure, Result};
+use anyhow::{bail, ensure, Context, Result};
 use orion::aead::SecretKey;
 use orion::hazardous::stream::chacha20::SecretKey as XSecretKey;
-use rand::{RngCore, thread_rng};
+use rand::{thread_rng, RngCore};
 
 // Inspired by the great doc over here https://github.com/Internet-of-People/iop-rs/tree/develop/keyvault
 
@@ -25,8 +25,7 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
     let salt = Salt::from_slice(salt).with_context(|| "Salt is too short")?;
     let kdf_key = derive_key(&password, &salt, 15, 1024, CHACHA_KEYSIZE as u32)
         .with_context(|| "Could not derive key from password")?;
-    let key = SecretKey::from_slice(kdf_key.unprotected_as_bytes())
-        .with_context(|| "Could not convert key")?;
+    let key = SecretKey::from_slice(kdf_key.unprotected_as_bytes()).with_context(|| "Could not convert key")?;
     Ok(key)
 }
 
@@ -48,7 +47,7 @@ fn get_key_from_password(password: &str, salt: &[u8]) -> Result<SecretKey> {
 /// The ciphertext
 pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>) -> Result<Vec<u8>> {
     use orion::hazardous::{
-        aead::xchacha20poly1305::{Nonce, seal},
+        aead::xchacha20poly1305::{seal, Nonce},
         mac::poly1305::POLY1305_OUTSIZE,
         stream::xchacha20::XCHACHA_NONCESIZE,
     };
@@ -75,8 +74,7 @@ pub fn encrypt_cc20(plaintext: impl AsRef<[u8]>, password: impl AsRef<str>) -> R
     output[..XCHACHA_NONCESIZE].copy_from_slice(nonce.as_ref());
 
     // Encrypt the plaintext and add it to the end of output buffer
-    seal(&key, &nonce, plaintext, None, &mut output[XCHACHA_NONCESIZE..])
-        .with_context(|| "Could not convert key")?;
+    seal(&key, &nonce, plaintext, None, &mut output[XCHACHA_NONCESIZE..]).with_context(|| "Could not convert key")?;
 
     Ok(output)
 }
@@ -105,8 +103,8 @@ pub fn decrypt_cc20(ciphertext: impl AsRef<[u8]>, password: impl AsRef<str>) -> 
 
 #[cfg(test)]
 mod tests {
-    use base64::Engine;
     use base64::engine::general_purpose;
+    use base64::Engine;
 
     use crate::dk_chacha::{decrypt_cc20, encrypt_cc20};
 
@@ -116,7 +114,7 @@ mod tests {
         let bytes = orignal_text.as_bytes();
         let password = "my_super_password";
 
-        let r = encrypt_cc20(bytes, password/*, nonce*/).unwrap();
+        let r = encrypt_cc20(bytes, password /*, nonce*/).unwrap();
         let str = general_purpose::STANDARD.encode(&r);
         println!("{}", &str);
         let bb = decrypt_cc20(r, password).unwrap();

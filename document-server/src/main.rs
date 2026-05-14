@@ -1,38 +1,41 @@
+#![allow(dead_code)]
+
 use std::net::SocketAddr;
 use std::process::exit;
 
 use axum::extract::{Path, Query};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use log::{error, info};
 use serde_derive::{Deserialize, Serialize};
 
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_error::*;
 use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SessionToken;
 use commons_services::x_request_id::XRequestID;
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
-use dkdto::{
+use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddTagReply, AddTagRequest,
-    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply, GetTagReply,
-    SimpleMessage, WebType, WebTypeBuilder,
+    BuildQueryReply, BuildQueryRequest, DeleteFullTextRequest, FullTextReply, FullTextRequest, GetItemReply,
+    GetTagReply, SimpleMessage, WebType, WebTypeWithContext,
 };
 
 use crate::fulltext::FullTextDelegate;
 use crate::item::ItemDelegate;
+use crate::search::SearchDelegate;
 use crate::tag::TagDelegate;
 
 mod char_lib;
+mod engine;
 mod filter;
 mod ft_tokenizer;
 mod fulltext;
 mod item;
 mod language;
+mod search;
 mod tag;
 
 #[derive(Serialize, Deserialize)]
@@ -46,10 +49,8 @@ pub struct PageQuery {
 /// **NORM
 ///
 ///#[get("/item?<start_page>&<page_size>")]
-pub async fn get_all_item(
-    Query(page): Query<PageQuery>,
-    session_token: SessionToken,
-) -> WebType<GetItemReply> {
+pub async fn get_all_item(Query(page): Query<PageQuery>, session_token: SessionToken) -> WebType<GetItemReply> {
+    //
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_item(page.start_page, page.page_size).await
 }
@@ -59,6 +60,7 @@ pub struct SearchQuery {
     pub start_page: Option<u32>,
     pub page_size: Option<u32>,
     pub filters: Option<String>,
+    pub order_tags: Option<Vec<String>>,
 }
 
 ///
@@ -69,25 +71,23 @@ pub struct SearchQuery {
 pub async fn search_item(
     Query(page): Query<SearchQuery>,
     session_token: SessionToken,
-) -> WebType<GetItemReply> {
-    let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
+) -> WebTypeWithContext<GetItemReply> {
+    let delegate = SearchDelegate::new(session_token, XRequestID::from_value(None));
 
-    delegate
-        .search_item(page.start_page, page.page_size, page.filters)
-        .await
+    delegate.search_item(page.start_page, page.page_size, page.filters, page.order_tags).await
+}
 
-    // let lexems = filter_lexem_parser::lex(&filters.0);
-    // let filter_tokens : Box<FilterExpression> = parse_expression(&lexems).unwrap();
-    //
-    // // Verify the the attributes are existing tag in doka and the type complies with the filter condition
-    //
-    //
-    //
-    //
-    // let s = to_sql_form(&filter_tokens.deref()).unwrap();
-    //
-    // println!("sql = {:}", &s);
-    // WebType::from_errorset(INTERNAL_DATABASE_ERROR)
+///
+/// 🌟 Build and provisionally store a named search query
+/// **NORM
+///
+/// #[put("/build_query", format = "application/json", data = "<build_query_request>")]
+pub async fn build_query(
+    session_token: SessionToken,
+    build_query_request: Json<BuildQueryRequest>,
+) -> WebTypeWithContext<BuildQueryReply> {
+    let delegate = SearchDelegate::new(session_token, XRequestID::from_value(None));
+    delegate.build_query(build_query_request.0).await
 }
 
 ///
@@ -95,10 +95,7 @@ pub async fn search_item(
 /// **NORM
 ///
 /// #[get("/item/<item_id>")]
-pub(crate) async fn get_item(
-    Path(item_id): Path<i64>,
-    session_token: SessionToken,
-) -> WebType<GetItemReply> {
+pub(crate) async fn get_item(Path(item_id): Path<i64>, session_token: SessionToken) -> WebType<GetItemReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_item(item_id).await
 }
@@ -134,9 +131,7 @@ pub(crate) async fn update_item_tag(
     add_item_tag_request: Json<AddItemTagRequest>,
 ) -> WebType<AddItemTagReply> {
     let delegate = ItemDelegate::new(session_token, XRequestID::from_value(None));
-    delegate
-        .update_item_tag(item_id, add_item_tag_request)
-        .await
+    delegate.update_item_tag(item_id, add_item_tag_request).await
 }
 
 #[derive(Serialize, Deserialize)]
@@ -167,10 +162,7 @@ type Type = GetTagReply;
 /// **NORM
 ///
 /// #[get("/tag?<start_page>&<page_size>")]
-pub(crate) async fn get_all_tag(
-    Query(page): Query<PageQuery>,
-    session_token: SessionToken,
-) -> WebType<Type> {
+pub(crate) async fn get_all_tag(Query(page): Query<PageQuery>, session_token: SessionToken) -> WebType<Type> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.get_all_tag(page.start_page, page.page_size).await
 }
@@ -180,10 +172,7 @@ pub(crate) async fn get_all_tag(
 /// **NORM
 ///
 /// #[delete("/tag/<tag_id>")]
-pub(crate) async fn delete_tag(
-    session_token: SessionToken,
-    Path(tag_id): Path<i64>,
-) -> WebType<SimpleMessage> {
+pub(crate) async fn delete_tag(session_token: SessionToken, Path(tag_id): Path<i64>) -> WebType<SimpleMessage> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.delete_tag(tag_id).await
 }
@@ -193,10 +182,7 @@ pub(crate) async fn delete_tag(
 /// **NORM
 ///
 /// #[post("/tag", format = "application/json", data = "<add_tag_request>")]
-pub(crate) async fn add_tag(
-    session_token: SessionToken,
-    add_tag_request: Json<AddTagRequest>,
-) -> WebType<AddTagReply> {
+pub(crate) async fn add_tag(session_token: SessionToken, add_tag_request: Json<AddTagRequest>) -> WebType<AddTagReply> {
     let delegate = TagDelegate::new(session_token, XRequestID::from_value(None));
     delegate.add_tag(add_tag_request).await
 }
@@ -221,6 +207,19 @@ pub(crate) async fn fulltext_indexing(
     log_info!(">>> Hey!!!");
     let delegate = FullTextDelegate::new(session_token, x_request_id);
     delegate.fulltext_indexing(raw_text_request).await
+}
+
+/// 🌟 Build an encrypted tsvector from a single word using a specific PostgreSQL text search language
+/// **NORM
+///
+/// #[get("/tokenize/<lang>/<word>")]
+pub(crate) async fn tokenize(
+    session_token: SessionToken,
+    x_request_id: XRequestID,
+    Path((lang, word)): Path<(String, String)>,
+) -> WebType<SimpleMessage> {
+    let delegate = FullTextDelegate::new(session_token, x_request_id);
+    delegate.tokenize(&lang, &word).await
 }
 
 /// 🌟 Delete the information linked to the document full text indexing information
@@ -252,23 +251,13 @@ async fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!(
-        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
-        PROJECT_CODE, VAR_NAME
-    );
+    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(
-        PROJECT_CODE,
-        &read_doka_env(&VAR_NAME),
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+    let props = read_config(PROJECT_CODE, &read_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
 
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
-        .unwrap_or("".to_string())
-        .parse::<u16>()
-    else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -298,21 +287,17 @@ async fn main() {
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
-    log_info!(
-        "😎 The CEK was correctly read : [{}]",
-        format!("{}...", &cek[0..5])
-    );
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     // Init DB pool
-    let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information"))
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{:?}", e);
-            exit(-64);
-        }
-    };
+    let (connect_string, db_pool_size) =
+        match get_prop_pg_connect_string().map_err(err_fwd!("Cannot read the database connection information")) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("{:?}", e);
+                exit(-64);
+            }
+        };
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
@@ -324,6 +309,7 @@ async fn main() {
     let key_routes = Router::new()
         .route("/item", get(get_all_item))
         .route("/search", get(search_item))
+        .route("/build_query", put(build_query))
         .route("/item/:item_id", get(get_item))
         .route("/item", post(add_item))
         .route("/item/:item_id/tags", post(update_item_tag))
@@ -332,6 +318,7 @@ async fn main() {
         .route("/tag", post(add_tag))
         .route("/tag/:tag_id", delete(delete_tag))
         .route("/fulltext_indexing", post(fulltext_indexing))
+        .route("/tokenize/:lang/:word", get(tokenize))
         .route("/delete_text_indexing", post(delete_text_indexing));
 
     let app = Router::new().nest(&base_url, key_routes);

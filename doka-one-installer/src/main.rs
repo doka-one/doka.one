@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::fs;
 use std::path::Path;
 use std::process::exit;
@@ -8,25 +10,21 @@ use clap::Subcommand;
 use commons_error::*;
 
 use crate::application_properties::generate_all_app_properties;
-use crate::artefacts::download_artefacts;
 use crate::color_text::{end_println, main_println, step_println};
 use crate::config::{Config, OperatingSystem};
-use crate::databases::{create_all_admin_schemas, create_databases, test_db_connection};
+use crate::databases::{create_all_admin_schemas, create_databases, create_doka_user, test_db_connection};
 use crate::ports::{find_service_port, Ports};
-use crate::services::{build_windows_services, uninstall_windows_services, write_all_service_definition};
+use crate::services::uninstall_windows_services;
 use crate::templates::{DEF_FILE_TEMPLATE, STD_APP_PROPERTIES_TEMPLATE};
 
-mod templates;
-mod artefacts;
-mod config;
-mod services;
-mod ports;
-mod color_text;
-mod databases;
-mod schema_dokaadmin;
-mod schema_dokasys;
-mod schema_keymanager;
 mod application_properties;
+mod artefacts;
+mod color_text;
+mod config;
+mod databases;
+mod ports;
+mod services;
+mod templates;
 
 ///
 ///   <intallation_path>
@@ -48,15 +46,16 @@ mod application_properties;
 ///                     /session-manager
 ///
 fn read_basic_install_info(args: InstallArgs) -> anyhow::Result<Config> {
-
     let _ = step_println("Get the install informations...")?;
 
     let db_user_password = match args.db_user_password {
-        None => {
-            let password = rpassword::prompt_password("Enter your PostgreSQL password : ").unwrap();
-            password
-        }
-        Some(v) => {v}
+        None => rpassword::prompt_password("Enter your PostgreSQL password for the doka user : ").unwrap(),
+        Some(v) => v,
+    };
+
+    let db_system_password = match args.db_system_password {
+        None => rpassword::prompt_password("Enter your PostgreSQL password for 'postgres' : ").unwrap(),
+        Some(v) => v,
     };
 
     println!("Done. Install information.");
@@ -64,13 +63,14 @@ fn read_basic_install_info(args: InstallArgs) -> anyhow::Result<Config> {
     let os = current_os(&args.release_number);
 
     Ok(Config {
-        installation_path : args.installation_path,
-        db_host : args.db_host,
-        db_port : args.db_port,
-        db_user_name : args.db_user_name,
+        installation_path: args.installation_path,
+        db_host: args.db_host,
+        db_port: args.db_port,
+        db_system_password,
+        db_user_name: args.db_user_name,
         db_user_password,
-        instance_name : args.instance_name,
-        release_number : args.release_number,
+        instance_name: args.instance_name,
+        release_number: args.release_number,
         operating_system: os,
     })
 }
@@ -84,30 +84,33 @@ fn current_os(release_number: &str) -> OperatingSystem {
 }
 
 fn create_std_doka_service_folders(config: &Config, service_id: &str) -> anyhow::Result<()> {
-    let _ = fs::create_dir_all(&Path::new(&config.installation_path)
-        .join("doka-configs")
-        .join(&config.instance_name)
-        .join(service_id)
-        .join("logs")
+    let _ = fs::create_dir_all(
+        &Path::new(&config.installation_path)
+            .join("doka-configs")
+            .join(&config.instance_name)
+            .join(service_id)
+            .join("logs"),
     )?;
 
-    let _ = fs::create_dir_all(&Path::new(&config.installation_path)
-        .join("doka-configs")
-        .join(&config.instance_name)
-        .join(service_id)
-        .join("config")
+    let _ = fs::create_dir_all(
+        &Path::new(&config.installation_path)
+            .join("doka-configs")
+            .join(&config.instance_name)
+            .join(service_id)
+            .join("config"),
     )?;
 
-    let _ = fs::create_dir_all(&Path::new(&config.installation_path)
-        .join("doka-configs")
-        .join(&config.instance_name)
-        .join(service_id)
-        .join("keys")
+    let _ = fs::create_dir_all(
+        &Path::new(&config.installation_path)
+            .join("doka-configs")
+            .join(&config.instance_name)
+            .join(service_id)
+            .join("keys"),
     )?;
     Ok(())
 }
 
-fn verification(config: &Config) -> anyhow::Result<()> {
+fn setup_folders(config: &Config) -> anyhow::Result<()> {
     let _ = step_println("Verification...")?;
 
     let _ = fs::create_dir_all(&config.installation_path).map_err(eprint_fwd!("Error on installation path"))?;
@@ -119,18 +122,17 @@ fn verification(config: &Config) -> anyhow::Result<()> {
 
     create_std_doka_service_folders(&config, "key-manager")?;
     create_std_doka_service_folders(&config, "session-manager")?;
-    create_std_doka_service_folders(&config,  "admin-server")?;
-    create_std_doka_service_folders(&config,  "document-server")?;
-    create_std_doka_service_folders(&config,  "file-server")?;
+    create_std_doka_service_folders(&config, "admin-server")?;
+    create_std_doka_service_folders(&config, "document-server")?;
+    create_std_doka_service_folders(&config, "file-server")?;
 
-    create_std_doka_service_folders(&config,  "tika-server")?;
-    create_std_doka_service_folders(&config,  "doka-cli")?;
+    create_std_doka_service_folders(&config, "tika-server")?;
+    create_std_doka_service_folders(&config, "doka-cli")?;
 
     Ok(())
 }
 
 /// Doka Installer for Windows
-
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -151,37 +153,42 @@ enum Commands {
 struct InstallArgs {
     /// Path to a local folder where to install doka
     /// `Ex : D:\app\doka.one`
-    #[arg(short='i', long, display_order=1, value_parser)]
+    #[arg(short = 'i', long, display_order = 1, value_parser)]
     installation_path: String,
 
     /// Machine name which hosts the database
     /// `Ex : doka.one`
-    #[arg(short='H', long, display_order=2,value_parser)]
+    #[arg(short = 'H', long, display_order = 2, value_parser)]
     db_host: String,
 
     /// Port on which the database runs
     /// `Ex : 5432`
-    #[arg(short='P', long, display_order=3,value_parser)]
+    #[arg(short = 'P', long, display_order = 3, value_parser)]
     db_port: u16,
+
+    /// Database system password (optional)
+    /// `Ex : doo`
+    #[arg(short = 'S', display_order = 4, long, required = false, value_name = "[DB_SYSTEM_PASSWORD]", value_parser)]
+    db_system_password: Option<String>,
 
     /// Database user name
     /// `Ex : john`
-    #[arg(short='u', long, display_order=4,value_parser)]
+    #[arg(short = 'u', long, display_order = 5, value_parser)]
     db_user_name: String,
 
     /// Database user password (optional)
     /// `Ex : doo`
-    #[arg(short='p', display_order=5,long, required=false, value_name="[DB_USER_PASSWORD]", value_parser)]
+    #[arg(short = 'p', display_order = 6, long, required = false, value_name = "[DB_USER_PASSWORD]", value_parser)]
     db_user_password: Option<String>,
 
     /// Doka instance name
     /// `Ex : prod_1`
-    #[arg(short='I', long, display_order=6,value_parser)]
+    #[arg(short = 'I', long, display_order = 7, value_parser)]
     instance_name: String,
 
     /// Doka release number
     ///  TODO possible_values=["0.3.0", "0.2.0"],
-    #[arg(short='r', short, display_order=7,long, value_parser)]
+    #[arg(short = 'r', short, display_order = 8, long, value_parser)]
     release_number: String,
 }
 
@@ -190,7 +197,7 @@ struct InstallArgs {
 struct UninstallArgs {
     /// Path to a local folder where to install doka
     /// `Ex : D:\app\doka.one`
-    #[arg(short='i', long, display_order=1, value_parser)]
+    #[arg(short = 'i', long, display_order = 1, value_parser)]
     installation_path: String,
 }
 
@@ -199,6 +206,7 @@ struct UninstallArgs {
          install \
          --installation-path "D:/test_install/doka.one" \
          --db-host "localhost" \
+         --db-system-password "xxx" \
          --db-port "5432" \
          --db-user-name "denis" \
          --db-user-password "xxx" \
@@ -211,29 +219,22 @@ struct UninstallArgs {
 
 */
 fn main() {
-
-    let cli : Cli = Cli::parse();
+    let cli: Cli = Cli::parse();
 
     match cli.command {
-        Commands::Install(args) => {
-            install(args)
-        }
-        Commands::Uninstall(args) => {
-            uninstall(args)
-        }
+        Commands::Install(args) => install(args),
+        Commands::Uninstall(args) => uninstall(args),
     }
 }
 
 fn install(args: InstallArgs) {
     let _ = main_println("Installing Doka One...");
-    let _ = main_println("(Make sure you are in Administrator Mode)");
+    // let _ = main_println("(Make sure you are in Administrator Mode)");
 
     // Phase 1 Enter the install information
 
-    let config = match  read_basic_install_info(args) {
-        Ok(config) => {
-            config
-        }
+    let config = match read_basic_install_info(args) {
+        Ok(config) => config,
         Err(e) => {
             eprintln!("💣 Cannot read the config, {}", e);
             exit(10);
@@ -242,10 +243,11 @@ fn install(args: InstallArgs) {
 
     // Phase 2 : Verification
 
-    let Ok(_) = verification(&config)
-        .map_err(eprint_fwd!("Verification failed")) else {
+    let Ok(_) = setup_folders(&config).map_err(eprint_fwd!("Verification failed")) else {
         exit(20);
     };
+
+    let _ = create_doka_user(&config).map_err(eprint_fwd!("Failure while creating doka user"));
 
     let Ok(_) = test_db_connection(&config).map_err(eprint_fwd!("Failure while connecting the databases")) else {
         exit(21);
@@ -256,18 +258,18 @@ fn install(args: InstallArgs) {
     };
 
     // Phase 3a : Uninstall Windows services
-    if cfg!(windows) {
-        let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
-            exit(25);
-        };
-    }
+    // if cfg!(windows) {
+    //     let Ok(_) = uninstall_windows_services(&config).map_err(eprint_fwd!("Uninstall Windows services failed")) else {
+    //         exit(25);
+    //     };
+    // }
 
     // Phase 3b : Download artefacts
 
-    if let Err(e) = download_artefacts(&config) {
-        eprintln!("💣 Cannot download, {:?}", e);
-        exit(30);
-    };
+    // if let Err(e) = download_artefacts(&config) {
+    //     eprintln!("💣 Cannot download, {:?}", e);
+    //     exit(30);
+    // };
 
     // Phase 4 : Initialization
 
@@ -283,17 +285,17 @@ fn install(args: InstallArgs) {
         exit(45);
     };
 
-    let Ok(_) = write_all_service_definition(&config)
-        .map_err(eprint_fwd!("Write definition file failed")) else {
-        exit(50);
-    };
-
-    // Phase 5 : Start up services
-    if cfg!(windows) {
-        let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
-            exit(60);
-        };
-    }
+    // let Ok(_) = write_all_service_definition(&config)
+    //     .map_err(eprint_fwd!("Write definition file failed")) else {
+    //     exit(50);
+    // };
+    //
+    // // Phase 5 : Start up services
+    // if cfg!(windows) {
+    //     let Ok(_) = build_windows_services(&config).map_err(eprint_fwd!("Windows services failed")) else {
+    //         exit(60);
+    //     };
+    // }
 
     let _ = end_println("Doka installed with success");
 }
@@ -303,6 +305,7 @@ fn uninstall(args: UninstallArgs) {
         installation_path: args.installation_path, // the only information we know in case of unsinstall
         db_host: "".to_string(),
         db_port: 0,
+        db_system_password: "".to_string(),
         db_user_name: "".to_string(),
         db_user_password: "".to_string(),
         instance_name: "".to_string(),

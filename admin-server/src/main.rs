@@ -8,19 +8,15 @@ use axum::routing::{delete, patch, post};
 use axum::{Json, Router};
 use log::*;
 
+use common_config::conf_reader::{read_config, read_env};
+use common_config::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
+use common_config::property_name::{COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY};
 use commons_error::{err_closure_fwd, err_fwd, log_error, log_info};
 use commons_pg::sql_transaction_async::init_db_pool_async;
 use commons_services::read_cek_and_store;
 use commons_services::token_lib::SecurityToken;
 use commons_services::x_request_id::XRequestID;
-use dkconfig::conf_reader::{read_config, read_doka_env};
-use dkconfig::properties::{get_prop_pg_connect_string, get_prop_value, set_prop_values};
-use dkconfig::property_name::{
-    COMMON_EDIBLE_KEY_PROPERTY, LOG_CONFIG_FILE_PROPERTY, SERVER_PORT_PROPERTY,
-};
-use dkdto::{
-    CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType,
-};
+use dkdto::web_types::{CreateCustomerReply, CreateCustomerRequest, LoginReply, LoginRequest, SimpleMessage, WebType};
 
 use crate::customer::CustomerDelegate;
 use crate::login::LoginDelegate;
@@ -28,8 +24,6 @@ use crate::login::LoginDelegate;
 mod customer;
 mod dk_password;
 mod login;
-mod schema_cs;
-mod schema_fs;
 
 /// 0️ Login into the system with the provided credentials
 ///
@@ -87,12 +81,24 @@ pub async fn delete_customer(
     x_request_id: XRequestID,
     Path(customer_code): Path<String>,
 ) -> WebType<SimpleMessage> {
-    let delegate = CustomerDelegate::new(security_token, x_request_id);
+    let mut delegate = CustomerDelegate::new(security_token, x_request_id);
     delegate.delete_customer(&customer_code).await
 }
 
-/// Accept parameters from the commande line
-/// * --doka-env [optional] : the path to the .doka-config.json file (or from the DOKA_ENV environment variable)
+/// 🔑 Purge integration tests customer
+/// **NORM
+///
+/// #[delete("/customer/integration_tests")]
+pub async fn delete_integration_tests_customer(
+    security_token: SecurityToken,
+    x_request_id: XRequestID,
+) -> WebType<SimpleMessage> {
+    let delegate = CustomerDelegate::new(security_token, x_request_id);
+    delegate.delete_integration_tests_customer().await
+}
+
+/// Accept parameters from the command line
+/// * --config-file [optional] : the path to the .doka-config.json file (or from the DOKA_ENV environment variable)
 /// * --cluster-profile : the name of the cluster profile
 ///
 /// By default, the program will look for the .doka-config.json file in the user's base folder
@@ -106,22 +112,12 @@ async fn main() {
     const VAR_NAME: &str = "DOKA_ENV";
 
     // Read the application config's file
-    println!(
-        "😎 Config file using PROJECT_CODE={} VAR_NAME={}",
-        PROJECT_CODE, VAR_NAME
-    );
+    println!("😎 Config file using PROJECT_CODE={} VAR_NAME={}", PROJECT_CODE, VAR_NAME);
 
-    let props = read_config(
-        PROJECT_CODE,
-        &read_doka_env(&VAR_NAME),
-        &Some("DOKA_CLUSTER_PROFILE".to_string()),
-    );
+    let props = read_config(PROJECT_CODE, &read_env(&VAR_NAME), &Some("DOKA_CLUSTER_PROFILE".to_string()));
     set_prop_values(props);
 
-    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY)
-        .unwrap_or("".to_string())
-        .parse::<u16>()
-    else {
+    let Ok(port) = get_prop_value(SERVER_PORT_PROPERTY).unwrap_or("".to_string()).parse::<u16>() else {
         eprintln!("💣 Cannot read the server port");
         exit(-56);
     };
@@ -150,21 +146,17 @@ async fn main() {
     let Ok(cek) = get_prop_value(COMMON_EDIBLE_KEY_PROPERTY) else {
         panic!("💣 Cannot read the cek properties");
     };
-    log_info!(
-        "😎 The CEK was correctly read : [{}]",
-        format!("{}...", &cek[0..5])
-    );
+    log_info!("😎 The CEK was correctly read : [{}]", format!("{}...", &cek[0..5]));
 
     // Init DB pool
-    let (connect_string, db_pool_size) = match get_prop_pg_connect_string()
-        .map_err(err_fwd!("Cannot read the database connection information"))
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log_error!("{:?}", e);
-            exit(-64);
-        }
-    };
+    let (connect_string, db_pool_size) =
+        match get_prop_pg_connect_string().map_err(err_fwd!("Cannot read the database connection information")) {
+            Ok(x) => x,
+            Err(e) => {
+                log_error!("{:?}", e);
+                exit(-64);
+            }
+        };
 
     let _ = init_db_pool_async(&connect_string, db_pool_size).await;
 
@@ -176,10 +168,8 @@ async fn main() {
         .route("/login", post(login))
         .route("/customer", post(create_customer))
         .route("/customer/:customer_code", delete(delete_customer))
-        .route(
-            "/customer/removable/:customer_code",
-            patch(set_removable_flag_customer),
-        );
+        .route("/customer/integration_tests", delete(delete_integration_tests_customer))
+        .route("/customer/removable/:customer_code", patch(set_removable_flag_customer));
 
     let app = Router::new().nest(&base_url, key_routes);
 

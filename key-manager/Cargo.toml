@@ -2,7 +2,7 @@
 name = "key-manager"
 version = "0.3.0"
 authors = ["dpapin1118 <denis.pro@isd.lu>"]
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,7 +25,7 @@ tokio = { workspace = true }
 
 commons-pg = {path="../commons-pg"}
 commons-error = {path="../commons-error"}
-dkconfig = {path="../dkconfig"}
+common-config = {path="../common-config"}
 dkcrypto = {path="../dkcrypto"}
 commons-services = {path= "../commons-services" }
 dkdto = {path="../dkdto"}
@@ -33,6 +33,5 @@ doka-cli = {path="../doka-cli"}
 
 # test
 reqwest = { workspace = true }
-once_cell = "1.19.0"
-lazy_static = "1.5.0"
+
 

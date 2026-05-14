@@ -1,0 +1,159 @@
+{
+  "clusters": [
+    {
+      "description": "Doka Service Configuration",
+      "name": "<DOKA_INSTANCE>",
+      "constants": {
+        "CONFIG_BASE" : "<DOKA_INSTALL_DIR>/<DOKA_INSTANCE>",
+        "DB_HOST": "<DB_HOST>",
+        "DB_PORT": "<DB_PORT>",
+        "DB_USER": "<DB_USER>",
+        "DB_PASSWORD": "<DB_PASSWORD>",
+        "DB_POOL_SIZE": "10",
+        "AD_DB_NAME": "<AD_DB_NAME>",
+        "CS_DB_NAME": "<CS_DB_NAME>",
+        "FS_DB_NAME": "<FS_DB_NAME>",
+        "KEY_MANAGER_HOST": "<KM_HOST>",
+        "KEY_MANAGER_PORT": "<KM_PORT>",
+        "SESSION_MANAGER_HOST": "<SM_HOST>",
+        "SESSION_MANAGER_PORT": "<SM_PORT>",
+        "ADMIN_SERVER_HOST": "<AS_HOST>",
+        "ADMIN_SERVER_PORT": "<AS_PORT>",
+        "DOCUMENT_SERVER_HOST": "<DS_HOST>",
+        "DOCUMENT_SERVER_PORT": "<DS_PORT>",
+        "FILE_SERVER_HOST": "<FS_HOST>",
+        "FILE_SERVER_PORT": "<FS_PORT>",
+        "TIKA_SERVER_HOST": "<TKS_HOST>",
+        "TIKA_SERVER_PORT": "<TKS_PORT>",
+        "HARBOR_HOST": "<HB_HOST>",
+        "HARBOR_PORT": "<HB_PORT>"
+      },
+      "services": [
+        {
+          "description": "Key manager configuration",
+          "name": "key-manager",
+          "properties" : {
+            "server.port" : "${KEY_MANAGER_PORT}",
+            "app.ek" : "${CONFIG_BASE}/key-manager/cek.key",
+            "db.hostname" : "${DB_HOST}",
+            "db.port" : "${DB_PORT}",
+            "db.name" : "${AD_DB_NAME}",
+            "db.user" : "${DB_USER}",
+            "db.password" : "${DB_PASSWORD}",
+            "db.pool_size" : "${DB_POOL_SIZE}",
+            "log4rs.config" : "${CONFIG_BASE}/key-manager/log4rs.yaml"
+          }
+        },
+
+        {
+          "description": "Session manager configuration",
+          "name": "session-manager",
+          "properties" : {
+            "server.port" : "${SESSION_MANAGER_PORT}",
+            "app.ek" : "${CONFIG_BASE}/session-manager/cek.key",
+            "db.hostname" : "${DB_HOST}",
+            "db.port" : "${DB_PORT}",
+            "db.name" : "${AD_DB_NAME}",
+            "db.user" : "${DB_USER}",
+            "db.password" : "${DB_PASSWORD}",
+            "db.pool_size" : "${DB_POOL_SIZE}",
+            "log4rs.config" : "${CONFIG_BASE}/session-manager/log4rs.yaml"
+          }
+        },
+
+        {
+          "description": "Admin server configuration",
+          "name": "admin-server",
+          "properties" : {
+            "server.port" : "${ADMIN_SERVER_PORT}",
+            "app.ek" : "${CONFIG_BASE}/admin-server/cek.key",
+            "db.hostname" : "${DB_HOST}",
+            "db.port" : "${DB_PORT}",
+            "db.name" : "${AD_DB_NAME}",
+            "db.user" : "${DB_USER}",
+            "db.password" : "${DB_PASSWORD}",
+            "db.pool_size" : "${DB_POOL_SIZE}",
+            "cs_db.hostname" : "${DB_HOST}",
+            "cs_db.port" : "${DB_PORT}",
+            "cs_db.name" : "${CS_DB_NAME}",
+            "cs_db.user" : "${DB_USER}",
+            "fs_db.hostname" : "${DB_HOST}",
+            "fs_db.port" : "${DB_PORT}",
+            "fs_db.name" : "${FS_DB_NAME}",
+            "fs_db.user" : "${DB_USER}",
+            "km.host" : "${KEY_MANAGER_HOST}",
+            "km.port" : "${KEY_MANAGER_PORT}",
+            "sm.host" : "${SESSION_MANAGER_HOST}",
+            "sm.port" : "${SESSION_MANAGER_PORT}",
+            "log4rs.config" : "${CONFIG_BASE}/admin-server/log4rs.yaml"
+          }
+        },
+
+        {
+          "description": "Document server configuration",
+          "name": "document-server",
+          "properties" : {
+            "server.port" : "${DOCUMENT_SERVER_PORT}",
+            "app.ek" : "${CONFIG_BASE}/document-server/cek.key",
+            "db.hostname" : "${DB_HOST}",
+            "db.port" : "${DB_PORT}",
+            "db.name" : "${CS_DB_NAME}",
+            "db.user" : "${DB_USER}",
+            "db.password" : "${DB_PASSWORD}",
+            "db.pool_size" : "${DB_POOL_SIZE}",
+            "km.host" : "${KEY_MANAGER_HOST}",
+            "km.port" : "${KEY_MANAGER_PORT}",
+            "sm.host" : "${SESSION_MANAGER_HOST}",
+            "sm.port" : "${SESSION_MANAGER_PORT}",
+            "tks.host" : "${TIKA_SERVER_HOST}",
+            "tks.port" : "${TIKA_SERVER_PORT}",
+            "log4rs.config" : "${CONFIG_BASE}/document-server/log4rs.yaml"
+          }
+        },
+
+        {
+          "description": "File server configuration",
+          "name": "file-server",
+          "properties" : {
+            "server.port" : "${FILE_SERVER_PORT}",
+            "app.ek" : "${CONFIG_BASE}/file-server/cek.key",
+            "db.hostname" : "${DB_HOST}",
+            "db.port" : "${DB_PORT}",
+            "db.name" : "${FS_DB_NAME}",
+            "db.user" : "${DB_USER}",
+            "db.password" : "${DB_PASSWORD}",
+            "db.pool_size" : "${DB_POOL_SIZE}",
+            "km.host" : "${KEY_MANAGER_HOST}",
+            "km.port" : "${KEY_MANAGER_PORT}",
+            "sm.host" : "${SESSION_MANAGER_HOST}",
+            "sm.port" : "${SESSION_MANAGER_PORT}",
+            "ds.host" : "${DOCUMENT_SERVER_HOST}",
+            "ds.port" : "${DOCUMENT_SERVER_PORT}",
+            "tks.host" : "${TIKA_SERVER_HOST}",
+            "tks.port" : "${TIKA_SERVER_PORT}",
+            "log4rs.config" : "${CONFIG_BASE}/file-server/log4rs.yaml"
+          }
+        },
+
+        {
+          "description": "Harbor configuration",
+          "name": "harbor",
+          "properties" : {
+          }
+        },
+
+        {
+          "description": "Doka CLI configuration",
+          "name": "doka-cli",
+          "properties" : {
+            "working.folder": "${CONFIG_BASE}/doka-cli/config",
+            "server.host" : "localhost",
+            "as.port" : "${ADMIN_SERVER_PORT}",
+            "ds.port" : "${DOCUMENT_SERVER_PORT}",
+            "fs.port" : "${FILE_SERVER_PORT}"
+          }
+        }
+      ]
+    }
+  ]
+}

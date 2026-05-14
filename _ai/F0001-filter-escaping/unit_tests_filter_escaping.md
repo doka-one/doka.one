@@ -19,8 +19,7 @@ Syntax (DFS), as specified in [F0001.md](F0001.md) and §6 of
   in the intermediate value produced by the parser;
 - the canonical form printed by the server after unescaping;
 - syntax errors (`InvalidEscapeSequence`) when the escape rules are violated;
-- regression on plain strings and on the `%` wildcard in `LIKE` (see
-  "Open questions").
+- regression on plain strings and on the `%` wildcard in `LIKE`.
 
 System under test: the filter parser in
 [`document-server/src/filter/mod.rs`](../../document-server/src/filter/mod.rs)
@@ -169,8 +168,9 @@ When:
 - the expression is parsed
 
 Then:
-- parsing succeeds (the `%` remains a `LIKE` wildcard)
-- canonical form: `([name<LIKE>den%])`
+- parsing succeeds (the bare `%` is interpreted as the wildcard)
+- AST value: `ValuePattern([Literal("den"), AnySequence])`
+- canonical form: `([name<LIKE>den\%\])`
 
 ## TC-F0001-013 — Literal `#%` inside a `LIKE`
 Given:
@@ -181,7 +181,21 @@ When:
 
 Then:
 - parsing succeeds
-- the literal value is `50%` and stands for a literal `%`, not a wildcard
+- the escaped `#%` is consumed as a literal percent (no wildcard)
+- AST value: `ValuePattern([Literal("50%")])`
+- canonical form: `([code<LIKE>50%])`
+
+## TC-F0001-013b — Wildcard surrounded by literals in a `LIKE`
+Given:
+- filter expression: `name LIKE "%foo#%bar%"`
+
+When:
+- the expression is parsed
+
+Then:
+- parsing succeeds
+- AST value: `ValuePattern([AnySequence, Literal("foo%bar"), AnySequence])`
+- canonical form: `([name<LIKE>\%\foo%bar\%\])`
 
 ## TC-F0001-014 — Preserved historical error: `\` is not an escape
 Given:
@@ -193,24 +207,5 @@ When:
 Then:
 - parsing fails (the `\` has no special status — the first `"` after `\`
   closes the string and the rest is invalid)
-- guards against any regression toward the old `\` escape proposal
-
-- **Error message wording**: F0001 specifies the message
-  `Invalid escape sequence in string literal at position {char_position}`,
-  matching the existing `human_error_message` style (English sentence ending
-  with `at position {char_position}`, no `{}` placeholder for the offending
-  character). The test cases above only assert the substring
-  `Invalid escape sequence in string literal` to keep the position-suffix
-  formatting flexible.
-
-# Coverage vs F0001
-
-| F0001 rule                                                | Test cases                       |
-|-----------------------------------------------------------|----------------------------------|
-| `#"` → `"`                                                | TC-F0001-001, 004, 005           |
-| `#%` → `%`                                                | TC-F0001-002, 004, 005, 013      |
-| `##` → `#`                                                | TC-F0001-003, 004                |
-| `#` not followed by `#`/`%`/`"` is an error               | TC-F0001-007, 008, 009           |
-| Trailing `#` → unterminated string                        | TC-F0001-010                     |
-| Bare forbidden char (`%` outside `LIKE`)                  | TC-F0001-011                     |
-| Regression (plain string, `LIKE` wildcard, `\`)           | TC-F0001-006, 012, 014           |
+- guards against any regression toward the `\` escape idea
+- output the standard error message

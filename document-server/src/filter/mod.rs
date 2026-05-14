@@ -1,5 +1,5 @@
-use crate::filter::filter_ast::{parse_tokens, ComparisonOperator, FilterCondition, FilterExpressionAST};
-use crate::filter::filter_lexer::{lex3, FilterError};
+use crate::filter::filter_ast::{parse_tokens, ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
+use crate::filter::filter_lexer::{lex3, FilterError, PatternPart};
 use crate::filter::filter_normalizer::normalize_lexeme;
 use crate::parser_log;
 use commons_error::*;
@@ -38,7 +38,15 @@ pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<Str
                 ComparisonOperator::LIKE => "LIKE",
             };
 
-            let s = format!("({} {} {})", attribute, sql_op, value);
+            // For a LIKE pattern, render `AnySequence` as the SQL wildcard `%` and
+            // emit literal segments verbatim. Proper escaping of literal `%`/`_`
+            // (with an `ESCAPE` clause) is a separate concern — see F0001.
+            let value_sql = match value {
+                FilterValue::ValuePattern(parts) => render_pattern_for_sql(parts),
+                other => format!("{}", other),
+            };
+
+            let s = format!("({} {} {})", attribute, sql_op, value_sql);
             content.push_str(&s);
         }
         FilterExpressionAST::Logical { operator, leaves } => {
@@ -57,6 +65,17 @@ pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<Str
         }
     }
     Ok(content)
+}
+
+fn render_pattern_for_sql(parts: &[PatternPart]) -> String {
+    let mut s = String::new();
+    for part in parts {
+        match part {
+            PatternPart::Literal(lit) => s.push_str(lit),
+            PatternPart::AnySequence => s.push('%'),
+        }
+    }
+    s
 }
 
 #[cfg(test)]
@@ -302,13 +321,26 @@ mod tests {
     #[test]
     pub fn it_f0001_012_like_wildcard_regression() {
         init_logger();
-        assert_canonical(r#"(name LIKE "den%")"#, "[name<LIKE>den%]");
+        // Bare `%` is the AnySequence wildcard, rendered `\%\` in the canonical form.
+        // AST: ValuePattern([Literal("den"), AnySequence])
+        assert_canonical(r#"(name LIKE "den%")"#, r"[name<LIKE>den\%\]");
     }
 
     #[test]
     pub fn it_f0001_013_literal_percent_inside_like() {
         init_logger();
+        // Escaped `#%` is consumed as a literal percent inside the Literal segment.
+        // AST: ValuePattern([Literal("50%")])
+        // Distinct from `LIKE "50%"` (which would render as `50\%\`).
         assert_canonical(r#"(code LIKE "50#%")"#, "[code<LIKE>50%]");
+    }
+
+    #[test]
+    pub fn it_f0001_013b_like_wildcard_surrounding_literals() {
+        init_logger();
+        // Leading wildcard, embedded escaped percent, trailing wildcard.
+        // AST: ValuePattern([AnySequence, Literal("foo%bar"), AnySequence])
+        assert_canonical(r#"(name LIKE "%foo#%bar%")"#, r"[name<LIKE>\%\foo%bar\%\]");
     }
 
     #[test]

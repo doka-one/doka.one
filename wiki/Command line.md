@@ -260,13 +260,22 @@ Tags deleted from item with id : 459
 **Search items [session]**
 
 ```bash
-dk item search 
-    -f --filter "file_name=*planet*"
+dk item search
+    -f --filter "(file_name LIKE \"planet%\") AND (category == \"astro\")"
 ```
 
 id:459   planet.pdf       category:astro       email_number:789845
 
-> List all the item matching the properties (**todo**)
+> List all items whose properties match the filter. The filter follows the
+> Doka Filter Syntax (DFS) — see `_ai/specs/filter-syntax.md`.
+>
+> Quick reference:
+> - Conditions: `attribute <op> value`, with `<op>` ∈ `== != < <= > >= LIKE`.
+> - String values use double quotes. Inside a string, the characters `"`, `%`
+>   and `#` must be escaped with a leading `#`: `#"`, `#%`, `##`.
+> - In a `LIKE` value, a bare `%` is the wildcard (any sequence). Use `#%` for
+>   a literal percent. A bare `%` is rejected anywhere else.
+> - Combine with `AND` / `OR` and group with `( ... )`.
 
 ---
 

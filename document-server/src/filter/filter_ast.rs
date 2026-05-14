@@ -4,7 +4,7 @@ use std::fmt;
 use crate::filter::filter_lexer::FilterErrorCode::{
     AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected, ValueExpected,
 };
-use crate::filter::filter_lexer::{FilterError, LogicalOperator, Token};
+use crate::filter::filter_lexer::{FilterError, LogicalOperator, PatternPart, Token};
 use commons_error::*;
 use log::*;
 use rs_uuid::uuid8;
@@ -33,6 +33,7 @@ pub(crate) enum ComparisonOperator {
 pub(crate) enum FilterValue {
     ValueInt(i32),
     ValueString(String),
+    ValuePattern(Vec<PatternPart>),
     ValueBool(bool),
 }
 
@@ -44,6 +45,15 @@ impl fmt::Display for FilterValue {
             }
             FilterValue::ValueString(s) => {
                 write!(f, "{}", s.as_str())
+            }
+            FilterValue::ValuePattern(parts) => {
+                for part in parts {
+                    match part {
+                        PatternPart::Literal(s) => write!(f, "{}", s)?,
+                        PatternPart::AnySequence => write!(f, r"\%\")?,
+                    }
+                }
+                Ok(())
             }
             FilterValue::ValueBool(b) => {
                 write!(f, "{}", if *b { "TRUE" } else { "FALSE" })
@@ -249,6 +259,7 @@ fn parse_condition(tokens: &[Token], index: &RefCell<usize>) -> Result<Box<Filte
                         // FIXEME : should keep the position
                         Token::ValueInt(op) => FilterValue::ValueInt(op.clone().token),
                         Token::ValueString(op) => FilterValue::ValueString(op.clone().token),
+                        Token::ValuePattern(op) => FilterValue::ValuePattern(op.clone().token),
                         Token::ValueBool(op) => FilterValue::ValueBool(op.clone().token),
                         _ => {
                             warn!("Must be a token value"); // TODO NORM

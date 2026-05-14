@@ -27,12 +27,26 @@ impl<T> PositionalToken<T> {
     }
 }
 
+/// One segment of a `LIKE` value, as captured by the lexer.
+///
+/// A bare `%` in the source (inside a `LIKE` string literal) becomes an
+/// `AnySequence`. An escaped `#%` is consumed as a literal `%` and ends up
+/// inside the surrounding `Literal(...)` segment. Adjacent literal characters
+/// are merged into a single `Literal`; consecutive `AnySequence` parts are
+/// collapsed into one. See F0001.md for the full spec.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PatternPart {
+    Literal(String),
+    AnySequence,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Token {
     Attribute(PositionalToken<String>),
     Operator(PositionalToken<ComparisonOperator>),
     ValueInt(PositionalToken<i32>),
     ValueString(PositionalToken<String>),
+    ValuePattern(PositionalToken<Vec<PatternPart>>),
     ValueBool(PositionalToken<bool>),
     BinaryLogicalOperator(PositionalToken<LogicalOperator>),
     ConditionOpen(PositionalToken<()>),  // [
@@ -69,6 +83,7 @@ impl Token {
             Token::Operator(p) => p.position,
             Token::ValueInt(p) => p.position,
             Token::ValueString(p) => p.position,
+            Token::ValuePattern(p) => p.position,
             Token::ValueBool(p) => p.position,
             Token::BinaryLogicalOperator(p) => p.position,
             Token::ConditionOpen(p) => p.position,
@@ -84,6 +99,7 @@ impl Token {
             Token::Operator(p) => p.position = (p.position as i32 + nb) as usize,
             Token::ValueInt(p) => p.position = (p.position as i32 + nb) as usize,
             Token::ValueString(p) => p.position = (p.position as i32 + nb) as usize,
+            Token::ValuePattern(p) => p.position = (p.position as i32 + nb) as usize,
             Token::ValueBool(p) => p.position = (p.position as i32 + nb) as usize,
             Token::BinaryLogicalOperator(p) => p.position = (p.position as i32 + nb) as usize,
             Token::ConditionOpen(p) => p.position = (p.position as i32 + nb) as usize,
@@ -125,6 +141,16 @@ impl fmt::Display for Token {
             ),
             Token::ValueInt(pt) => write!(f, "{}", pt.token),
             Token::ValueString(pt) => write!(f, "\"{}\"", pt.token),
+            Token::ValuePattern(pt) => {
+                write!(f, "\"")?;
+                for part in &pt.token {
+                    match part {
+                        PatternPart::Literal(s) => write!(f, "{}", s)?,
+                        PatternPart::AnySequence => write!(f, r"\%\")?,
+                    }
+                }
+                write!(f, "\"")
+            }
             Token::ValueBool(pt) => write!(f, "{}", pt.token),
             Token::BinaryLogicalOperator(pt) => write!(
                 f,
@@ -450,6 +476,10 @@ fn condition_lexer_index(
     let mut fop: String = String::new();
     let mut text_mode = false;
     let mut was_string = false;
+    // text-mode accumulators: build a structured pattern in case the value is for LIKE.
+    // For non-LIKE operators, `append_value` will flatten this into a plain ValueString.
+    let mut pattern_parts: Vec<PatternPart> = Vec::new();
+    let mut lit_buf: String = String::new();
 
     parser_log!(
         "Condition reading start at {}", *index.borrow();
@@ -471,7 +501,14 @@ fn condition_lexer_index(
                         error_code: FilterErrorCode::InvalidLogicalDepth,
                     });
                 } else {
-                    append_value(&mut value, was_string, &mut tokens, *index.borrow(), offset)?;
+                    append_value(
+                        &mut value,
+                        &mut pattern_parts,
+                        was_string,
+                        &mut tokens,
+                        *index.borrow(),
+                        offset,
+                    )?;
                     break;
                 }
             }
@@ -491,11 +528,19 @@ fn condition_lexer_index(
                     }
                     ConditionExpectedLexeme::Value => {
                         if text_mode {
-                            value.push(grapheme_at_index);
+                            // A space inside a string literal — part of the current literal segment.
+                            lit_buf.push(grapheme_at_index);
                         } else {
                             // for non text value, it marks the end of the condition
                             if !value.is_empty() {
-                                append_value(&mut value, false, &mut tokens, *index.borrow(), offset)?;
+                                append_value(
+                                    &mut value,
+                                    &mut pattern_parts,
+                                    false,
+                                    &mut tokens,
+                                    *index.borrow(),
+                                    offset,
+                                )?;
                                 break; // Here is the end of the condition processing
                             }
                         }
@@ -509,13 +554,24 @@ fn condition_lexer_index(
                 );
 
                 if text_mode {
-                    // Cannot exit condition processing if we are in text mode
+                    // Cannot exit condition processing if we are in text mode.
+                    // Char count in the string-in-progress is split between `lit_buf`
+                    // (the literal segment we are currently building) and `pattern_parts`
+                    // (segments already flushed). The `-1` accounts for the opening `"`.
+                    let text_chars: usize = lit_buf.chars().count()
+                        + pattern_parts
+                            .iter()
+                            .map(|p| match p {
+                                PatternPart::Literal(s) => s.chars().count(),
+                                PatternPart::AnySequence => 1,
+                            })
+                            .sum::<usize>();
                     return Err(FilterError {
-                        char_position: *index.borrow() - value.chars().count() - 1,
+                        char_position: *index.borrow() - text_chars - 1,
                         error_code: FilterErrorCode::UnclosedQuote,
                     });
                 }
-                append_value(&mut value, was_string, &mut tokens, *index.borrow(), offset)?;
+                append_value(&mut value, &mut pattern_parts, was_string, &mut tokens, *index.borrow(), offset)?;
                 *index.borrow_mut() -= 1;
                 break;
             }
@@ -562,15 +618,23 @@ fn condition_lexer_index(
                             match c {
                                 '"' => {
                                     parser_log!("COND Read a QUOTE - Exit text mode"; depth);
-                                    append_value(&mut value, true, &mut tokens, *index.borrow(), offset)?;
+                                    flush_lit_buf(&mut lit_buf, &mut pattern_parts);
+                                    append_value(
+                                        &mut value,
+                                        &mut pattern_parts,
+                                        true,
+                                        &mut tokens,
+                                        *index.borrow(),
+                                        offset,
+                                    )?;
                                     break;
                                 }
                                 '#' => {
                                     *index.borrow_mut() += 1;
                                     match read_char_at_index(&index, &input_chars, depth) {
-                                        Some('"') => value.push('"'),
-                                        Some('%') => value.push('%'),
-                                        Some('#') => value.push('#'),
+                                        Some('"') => lit_buf.push('"'),
+                                        Some('%') => lit_buf.push('%'),
+                                        Some('#') => lit_buf.push('#'),
                                         _ => {
                                             return Err(FilterError {
                                                 char_position: *index.borrow() - 1 + offset,
@@ -586,7 +650,11 @@ fn condition_lexer_index(
                                         Some(Token::Operator(pt)) if pt.token == ComparisonOperator::LIKE
                                     );
                                     if is_like {
-                                        value.push('%');
+                                        flush_lit_buf(&mut lit_buf, &mut pattern_parts);
+                                        // collapse consecutive AnySequence into one
+                                        if !matches!(pattern_parts.last(), Some(PatternPart::AnySequence)) {
+                                            pattern_parts.push(PatternPart::AnySequence);
+                                        }
                                     } else {
                                         return Err(FilterError {
                                             char_position: *index.borrow() + offset,
@@ -594,7 +662,7 @@ fn condition_lexer_index(
                                         });
                                     }
                                 }
-                                other => value.push(other),
+                                other => lit_buf.push(other),
                             }
                         } else if c == '"' {
                             text_mode = true;
@@ -848,16 +916,51 @@ fn append_attribute(
     Ok(())
 }
 
+/// Flush the in-progress literal buffer into `pattern_parts` as a new `Literal`
+/// segment, if non-empty. No-op when empty. The buffer is cleared in any case.
+fn flush_lit_buf(lit_buf: &mut String, pattern_parts: &mut Vec<PatternPart>) {
+    if !lit_buf.is_empty() {
+        pattern_parts.push(PatternPart::Literal(std::mem::take(lit_buf)));
+    }
+}
+
 fn append_value(
     value: &mut String,
+    pattern_parts: &mut Vec<PatternPart>,
     is_string: bool,
     tokens: &mut Vec<Token>,
     index: usize,
     offset: usize,
 ) -> Result<(), FilterError> {
     let lexeme = if is_string {
-        let n = value.chars().count();
-        Token::ValueString(PositionalToken::new(value.clone(), index + offset - n))
+        // Total char count of the value as it appeared in the source (without quotes).
+        let n: usize = pattern_parts
+            .iter()
+            .map(|p| match p {
+                PatternPart::Literal(s) => s.chars().count(),
+                PatternPart::AnySequence => 1,
+            })
+            .sum();
+
+        // Use ValuePattern only when the operator we just emitted is LIKE.
+        // For every other operator, bare `%` is forbidden upstream, so
+        // `pattern_parts` contains at most one `Literal` segment.
+        let is_like = matches!(
+            tokens.last(),
+            Some(Token::Operator(pt)) if pt.token == ComparisonOperator::LIKE
+        );
+        if is_like {
+            Token::ValuePattern(PositionalToken::new(std::mem::take(pattern_parts), index + offset - n))
+        } else {
+            let flat: String = pattern_parts
+                .drain(..)
+                .map(|p| match p {
+                    PatternPart::Literal(s) => s,
+                    PatternPart::AnySequence => String::from("%"),
+                })
+                .collect();
+            Token::ValueString(PositionalToken::new(flat, index + offset - n))
+        }
     } else if value == TRUE {
         Token::ValueBool(PositionalToken::new(true, index + offset - TRUE.len()))
     } else if value == FALSE {
@@ -883,7 +986,7 @@ mod tests {
     //cargo test --color=always --bin document-server expression_filter_parser::tests   -- --show-output
 
     use crate::filter::filter_lexer::{
-        lex3, FilterErrorCode, LogicalOperator, PositionalToken, Token, TokenSlice,
+        lex3, FilterErrorCode, LogicalOperator, PatternPart, PositionalToken, Token, TokenSlice,
     };
     use crate::filter::tests::init_logger;
     use crate::filter::ComparisonOperator;
@@ -1043,7 +1146,10 @@ mod tests {
             Token::LogicalOpen(PositionalToken::new((), pos[10])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[11])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[12])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[13])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[13],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[14])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)),
         ];
@@ -1137,7 +1243,10 @@ mod tests {
             Token::LogicalOpen(PositionalToken::new((), pos[14])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[15])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[16])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[17])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[17],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[18])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)), // fixed pos value
         ];
@@ -1168,7 +1277,10 @@ mod tests {
             Token::BinaryLogicalOperator(PositionalToken::new(LogicalOperator::OR, pos[9])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[10])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[11])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[12])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[12],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[13])),
             Token::LogicalClose(PositionalToken::new((), pos[14])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)), // fixed pos value
@@ -1326,7 +1438,10 @@ mod tests {
             Token::LogicalOpen(PositionalToken::new((), pos[10])),
             Token::Attribute(PositionalToken::new("attribut3".to_string(), pos[11])),
             Token::Operator(PositionalToken::new(ComparisonOperator::LIKE, pos[12])),
-            Token::ValueString(PositionalToken::new("den%".to_string(), pos[13])),
+            Token::ValuePattern(PositionalToken::new(
+                vec![PatternPart::Literal("den".to_string()), PatternPart::AnySequence],
+                pos[13],
+            )),
             Token::LogicalClose(PositionalToken::new((), pos[14])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)), // fixed pos value
         ];

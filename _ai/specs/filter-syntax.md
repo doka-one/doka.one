@@ -24,8 +24,8 @@ Notes:
 - There is no `NULL` / missing value — every condition must supply a value.
 - Dates are written as strings in ISO 8601 form (`"YYYY-MM-DD"`) and compared
   lexicographically. There is no dedicated date type.
-- Today, a literal `"`, `%` or `#` cannot appear inside a quoted value. A
-  hash escape (`#"`, `#%`, `##`) is planned — see §6.
+- A literal `"`, `%` or `#` inside a quoted value must be written with a
+  hash escape (`#"`, `#%`, `##`) — see §6.
 
 ### 2. Operators by type
 
@@ -82,16 +82,11 @@ and `age <40` are all accepted.
 | Char    | Role                                                                    |
 |---------|-------------------------------------------------------------------------|
 | `"`     | Delimits a string literal. Required for every string value, including dates. No escape syntax. |
-| `%`     | Wildcard — **only meaningful inside a string used with `LIKE`**. Matches zero or more characters. Example: `name LIKE "den%"`. Outside a `LIKE` value it is just a literal `%`. |
+| `%`     | Wildcard — **only legal as a bare character inside a string used with `LIKE`**, where it matches zero or more characters. Example: `name LIKE "den%"`. A literal `%` (anywhere, including inside a `LIKE` value) must be written `#%`. A bare `%` outside a `LIKE` value is a syntax error (`InvalidEscapeSequence`). |
 | `(` `)` | Logical grouping (see §3).                                              |
 | `#`     | Escape prefix inside a string literal — see §6. Has no meaning outside a string literal. |
 
-### 6. Escaping in text constants (planned — not yet implemented)
-
-> **Status:** specified but not yet implemented in the parser. The current
-> lexer does **not** recognise `#` as an escape character; until this is
-> released, the rules below are forward-looking and the characters listed
-> simply cannot appear in a string value.
+### 6. Escaping in text constants
 
 Inside a string constant `"abcd"`, three characters are forbidden as
 literals because they collide with the filter syntax or with the SQL
@@ -103,7 +98,7 @@ wildcard. They must be escaped with a leading `#`:
 | `%`       | `LIKE` wildcard               | `#%`            |
 | `#`       | The escape character itself   | `##`            |
 
-Examples (future syntax):
+Examples:
 
 - `category == "super #"extra#" player"` — embedded double quotes; the
   string value becomes `super "extra" player`.
@@ -112,14 +107,10 @@ Examples (future syntax):
 - `comment == "see paragraph ##6"` — literal `#`; the value becomes
   `see paragraph #6`.
 
-A `#` inside a string literal **must** be the start of one of the three
-escape sequences above. A `#` that is **not** followed by `#`, `%` or `"`
-is a syntax error (`InvalidEscapeSequence`). For example,
-`"see paragraph #6"` is rejected because the `#` is followed by `6`; the
-correct form is `"see paragraph ##6"`. A trailing `#` at the very end of a
-literal (e.g. `"hello #"`) is also rejected, but as `UnclosedQuote` rather
-than `InvalidEscapeSequence` — the `#"` is consumed as an escaped quote, so
-the string is left unterminated.
+A `#` inside a string literal **must** be the start of one of the three escape sequences above. 
+A `#` that is **not** followed by `#`, `%` or `"` is a syntax error (`InvalidEscapeSequence`).
+    For example, `"see paragraph #6"` is rejected because the `#` is followed by `6`; the correct form is `"see paragraph ##6"`. 
+A trailing `#` at the very end of a literal (e.g. `"hello #"`) is also rejected, but as `UnclosedQuote` rather than `InvalidEscapeSequence` — the `#"` is consumed as an escaped quote, so sthe string is left unterminated.
 
 ### 7. Parenthesis combinations — worked examples
 
@@ -133,10 +124,11 @@ shapes shown are exact.
 | `age < 40 AND (birthdate >= "2001-01-01")`                            | `([age<LT>40]AND[birthdate<GTE>2001-01-01])`                                                    |
 | `(age < 40) OR (question == TRUE)`                                    | `([age<LT>40]OR[question<EQ>TRUE])`                                                             |
 | `age < 40 OR age > 21 AND detail == "bonjour"`                        | `(([age<LT>40]OR[age<GT>21])AND[detail<EQ>bonjour])` *(implicit precedence)*                    |
-| `(attribut3 LIKE "den%")`                                             | `([attribut3<LIKE>den%])`                                                                       |
+| `(attribut3 LIKE "den%")`                                             | `([attribut3<LIKE>den\%\])` — `\%\` is the wildcard; a bare `%` here would mean a literal `%`   |
+| `(code LIKE "50#%")`                                                  | `([code<LIKE>50%])` — `#%` is the literal percent (no wildcard); contrast with the row above    |
 | `((country == "FR" AND (science >= 40)) OR (lost_in_hell == "TRUE"))` | `(([country<EQ>FR]AND[science<GTE>40])OR[lost_in_hell<EQ>TRUE])`                                |
-| `category == "super #"extra#" player"` *(planned, see §6)*            | `([category<EQ>super "extra" player])` — `#"` is unescaped to `"` before the value is printed   |
-| `percent == "less than 10 #%"` *(planned, see §6)*                    | `([percent<EQ>less than 10 %])` — `#%` is unescaped to `%`                                      |
+| `category == "super #"extra#" player"`                                | `([category<EQ>super "extra" player])` — `#"` is unescaped to `"` before the value is printed   |
+| `percent == "less than 10 #%"`                                        | `([percent<EQ>less than 10 %])` — `#%` is unescaped to `%`                                      |
 
 ### 8. Canonical / debug form
 
@@ -151,6 +143,10 @@ know the conventions:
   same level, the server inserts parentheses to make precedence explicit.
 - String values appear **without** their surrounding quotes.
 - Booleans appear as `TRUE` / `FALSE`.
+- For a `LIKE` value, the canonical form distinguishes the wildcard from a
+  literal `%`: the wildcard is printed as `\%\`, while any `%` appearing bare
+  is a literal percent (it can only be there because the source used `#%`).
+  Example: `LIKE "den%"` → `den\%\`, while `LIKE "50#%"` → `50%`.
 
 This is the bridge between what you typed and what the server reports.
 

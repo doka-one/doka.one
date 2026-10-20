@@ -523,8 +523,12 @@ fn condition_lexer_index(
                         append_attribute(&mut attribute, &mut expected_lexeme, &mut tokens, *index.borrow(), offset)?;
                     }
                     ConditionExpectedLexeme::FilterOperator => {
-                        // Add the filter operator and change the expected lexeme to Value
-                        append_fop(&mut fop, &mut expected_lexeme, &mut tokens, *index.borrow(), offset)?;
+                        // B0001: tolerate multiple spaces between the attribute and the operator.
+                        // Mirror the FilterOperator -> Value transition below, which already
+                        // skips spaces while no value character has been read.
+                        if !fop.is_empty() {
+                            append_fop(&mut fop, &mut expected_lexeme, &mut tokens, *index.borrow(), offset)?;
+                        }
                     }
                     ConditionExpectedLexeme::Value => {
                         if text_mode {
@@ -1069,6 +1073,27 @@ mod tests {
             Token::LogicalClose(PositionalToken::new((), pos[4])),
             //Token::LogicalClose(PositionalToken::new((), input.chars().count() + 1)),
         ];
+        assert_eq!(expected, tokens);
+    }
+
+    /// B0001 — Multiple spaces between the attribute and the comparison operator
+    /// must be tolerated, by symmetry with the spaces handled between the
+    /// operator and the value.
+    #[test]
+    pub fn lexer_simple_5_b0001_multispace_before_operator() {
+        init_logger();
+        let pos = vec![1, 2, 13, 15, 17];
+        let input = "(attribut1  > 10)";
+        let tokens = lex3(input).unwrap();
+
+        let expected: Vec<Token> = vec![
+            Token::LogicalOpen(PositionalToken::new((), pos[0])),
+            Token::Attribute(PositionalToken::new("attribut1".to_string(), pos[1])),
+            Token::Operator(PositionalToken::new(ComparisonOperator::GT, pos[2])),
+            Token::ValueInt(PositionalToken::new(10, pos[3])),
+            Token::LogicalClose(PositionalToken::new((), pos[4])),
+        ];
+
         assert_eq!(expected, tokens);
     }
 

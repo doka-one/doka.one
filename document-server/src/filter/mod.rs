@@ -8,6 +8,7 @@ use log::error;
 pub(crate) mod filter_ast;
 pub(crate) mod filter_lexer;
 pub(crate) mod filter_normalizer;
+pub(crate) mod type_resolver;
 
 pub(crate) fn analyse_expression(expression: &str) -> Result<Box<FilterExpressionAST>, FilterError> {
     parser_log!("Analysing the expression : {:?}", expression; 5);
@@ -38,13 +39,7 @@ pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<Str
                 ComparisonOperator::LIKE => "LIKE",
             };
 
-            // For a LIKE pattern, render `AnySequence` as the SQL wildcard `%` and
-            // emit literal segments verbatim. Proper escaping of literal `%`/`_`
-            // (with an `ESCAPE` clause) is a separate concern — see F0001.
-            let value_sql = match value {
-                FilterValue::ValuePattern(parts) => render_pattern_for_sql(parts),
-                other => format!("{}", other),
-            };
+            let value_sql = to_sql_literal(value, operator);
 
             let s = format!("({} {} {})", attribute, sql_op, value_sql);
             content.push_str(&s);
@@ -67,15 +62,72 @@ pub(crate) fn to_sql_form(filter_expression: &FilterExpressionAST) -> Result<Str
     Ok(content)
 }
 
-fn render_pattern_for_sql(parts: &[PatternPart]) -> String {
-    let mut s = String::new();
-    for part in parts {
-        match part {
-            PatternPart::Literal(lit) => s.push_str(lit),
-            PatternPart::AnySequence => s.push('%'),
+/// Render a [`FilterValue`] as a SQL operand (operator + value-literal),
+/// applying the escaping rules of F0002.
+///
+/// Rules applied:
+/// - **Rule 1 — `'` doubling.** Every `'` inside a string value becomes `''`.
+/// - **Rule 2 — non-`LIKE` operators.** For `=`, `<>`, `>`, `>=`, `<`, `<=`,
+///   the characters `%`, `_`, `\`, `"`, `#` have no SQL meaning inside a
+///   single-quoted literal and pass through unchanged.
+/// - **Rule 3 — `LIKE` emission.** `AnySequence` is rendered as the bare
+///   `%` wildcard. Inside `Literal` parts, `%`, `_`, `\` are prefixed with
+///   `\`; if any such escape was emitted, the fragment is suffixed with
+///   ` ESCAPE '\'`.
+/// - **Rule 4 — backslash in non-`LIKE` strings.** Under
+///   `standard_conforming_strings = on`, `\` is a plain character and
+///   passes through unchanged.
+///
+/// Numbers and booleans are emitted as unquoted SQL atoms.
+///
+/// The returned string is ready to be substituted as-is into a SQL
+/// fragment of the form `<column> <op> <here>`.
+pub(crate) fn to_sql_literal(value: &FilterValue, operator: &ComparisonOperator) -> String {
+    if let (ComparisonOperator::LIKE, FilterValue::ValuePattern(parts)) = (operator, value) {
+        let mut body = String::new();
+        let mut needs_escape = false;
+        for part in parts {
+            match part {
+                PatternPart::AnySequence => body.push('%'),
+                PatternPart::Literal(lit) => {
+                    for ch in lit.chars() {
+                        match ch {
+                            '\'' => body.push_str("''"),
+                            '%' | '_' | '\\' => {
+                                body.push('\\');
+                                body.push(ch);
+                                needs_escape = true;
+                            }
+                            _ => body.push(ch),
+                        }
+                    }
+                }
+            }
+        }
+        return if needs_escape {
+            format!("'{}' ESCAPE '\\'", body)
+        } else {
+            format!("'{}'", body)
+        };
+    }
+
+    match value {
+        FilterValue::ValueString(s) => format!("'{}'", s.replace('\'', "''")),
+        FilterValue::ValueInt(i) => i.to_string(),
+        FilterValue::ValueBool(b) => (if *b { "TRUE" } else { "FALSE" }).to_string(),
+        FilterValue::ValueDate(d) => format!("DATE '{}'", d),
+        FilterValue::ValuePattern(parts) => {
+            // Defensive: the parser only emits `ValuePattern` paired with `LIKE`.
+            let mut joined = String::new();
+            for part in parts {
+                match part {
+                    PatternPart::AnySequence => joined.push('%'),
+                    PatternPart::Literal(lit) => joined.push_str(lit),
+                }
+            }
+            format!("'{}'", joined.replace('\'', "''"))
         }
     }
-    s
 }
 
 #[cfg(test)]
@@ -341,6 +393,118 @@ mod tests {
         // Leading wildcard, embedded escaped percent, trailing wildcard.
         // AST: ValuePattern([AnySequence, Literal("foo%bar"), AnySequence])
         assert_canonical(r#"(name LIKE "%foo#%bar%")"#, r"[name<LIKE>\%\foo%bar\%\]");
+    }
+
+    // === IT-F0002 : SQL escaping (DFS → PostgreSQL) ===
+
+    fn assert_sql(input: &str, expected: &str) {
+        match analyse_expression(input) {
+            Ok(ast) => {
+                let sql = super::to_sql_form(ast.as_ref()).unwrap();
+                assert_eq!(expected, &sql, "input `{}`", input);
+            }
+            Err(e) => panic!("Unexpected error for `{}`: {}", input, e.human_error_message()),
+        }
+    }
+
+    #[test]
+    pub fn it_f0002_001_quote_doubling_eq() {
+        init_logger();
+        assert_sql(r#"(name == "d'arc")"#, "(name = 'd''arc')");
+    }
+
+    #[test]
+    pub fn it_f0002_002_special_chars_pass_through() {
+        init_logger();
+        // `#"` is the DFS escape for `"`; after parsing the value is L'"équipe"
+        assert_sql(r#"(team == "L'#"équipe#"")"#, r#"(team = 'L''"équipe"')"#);
+    }
+
+    #[test]
+    pub fn it_f0002_002b_backslash_pass_through_non_like() {
+        init_logger();
+        // Rule 4: `\` is a plain character inside non-LIKE literals.
+        assert_sql(r#"(path == "C:\tmp")"#, r"(path = 'C:\tmp')");
+    }
+
+    #[test]
+    pub fn it_f0002_003_like_pure_wildcard_no_escape() {
+        init_logger();
+        assert_sql(r#"(name LIKE "den%")"#, "(name LIKE 'den%')");
+    }
+
+    #[test]
+    pub fn it_f0002_004_like_literal_percent_with_escape() {
+        init_logger();
+        assert_sql(r#"(code LIKE "50#%")"#, r"(code LIKE '50\%' ESCAPE '\')");
+    }
+
+    #[test]
+    pub fn it_f0002_005_like_quote_and_trailing_wildcard() {
+        init_logger();
+        assert_sql(r#"(name LIKE "L'équipe de moi%")"#, r"(name LIKE 'L''équipe de moi%')");
+    }
+
+    #[test]
+    pub fn it_f0002_006_like_literal_underscore_with_escape() {
+        init_logger();
+        assert_sql(r###"(code LIKE "##_x_%")"###, r"(code LIKE '#\_x\_%' ESCAPE '\')");
+    }
+
+    #[test]
+    pub fn it_f0002_007_like_literal_backslash_with_escape() {
+        init_logger();
+        assert_sql(r#"(path LIKE "C:\path%")"#, r"(path LIKE 'C:\\path%' ESCAPE '\')");
+    }
+
+    #[test]
+    pub fn it_f0002_008_neq_with_quote_doubling() {
+        init_logger();
+        assert_sql(r#"(name != "d'arc")"#, "(name <> 'd''arc')");
+    }
+
+    #[test]
+    pub fn it_f0002_009_non_like_mixed_quote_and_percent() {
+        init_logger();
+        assert_sql(r#"(note == "ain't 100#%")"#, "(note = 'ain''t 100%')");
+    }
+
+    #[test]
+    pub fn it_f0002_010_like_quote_percent_and_escape() {
+        init_logger();
+        assert_sql(r#"(note LIKE "L'eq 50#%")"#, r"(note LIKE 'L''eq 50\%' ESCAPE '\')");
+    }
+
+    #[test]
+    pub fn it_f0002_011_plain_value_regression() {
+        init_logger();
+        assert_sql(r#"(name == "denis")"#, "(name = 'denis')");
+    }
+
+    #[test]
+    pub fn it_f0002_012_empty_string_literal() {
+        init_logger();
+        assert_sql(r#"(note == "")"#, "(note = '')");
+    }
+
+    #[test]
+    pub fn it_f0002_013_composite_and_with_escaping_each_side() {
+        init_logger();
+        assert_sql(
+            r#"(name == "d'arc") AND (code LIKE "50#%")"#,
+            r"((name = 'd''arc') AND (code LIKE '50\%' ESCAPE '\'))",
+        );
+    }
+
+    // === UT-F0005 : Date filter — `to_sql_literal` defensive arm ===
+
+    #[test]
+    pub fn ut_f0005_012_to_sql_literal_value_date() {
+        use crate::filter::filter_ast::{ComparisonOperator, FilterValue};
+        use chrono::NaiveDate;
+        let v = FilterValue::ValueDate(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap());
+        let s = super::to_sql_literal(&v, &ComparisonOperator::EQ);
+        assert_eq!("DATE '2025-12-31'", s);
     }
 
     #[test]

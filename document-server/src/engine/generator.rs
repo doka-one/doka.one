@@ -1,4 +1,6 @@
 use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterExpressionAST, FilterValue};
+use crate::filter::to_sql_literal;
+use crate::filter::type_resolver::{FilterResolutionError, collect_attribute_names, resolve_filter_value_types};
 use axum::async_trait;
 use commons_error::tr_fwd;
 use commons_error::*;
@@ -39,6 +41,17 @@ static LEGAL_OPERATORS_BY_TAG_TYPE: Lazy<HashMap<TagType, Vec<ComparisonOperator
         ],
     );
     map.insert(TagType::Text, vec![ComparisonOperator::EQ, ComparisonOperator::NEQ, ComparisonOperator::LIKE]);
+    map.insert(
+        TagType::Date,
+        vec![
+            ComparisonOperator::EQ,
+            ComparisonOperator::NEQ,
+            ComparisonOperator::GT,
+            ComparisonOperator::GTE,
+            ComparisonOperator::LT,
+            ComparisonOperator::LTE,
+        ],
+    );
     map
 });
 
@@ -55,6 +68,7 @@ pub(crate) struct ConditionStatQuery {
     pub(crate) value_repr: String,
     pub(crate) occurrence: u32,
     pub(crate) count_sql: String,
+    pub(crate) benchmark_sql: String,
 }
 
 #[derive(Debug, Clone)]
@@ -129,18 +143,26 @@ pub(crate) fn build_query_filter(
             }
         }
         FilterExpressionAST::Logical { operator, leaves } => {
-            content.push_str("(");
+            // F0004 rule 3: an empty Logical is the sentinel "match-all"
+            // AST built by the delegate when no effective filter is
+            // provided. Emit `TRUE` so the surrounding `WHERE\n    <fragment>`
+            // template produces valid SQL.
+            if leaves.is_empty() {
+                content.push_str("TRUE");
+            } else {
+                content.push_str("(");
 
-            for (i, l) in leaves.iter().enumerate() {
-                let r_leaf_content = build_query_filter(l, filter_conditions);
-                if let Ok(leaf) = r_leaf_content {
-                    content.push_str(&leaf);
+                for (i, l) in leaves.iter().enumerate() {
+                    let r_leaf_content = build_query_filter(l, filter_conditions);
+                    if let Ok(leaf) = r_leaf_content {
+                        content.push_str(&leaf);
+                    }
+                    if i < leaves.len() - 1 {
+                        content.push_str(&format!(" {:?} ", &operator));
+                    }
                 }
-                if i < leaves.len() - 1 {
-                    content.push_str(&format!(" {:?} ", &operator));
-                }
+                content.push_str(")");
             }
-            content.push_str(")");
         }
     }
     Ok(content)
@@ -152,6 +174,8 @@ pub(crate) enum GenerationError {
     TagTypeUnknown(String),
     TagSearchError(String),
     TagIncompatibleType(String),
+    InvalidDateLiteral { tag: String, value: String },
+    IncompatibleValueShape { tag: String, tag_type: TagType, got: &'static str },
 }
 
 impl fmt::Display for GenerationError {
@@ -226,10 +250,23 @@ fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType
 
     let tag_value_filter = match tag_type {
         TagType::Text => {
-            //unaccent_lower((tv.value_string)::text) LIKE unaccent_lower('ab%')
-            let value = &filter_condition.value.to_string();
-            dbg!(&value);
-            format!("unaccent_lower((tv.value_string)::text) {0} unaccent_lower('{1}')", &sql_op, value)
+            // F0003: route the value literal through `to_sql_literal` (F0002),
+            // then wrap the quoted body in `unaccent_lower(...)`, keeping any
+            // trailing ` ESCAPE '\'` clause OUTSIDE the wrapping — the
+            // ESCAPE clause attaches to the LIKE, not to the function call.
+            //
+            // Examples:
+            //   to_sql_literal -> `'den%'`              => unaccent_lower('den%')
+            //   to_sql_literal -> `'50\%' ESCAPE '\'`   => unaccent_lower('50\%') ESCAPE '\'
+            let literal = to_sql_literal(&filter_condition.value, &filter_condition.operator);
+            let (wrapped_body, escape_suffix) = match literal.find(" ESCAPE '") {
+                Some(pos) => (&literal[..pos], &literal[pos..]),
+                None => (literal.as_str(), ""),
+            };
+            format!(
+                "unaccent_lower((tv.value_string)::text) {0} unaccent_lower({1}){2}",
+                &sql_op, wrapped_body, escape_suffix
+            )
         }
         TagType::Bool => match (&filter_condition.operator, &filter_condition.value) {
             (ComparisonOperator::EQ, FilterValue::ValueBool(true)) => "tv.value_boolean = TRUE".to_string(),
@@ -249,9 +286,15 @@ fn build_tag_value_filter(filter_condition: &FilterCondition, tag_type: &TagType
         TagType::Double => {
             format!("tv.value_double {0} {1}", &sql_op, &filter_condition.value)
         }
-        TagType::Date => {
-            todo!();
-        }
+        TagType::Date => match &filter_condition.value {
+            FilterValue::ValueDate(d) => format!("tv.value_date {} DATE '{}'", sql_op, d),
+            other => {
+                return Err(GenerationError::TagIncompatibleType(format!(
+                    "Tag : {}, expected date literal, got {:?}",
+                    filter_condition.attribute, other
+                )));
+            }
+        },
         TagType::DateTime => {
             todo!();
         }
@@ -296,7 +339,7 @@ fn verify_filter_conditions(
 }
 
 fn build_order_column(
-    order_tags: &Vec<String>,
+    order_tags: &[String],
     map_of_tags_with_occurrence: &HashMap<String, Vec<String>>,
 ) -> Vec<String> {
     order_tags
@@ -343,41 +386,44 @@ fn build_tag_column_with_alias(
         .collect()
 }
 
-/// 🔑 Generate the SQL query from the filter AST
-///    
-///     REF_TAG : DOKA_SEARCH_SQL
-pub(crate) async fn compile_search_query<T: TagDefinitionInterface>(
-    filter_expression_ast: &FilterExpressionAST,
+/// Resolve phase of the search-query pipeline.
+///
+/// Steps: `collect_attribute_names` → load `TagDefinition`s for filter +
+/// order tags → verify every referenced tag exists → `resolve_filter_value_types`
+/// (rewrites `ValueString` → `ValueDate` for `Date` tags).
+///
+/// Returns the typed AST and the owned definitions vector. Callers feed
+/// the pair into `generate_sql_from_resolved`.
+///
+/// REF_TAG : DOKA_SEARCH_SQL
+pub(crate) async fn resolve_filter<T: TagDefinitionInterface>(
+    filter_expression_ast: FilterExpressionAST,
     tag_definition_builder: &T,
-    select_tags: &[String],
-    order_tags: &Vec<String>,
-    _generation_mode: SearchSqlGenerationMode,
+    order_tags: &[String],
     customer_code: &str,
-) -> Result<CompiledSearchQuery, GenerationError> {
-    // Get all the final nodes (leaves), for instance, == (lastname, "a%" )
-    let filter_conditions = extract_all_conditions(&filter_expression_ast).map_err(tr_fwd!())?;
-
-    dbg!(&filter_conditions);
-
-    // Extract all the tags name from each leaves
-    let mut tags: HashSet<_> =
-        filter_conditions.iter().map(|(_, (_, filter_condition))| filter_condition.attribute.clone()).collect();
-
-    tags.extend(order_tags.iter().map(|s| s.to_string()));
+) -> Result<(FilterExpressionAST, Vec<TagDefinition>), GenerationError> {
+    let mut tags: HashSet<String> = collect_attribute_names(&filter_expression_ast);
+    tags.extend(order_tags.iter().cloned());
 
     dbg!(&tags);
 
-    // Find the tag_definitions for the tags used in the filter and in the order by
+    // Find the tag_definitions for the tags used in the filter and in the order by.
+    // F0004: when both the filter AST and order_tags are empty (the "match-all"
+    // case with no ordering), skip the lookup — `search_tags_by_names` builds
+    // an invalid `WHERE name IN ` when given an empty list.
     let tags_list: Vec<String> = tags.iter().cloned().collect();
 
-    let definitions =
+    let definitions = if tags_list.is_empty() {
+        vec![]
+    } else {
         match tag_definition_builder.get_tag_definition(&tags_list, customer_code).await.map_err(tr_fwd!()) {
             Ok(definitions) => definitions,
             Err(e) => {
                 log_error!("Error while getting tag definitions: {:?}", e);
                 return Err(GenerationError::TagSearchError("Error in tag search".to_string()));
             }
-        };
+        }
+    };
 
     dbg!(&definitions);
 
@@ -388,6 +434,39 @@ pub(crate) async fn compile_search_query<T: TagDefinitionInterface>(
             return Err(GenerationError::TagUnknown(tag.clone()));
         }
     }
+
+    // F0005: type-resolve the AST (rewrites ValueString → ValueDate for Date tags)
+    // before any further analysis. From here on, the AST is typed.
+    let resolved = resolve_filter_value_types(filter_expression_ast, definitions).map_err(|e| match e {
+        FilterResolutionError::InvalidDateLiteral { tag, value } => GenerationError::InvalidDateLiteral { tag, value },
+        FilterResolutionError::IncompatibleValueShape { tag, tag_type, got } => {
+            GenerationError::IncompatibleValueShape { tag, tag_type, got }
+        }
+    })?;
+
+    Ok((resolved.ast, resolved.definitions))
+}
+
+/// 🔑 SQL-generation phase of the search-query pipeline.
+///
+/// Consumes the typed AST and definitions produced by `resolve_filter`,
+/// builds the per-condition `LEFT OUTER JOIN`s (plus synthetic joins for
+/// order-only tags), the boolean filter, the ORDER BY columns, and
+/// assembles the final `SELECT` together with per-condition stat queries.
+///
+///     REF_TAG : DOKA_SEARCH_SQL
+pub(crate) async fn generate_sql_from_resolved(
+    filter_expression_ast: FilterExpressionAST,
+    definitions: Vec<TagDefinition>,
+    select_tags: &[String],
+    order_tags: &[String],
+    _generation_mode: SearchSqlGenerationMode,
+    customer_code: &str,
+) -> Result<CompiledSearchQuery, GenerationError> {
+    // Extract all conditions from the resolved (typed) AST.
+    let filter_conditions = extract_all_conditions(&filter_expression_ast).map_err(tr_fwd!())?;
+
+    dbg!(&filter_conditions);
 
     // Verify if the filter conditions are compatible with the tag type
     if let Err(e) = verify_filter_conditions(&filter_conditions, &definitions) {
@@ -426,7 +505,28 @@ pub(crate) async fn compile_search_query<T: TagDefinitionInterface>(
         list_of_query_tags.push(query_tag);
 
         // Add the stats related to the filter condition
-        condition_stats.push(build_condition_stat_query(fc, *occurrence, &tag_value_filter));
+        condition_stats.push(build_condition_stat_query(fc, tag_type, *occurrence, &tag_value_filter));
+    }
+
+    // F0004 rule 4: order_tags that are not already covered by a filter
+    // condition need a synthetic LEFT OUTER JOIN with `AND TRUE`, so the
+    // `ot_<tag>_0.value` reference in the ORDER BY clause resolves.
+    for order_tag in order_tags.iter() {
+        if map_of_tags_with_occurrence.contains_key(order_tag) {
+            continue;
+        }
+        let tag_type = definitions.iter().find(|def| &def.tag_names == order_tag).map(|def| &def.tag_type).unwrap();
+
+        let synthetic_join = QUERY_FILTER_TEMPLATE
+            .replace("{{value_column_name}}", tag_type.value_column_name())
+            .replace("{{tag_name}}", order_tag)
+            .replace("{{tag_value_filter}}", "AND TRUE")
+            .replace("{{tag_super_filter}}", "")
+            .replace("{{occurence}}", "0");
+
+        let tag_occurrence = format!("ot_{}_{}", order_tag, 0);
+        map_of_tags_with_occurrence.entry(order_tag.clone()).or_insert_with(Vec::new).push(tag_occurrence);
+        list_of_query_tags.push(synthetic_join);
     }
 
     // build the query filter aka boolean filter
@@ -480,29 +580,26 @@ pub(crate) async fn compile_search_query<T: TagDefinitionInterface>(
     for condition_stat in &mut condition_stats {
         condition_stat.count_sql =
             condition_stat.count_sql.replace("{customer_schema}", format!("cs_{}", customer_code).as_str());
+        condition_stat.benchmark_sql =
+            condition_stat.benchmark_sql.replace("{customer_schema}", format!("cs_{}", customer_code).as_str());
     }
 
     Ok(CompiledSearchQuery { main_sql: sql_query, condition_stats })
 }
 
 pub(crate) async fn generate_search_sql<T: TagDefinitionInterface>(
-    filter_expression_ast: &FilterExpressionAST,
+    filter_expression_ast: FilterExpressionAST,
     tag_definition_builder: &T,
     select_tags: &[String],
     order_tags: &Vec<String>,
     generation_mode: SearchSqlGenerationMode,
     customer_code: &str,
 ) -> Result<String, GenerationError> {
-    compile_search_query(
-        filter_expression_ast,
-        tag_definition_builder,
-        select_tags,
-        order_tags,
-        generation_mode,
-        customer_code,
-    )
-    .await
-    .map(|compiled| compiled.main_sql)
+    let (resolved_ast, definitions) =
+        resolve_filter(filter_expression_ast, tag_definition_builder, order_tags, customer_code).await?;
+    generate_sql_from_resolved(resolved_ast, definitions, select_tags, order_tags, generation_mode, customer_code)
+        .await
+        .map(|compiled| compiled.main_sql)
 }
 
 /// tag_value_filter and tag_super_filter are side by side to avoid a blank line
@@ -533,6 +630,7 @@ fn build_query_tag(
 
 fn build_condition_stat_query(
     filter_condition: &FilterCondition,
+    tag_type: &TagType,
     occurrence: u32,
     tag_value_filter: &str,
 ) -> ConditionStatQuery {
@@ -546,6 +644,18 @@ JOIN {{customer_schema}}.tag_value tv ON
         &filter_condition.attribute, tag_value_filter
     );
 
+    let benchmark_sql = format!(
+        r#"SELECT tv.{} as value
+FROM {{customer_schema}}.tag_definition td
+JOIN {{customer_schema}}.tag_value tv ON
+    tv.tag_id = td.id
+    AND td."name" = '{}'
+    AND {}"#,
+        tag_type.value_column_name(),
+        &filter_condition.attribute,
+        tag_value_filter
+    );
+
     ConditionStatQuery {
         condition_key: filter_condition.key.clone(),
         attribute: filter_condition.attribute.clone(),
@@ -553,6 +663,7 @@ JOIN {{customer_schema}}.tag_value tv ON
         value_repr: filter_condition.value.to_string(),
         occurrence,
         count_sql,
+        benchmark_sql,
     }
 }
 
@@ -562,8 +673,9 @@ mod tests {
     // cargo test --color=always --bin document-server engine  [ -- --show-output]
 
     use crate::engine::generator::{
-        build_query_filter, build_tag_value_filter, compile_search_query, extract_all_conditions, generate_search_sql,
-        verify_filter_conditions, GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface,
+        GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionInterface, build_query_filter,
+        build_tag_value_filter, extract_all_conditions, generate_search_sql, generate_sql_from_resolved,
+        resolve_filter, verify_filter_conditions,
     };
     use crate::filter::analyse_expression;
     use crate::filter::filter_ast::{ComparisonOperator, FilterCondition, FilterValue};
@@ -584,8 +696,8 @@ mod tests {
     pub(crate) fn init_logger() {
         INIT_LOGGER.call_once(|| {
             if let Err(e) = log4rs::init_file(
-                // "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
-                r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
+                "/home/denis/Projects/wks-doka-one/doka.one/document-server/log4rs.yaml",
+                // r#"C:\Users\gcres\Projects\wks-doka-one\doka.one\document-server\log4rs.yaml"#,
                 Default::default(),
             ) {
                 eprintln!("logger init skipped: {:?}", e);
@@ -694,7 +806,7 @@ mod tests {
         let tag_definition_builder = TagDefinitionBuilderMock {};
 
         let query = generate_search_sql(
-            &filter_expression_ast,
+            *filter_expression_ast,
             &tag_definition_builder,
             &vec!["country".to_string(), "science".to_string(), "is_open".to_string()],
             &vec!["country".to_string(), "science".to_string(), "is_open".to_string()],
@@ -735,7 +847,7 @@ mod tests {
         let filter_expression_ast = analyse_expression(input).unwrap();
         let tag_definition_builder = TagDefinitionBuilderMock2 {};
         let query = generate_search_sql(
-            &filter_expression_ast,
+            *filter_expression_ast,
             &tag_definition_builder,
             &vec!["".to_string()],
             &vec!["lastname".to_string(), "postal_code".to_string()],
@@ -757,9 +869,18 @@ mod tests {
         let filter_expression_ast = analyse_expression(input).unwrap();
         let tag_definition_builder = TagDefinitionBuilderMock2 {};
 
-        let compiled = compile_search_query(
-            &filter_expression_ast,
+        let (resolved_ast, definitions) = resolve_filter(
+            *filter_expression_ast,
             &tag_definition_builder,
+            &vec!["lastname".to_string(), "postal_code".to_string()],
+            "123456",
+        )
+        .await
+        .unwrap();
+
+        let compiled = generate_sql_from_resolved(
+            resolved_ast,
+            definitions,
             &vec!["lastname".to_string()],
             &vec!["lastname".to_string(), "postal_code".to_string()],
             SearchSqlGenerationMode::Persisted,
@@ -782,9 +903,12 @@ mod tests {
         let filter_expression_ast = analyse_expression(r#"(country == "FR")"#).unwrap();
         let tag_definition_builder = TagDefinitionBuilderMock {};
 
-        let compiled = compile_search_query(
-            &filter_expression_ast,
-            &tag_definition_builder,
+        let (resolved_ast, definitions) =
+            resolve_filter(*filter_expression_ast, &tag_definition_builder, &vec![], "123456").await.unwrap();
+
+        let compiled = generate_sql_from_resolved(
+            resolved_ast,
+            definitions,
             &vec!["country".to_string()],
             &vec![],
             SearchSqlGenerationMode::Persisted,
@@ -890,7 +1014,7 @@ mod tests {
         let boolean_filter = build_query_filter(tree1.as_ref(), &all_conditions).unwrap();
         log_debug!("boolean filter: {}", &boolean_filter);
 
-        const EXPECTED : &str = "(( ot_country_0.value is not null  AND  ot_science_0.value is not null ) OR ( ot_is_open_0.value is not null  OR ( ot_country_1.value is not null  AND  ot_science_1.value is not null )))";
+        const EXPECTED: &str = "(( ot_country_0.value is not null  AND  ot_science_0.value is not null ) OR ( ot_is_open_0.value is not null  OR ( ot_country_1.value is not null  AND  ot_science_1.value is not null )))";
         assert_eq!(EXPECTED, &boolean_filter);
     }
 
@@ -948,5 +1072,92 @@ mod tests {
         let sql = build_tag_value_filter(&filter_condition, &TagType::Bool).unwrap();
 
         assert_eq!("tv.value_boolean <> FALSE", sql);
+    }
+
+    // === UT-F0005 : Date filter support ===
+
+    // TC-F0005-007 — `build_tag_value_filter` emits `DATE 'YYYY-MM-DD'` for EQ
+    #[test]
+    pub fn ut_f0005_007_build_tag_value_filter_date_eq() {
+        use chrono::NaiveDate;
+        let fc = FilterCondition {
+            key: "1".to_string(),
+            attribute: "birthdate".to_string(),
+            operator: ComparisonOperator::EQ,
+            value: FilterValue::ValueDate(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap()),
+        };
+
+        let sql = build_tag_value_filter(&fc, &TagType::Date).unwrap();
+
+        assert_eq!("tv.value_date = DATE '2025-12-31'", sql);
+    }
+
+    // TC-F0005-008 — All ordered operators emit the right symbol
+    #[test]
+    pub fn ut_f0005_008_build_tag_value_filter_date_all_operators() {
+        use chrono::NaiveDate;
+        let date = NaiveDate::from_ymd_opt(2025, 12, 31).unwrap();
+        let cases = [
+            (ComparisonOperator::NEQ, "<>"),
+            (ComparisonOperator::GT, ">"),
+            (ComparisonOperator::GTE, ">="),
+            (ComparisonOperator::LT, "<"),
+            (ComparisonOperator::LTE, "<="),
+        ];
+
+        for (op, sym) in cases {
+            let fc = FilterCondition {
+                key: "1".to_string(),
+                attribute: "birthdate".to_string(),
+                operator: op.clone(),
+                value: FilterValue::ValueDate(date),
+            };
+            let sql = build_tag_value_filter(&fc, &TagType::Date).unwrap();
+            assert_eq!(format!("tv.value_date {} DATE '2025-12-31'", sym), sql, "op={:?}", op);
+        }
+    }
+
+    // TC-F0005-009 — Defensive arm rejects non-`ValueDate` values
+    #[test]
+    pub fn ut_f0005_009_build_tag_value_filter_date_defensive() {
+        let fc = FilterCondition {
+            key: "1".to_string(),
+            attribute: "birthdate".to_string(),
+            operator: ComparisonOperator::EQ,
+            value: FilterValue::ValueString("2025-12-31".to_string()),
+        };
+
+        match build_tag_value_filter(&fc, &TagType::Date) {
+            Err(GenerationError::TagIncompatibleType(msg)) => {
+                assert!(msg.contains("birthdate"), "expected attribute name in error, got: {}", msg);
+            }
+            other => panic!("Expected TagIncompatibleType, got {:?}", other),
+        }
+    }
+
+    // TC-F0005-010 — `LIKE` is rejected on a Date tag at the operator-check stage
+    #[test]
+    pub fn ut_f0005_010_verify_filter_conditions_rejects_like_on_date() {
+        use crate::filter::filter_lexer::PatternPart;
+        let definitions = vec![TagDefinition { tag_names: "birthdate".to_string(), tag_type: TagType::Date }];
+
+        let mut filter_conditions = HashMap::new();
+        filter_conditions.insert(
+            "1".to_string(),
+            (
+                0,
+                FilterCondition {
+                    key: "1".to_string(),
+                    attribute: "birthdate".to_string(),
+                    operator: ComparisonOperator::LIKE,
+                    value: FilterValue::ValuePattern(vec![PatternPart::Literal("x".to_string())]),
+                },
+            ),
+        );
+
+        match verify_filter_conditions(&filter_conditions, &definitions) {
+            Err(GenerationError::TagIncompatibleType(_)) => {}
+            other => panic!("Expected TagIncompatibleType, got {:?}", other),
+        }
     }
 }

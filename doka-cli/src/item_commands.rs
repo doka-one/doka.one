@@ -59,8 +59,44 @@ pub(crate) fn search_item(filter: Option<&str>) -> anyhow::Result<()> {
             let _r = show_items(&reply, INLINE); // TODO handle error and use eprint_fwd!
             Ok(())
         }
-        Err(e) => Err(anyhow!("{} - {}", e.http_error_code, e.message)),
+        Err(e) => {
+            render_search_error(filter, &e);
+            // The error has already been rendered to the user; return a silent
+            // sentinel so the caller does not print a second technical line.
+            Err(anyhow!(""))
+        }
     }
+}
+
+/// Render a search-time error in a human-readable form. When the server
+/// returns a filter-parsing error with a 1-indexed character position in
+/// `context[0]`, the offending character of the filter (DFS) is highlighted
+/// in red with a caret underneath. Otherwise the message is printed plain.
+fn render_search_error(filter: Option<&str>, e: &dkdto::api_error::ApiError<'static>) {
+    let position = e.context.first().and_then(|s| s.parse::<usize>().ok());
+
+    if let (Some(filter), Some(pos_1based)) = (filter, position) {
+        let chars: Vec<char> = filter.chars().collect();
+        // Server positions are 1-indexed against the raw filter string; clamp
+        // for safety so we never panic on out-of-range values.
+        let idx = pos_1based.saturating_sub(1).min(chars.len().saturating_sub(1));
+
+        let prefix: String = chars[..idx].iter().collect();
+        let faulty: String = chars.get(idx).map(|c| c.to_string()).unwrap_or_default();
+        let suffix: String = chars[idx.saturating_add(1).min(chars.len())..].iter().collect();
+
+        eprintln!();
+        eprintln!("  Filter:");
+        eprintln!("    {}{}{}", prefix, faulty.red().bold(), suffix);
+        eprintln!("    {}{}", " ".repeat(idx), "^".red().bold());
+        eprintln!("  {}", e.message.as_ref().red());
+        eprintln!();
+        return;
+    }
+
+    eprintln!();
+    eprintln!("  {}", e.message.as_ref().red());
+    eprintln!();
 }
 
 //

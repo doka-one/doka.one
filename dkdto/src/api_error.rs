@@ -10,6 +10,10 @@ pub struct ApiError<'a> {
     pub http_error_code: u16,
     #[serde(borrow)]
     pub message: Cow<'a, str>,
+    /// Optional structured context attached by the producer (e.g. character
+    /// position for filter-parsing errors). Empty for legacy / simple errors.
+    #[serde(default)]
+    pub context: Vec<String>,
 }
 
 impl<'a> Display for ApiError<'a> {
@@ -19,14 +23,21 @@ impl<'a> Display for ApiError<'a> {
 }
 
 impl<'a> ApiError<'a> {
-    pub const fn borrowed(code: u16, msg: &'a str) -> Self {
-        Self { http_error_code: code, message: Cow::Borrowed(msg) }
+    pub fn borrowed(code: u16, msg: &'a str) -> Self {
+        Self { http_error_code: code, message: Cow::Borrowed(msg), context: Vec::new() }
     }
     pub fn owned<S: Into<String>>(code: u16, msg: S) -> Self {
-        Self { http_error_code: code, message: Cow::Owned(msg.into()) }
+        Self { http_error_code: code, message: Cow::Owned(msg.into()), context: Vec::new() }
+    }
+    pub fn owned_with_context<S: Into<String>>(code: u16, msg: S, context: Vec<String>) -> Self {
+        Self { http_error_code: code, message: Cow::Owned(msg.into()), context }
     }
     pub fn into_owned(self) -> ApiError<'static> {
-        ApiError { http_error_code: self.http_error_code, message: Cow::Owned(self.message.into_owned()) }
+        ApiError {
+            http_error_code: self.http_error_code,
+            message: Cow::Owned(self.message.into_owned()),
+            context: self.context,
+        }
     }
 }
 

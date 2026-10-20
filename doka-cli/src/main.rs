@@ -65,8 +65,10 @@ fn extract_option(options: &HashMap<String, Option<String>>, key: &str) -> anyho
     }
 }
 
+const BUILTIN_OBJECTS: &[&str] = &["help", "version", "token", "customer", "session", "item", "file"];
+
 fn is_known_object(commands: &[Command], object: &str) -> bool {
-    commands.iter().any(|command| command.name == object)
+    BUILTIN_OBJECTS.contains(&object) || commands.iter().any(|command| command.name == object)
 }
 
 fn dispatch(params: &Params, commands: &[Command]) -> u16 {
@@ -144,8 +146,10 @@ fn dispatch(params: &Params, commands: &[Command]) -> u16 {
                 .ok()
                 .flatten()
                 .or_else(|| extract_option(&params.options, "--filter").ok().flatten());
-            let err = search_item(o_filter.as_deref()).map_err(eprint_fwd!("Search items failed"));
-            dbg!(&err);
+            // search_item renders its own human-readable error (colored DFS
+            // with a caret on the faulty zone), so we do not wrap with
+            // eprint_fwd! here — that would print a second, redundant line.
+            let err = search_item(o_filter.as_deref());
             success_or_err(err, GET_ITEM_FAILED)
         }
         ("item", "get") => {

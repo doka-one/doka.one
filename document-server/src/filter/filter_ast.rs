@@ -5,6 +5,7 @@ use crate::filter::filter_lexer::FilterErrorCode::{
     AttributeExpected, ClosingExpected, LogicalOperatorExpected, OpeningExpected, OperatorExpected, ValueExpected,
 };
 use crate::filter::filter_lexer::{FilterError, LogicalOperator, PatternPart, Token};
+use chrono::NaiveDate;
 use commons_error::*;
 use log::*;
 use rs_uuid::uuid8;
@@ -35,6 +36,7 @@ pub(crate) enum FilterValue {
     ValueString(String),
     ValuePattern(Vec<PatternPart>),
     ValueBool(bool),
+    ValueDate(NaiveDate),
 }
 
 impl fmt::Display for FilterValue {
@@ -57,6 +59,9 @@ impl fmt::Display for FilterValue {
             }
             FilterValue::ValueBool(b) => {
                 write!(f, "{}", if *b { "TRUE" } else { "FALSE" })
+            }
+            FilterValue::ValueDate(d) => {
+                write!(f, "{}", d)
             }
         }
     }
@@ -892,6 +897,16 @@ mod tests {
                 }
             },
         }
+    }
+
+    // === UT-F0005 : Date filter — Display for ValueDate ===
+
+    #[test]
+    pub fn ut_f0005_011_display_value_date() {
+        use crate::filter::filter_ast::FilterValue;
+        use chrono::NaiveDate;
+        let v = FilterValue::ValueDate(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap());
+        assert_eq!("2025-12-31", format!("{}", v));
     }
 
     #[test]

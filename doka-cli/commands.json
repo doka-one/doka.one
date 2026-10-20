@@ -8,10 +8,7 @@
         "options": [
           {
             "description": "Display help",
-            "flags": [
-              "-h",
-              "--help"
-            ],
+            "flags": ["-h", "--help"],
             "required": false,
             "hasValue": false,
             "key": "help"
@@ -29,10 +26,7 @@
         "options": [
           {
             "description": "Master key of the system",
-            "flags": [
-              "-c",
-              "--cekfile"
-            ],
+            "flags": ["-c", "--cekfile"],
             "required": true,
             "hasValue": true,
             "key": "cekfile"
@@ -50,30 +44,21 @@
         "options": [
           {
             "description": "Customer name",
-            "flags": [
-              "-n",
-              "--name"
-            ],
+            "flags": ["-n", "--name"],
             "required": true,
             "hasValue": true,
             "key": "name"
           },
           {
             "description": "Customer email",
-            "flags": [
-              "-e",
-              "--email"
-            ],
+            "flags": ["-e", "--email"],
             "required": true,
             "hasValue": true,
             "key": "email"
           },
           {
             "description": "Admin user password",
-            "flags": [
-              "-ap",
-              "--admin-password"
-            ],
+            "flags": ["-ap", "--admin-password"],
             "required": true,
             "hasValue": true,
             "key": "admin-password"
@@ -86,10 +71,7 @@
         "options": [
           {
             "description": "Customer name",
-            "flags": [
-              "-n",
-              "--name"
-            ],
+            "flags": ["-n", "--name"],
             "required": true,
             "hasValue": true,
             "key": "name"
@@ -103,24 +85,18 @@
     "sub": [
       {
         "name": "login",
-        "description": "Open a session by logging in with a user name and password",
+        "description": "Open a user session",
         "options": [
           {
-            "description": "User name",
-            "flags": [
-              "-u",
-              "--username"
-            ],
+            "description": "User login",
+            "flags": ["-u", "--username"],
             "required": true,
             "hasValue": true,
             "key": "username"
           },
           {
             "description": "User password",
-            "flags": [
-              "-p",
-              "--password"
-            ],
+            "flags": ["-p", "--password"],
             "required": true,
             "hasValue": true,
             "key": "password"
@@ -137,40 +113,28 @@
         "description": "Create a new item",
         "options": [
           {
-            "flags": [
-              "-n",
-              "--name"
-            ],
+            "flags": ["-n", "--name"],
             "description": "item name",
             "required": true,
             "hasValue": true,
             "key": "name"
           },
           {
-            "flags": [
-              "-fr",
-              "--file-ref"
-            ],
+            "flags": ["-fr", "--file-ref"],
             "description": "File reference",
             "required": false,
             "hasValue": true,
             "key": "_"
           },
           {
-            "flags": [
-              "-pt",
-              "--path"
-            ],
+            "flags": ["-pt", "--path"],
             "description": "File path",
             "required": false,
             "hasValue": true,
             "key": "_"
           },
           {
-            "flags": [
-              "-p",
-              "--properties"
-            ],
+            "flags": ["-p", "--properties"],
             "description": "List of properties",
             "required": false,
             "hasValue": true,
@@ -183,10 +147,7 @@
         "description": "Search items",
         "options": [
           {
-            "flags": [
-              "-f",
-              "--filter"
-            ],
+            "flags": ["-f", "--filter"],
             "description": "Filter expression (e.g. \"category=test\")",
             "required": false,
             "hasValue": true,
@@ -199,9 +160,7 @@
         "description": "Get items info",
         "options": [
           {
-            "flags": [
-              "-id"
-            ],
+            "flags": ["-id"],
             "description": "item identifier",
             "required": true,
             "hasValue": true,
@@ -214,29 +173,21 @@
         "description": "Manage the item tags",
         "options": [
           {
-            "flags": [
-              "-id"
-            ],
+            "flags": ["-id"],
             "description": "item identifier",
             "required": true,
             "hasValue": true,
             "key": "id"
           },
           {
-            "flags": [
-              "-d",
-              "--delete"
-            ],
+            "flags": ["-d", "--delete"],
             "description": "delete the tags",
             "required": false,
             "hasValue": true,
             "key": "d"
           },
           {
-            "flags": [
-              "-u",
-              "--update"
-            ],
+            "flags": ["-u", "--update"],
             "description": "add the tags or change the values",
             "required": true,
             "hasValue": true,
@@ -254,20 +205,14 @@
         "description": "Upload a file",
         "options": [
           {
-            "flags": [
-              "-ii",
-              "--item-info"
-            ],
+            "flags": ["-ii", "--item-info"],
             "description": "Information related to the possible item",
             "required": true,
             "hasValue": true,
             "key": "_"
           },
           {
-            "flags": [
-              "-pt",
-              "--path"
-            ],
+            "flags": ["-pt", "--path"],
             "description": "Path to the file to upload",
             "required": true,
             "hasValue": true,
@@ -280,20 +225,14 @@
         "description": "Download a file",
         "options": [
           {
-            "flags": [
-              "-fr",
-              "--file-reference"
-            ],
+            "flags": ["-fr", "--file-reference"],
             "description": "File reference",
             "required": true,
             "hasValue": true,
             "key": "_"
           },
           {
-            "flags": [
-              "-pt",
-              "--path"
-            ],
+            "flags": ["-pt", "--path"],
             "description": "Path to the file where the content will be downloaded",
             "required": true,
             "hasValue": true,
@@ -306,10 +245,7 @@
         "description": "Information on a file",
         "options": [
           {
-            "flags": [
-              "-fr",
-              "--file-reference"
-            ],
+            "flags": ["-fr", "--file-reference"],
             "description": "File reference",
             "required": true,
             "hasValue": true,
@@ -322,10 +258,7 @@
         "description": "List the files",
         "options": [
           {
-            "flags": [
-              "-m",
-              "--match"
-            ],
+            "flags": ["-m", "--match"],
             "description": "matching pattern",
             "required": true,
             "hasValue": true,
@@ -336,11 +269,8 @@
       {
         "name": "loading",
         "description": "List of the files being uploaded",
-        "options": [
-        ]
+        "options": []
       }
     ]
   }
 ]
-
-

@@ -18,12 +18,15 @@ use doka_cli::request_client::TokenType;
 
 use crate::engine::generator::{
     GenerationError, SearchSqlGenerationMode, TagDefinition, TagDefinitionBuilder, TagDefinitionInterface,
-    compile_search_query, generate_search_sql,
+    generate_search_sql, generate_sql_from_resolved, resolve_filter,
 };
 use crate::filter::analyse_expression;
 use crate::filter::filter_ast::FilterExpressionAST;
-use crate::filter::filter_lexer::FilterError;
+use crate::filter::filter_lexer::{FilterError, LogicalOperator};
 use crate::search::dao::SearchDao;
+
+const IC_COUNT_THRESHOLD: usize = 2_000;
+const IC_TIME_THRESHOLD_MS: u64 = 1_000;
 
 pub(crate) struct SearchDelegate {
     pub session_token: SessionToken,
@@ -59,18 +62,21 @@ impl SearchDelegate {
 
         log_info!("😎 We fetched the session, follower=[{}]", &self.follower);
 
-        let filter_expression_ast: Box<FilterExpressionAST> =
-            try_or_return!(analyse_expression(filter_expression.as_deref().unwrap_or("()")), |e: FilterError| {
+        let filter_expression_ast: Box<FilterExpressionAST> = match normalize_filter_input(filter_expression.as_deref())
+        {
+            None => empty_match_all_ast(),
+            Some(raw) => try_or_return!(analyse_expression(raw), |e: FilterError| {
                 let c = ContextMessage { message: e.human_error_message(), context: vec![e.char_position.to_string()] };
                 WebTypeWithContext::from_simple(StatusCode::BAD_REQUEST.as_u16(), c)
-            });
+            }),
+        };
 
         let tag_definition_builder = TagDefinitionBuilder::new(self.session_token.clone(), self.follower.clone());
         let select_tags = build_select_tags(&filter_expression_ast, &order_tags.clone().unwrap_or_default());
 
         let sql_query = try_or_return!(
             generate_search_sql(
-                &filter_expression_ast,
+                *filter_expression_ast,
                 &tag_definition_builder,
                 &select_tags,
                 &order_tags.unwrap_or(vec![]),
@@ -140,20 +146,38 @@ impl SearchDelegate {
             Self::web_type_error_ctx()
         );
 
-        let filter_expression_ast: Box<FilterExpressionAST> =
-            try_or_return!(analyse_expression(filter_expression.as_deref().unwrap_or("()")), |e: FilterError| {
+        let filter_expression_ast: Box<FilterExpressionAST> = match normalize_filter_input(filter_expression.as_deref())
+        {
+            None => empty_match_all_ast(),
+            Some(raw) => try_or_return!(analyse_expression(raw), |e: FilterError| {
                 let c = ContextMessage { message: e.human_error_message(), context: vec![e.char_position.to_string()] };
                 WebTypeWithContext::from_simple(StatusCode::BAD_REQUEST.as_u16(), c)
-            });
+            }),
+        };
 
         let tag_definition_builder = TagDefinitionBuilder::new(self.session_token.clone(), self.follower.clone());
         let mut select_tags = build_select_tags(&filter_expression_ast, &order_tags.clone().unwrap_or_default());
         extend_select_tags(&mut select_tags, build_query_request.extra_properties.as_deref().unwrap_or_default());
 
-        let compiled_query = try_or_return!(
-            compile_search_query(
-                &filter_expression_ast,
+        let (resolved_ast, definitions) = try_or_return!(
+            resolve_filter(
+                *filter_expression_ast,
                 &tag_definition_builder,
+                &order_tags.clone().unwrap_or_default(),
+                &entry_session.customer_code,
+            )
+            .await,
+            |e: GenerationError| {
+                log_error!("💣 Fail to resolve filter for build-query, [{:?}], follower=[{}]", e, &self.follower);
+                let msg = SimpleMessage::from(e.to_string());
+                WebType::from_simple(StatusCode::BAD_REQUEST.as_u16(), msg).into_with_context()
+            }
+        );
+
+        let compiled_query = try_or_return!(
+            generate_sql_from_resolved(
+                resolved_ast,
+                definitions,
                 &select_tags,
                 &order_tags.clone().unwrap_or_default(),
                 SearchSqlGenerationMode::Persisted,
@@ -211,6 +235,19 @@ impl SearchDelegate {
                 return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
             };
 
+            let benchmark_duration_ms = if matching_item_count < IC_COUNT_THRESHOLD {
+                let Ok(duration_ms) = dao.execute_benchmark_query(&mut trans, &condition_stat_query.benchmark_sql).await else {
+                    log_error!("💣 Cannot execute IC benchmark query, follower=[{}]", &self.follower);
+                    return WebType::from_api_error(&INTERNAL_DATABASE_ERROR).into_with_context();
+                };
+                Some(duration_ms)
+            } else {
+                None
+            };
+
+            let is_ic = matching_item_count < IC_COUNT_THRESHOLD
+                && benchmark_duration_ms.is_some_and(|duration_ms| duration_ms < IC_TIME_THRESHOLD_MS);
+
             condition_stats.push(BuildQueryConditionStat {
                 condition_key: condition_stat_query.condition_key.clone(),
                 attribute: condition_stat_query.attribute.clone(),
@@ -218,7 +255,10 @@ impl SearchDelegate {
                 value: condition_stat_query.value_repr.clone(),
                 occurrence: condition_stat_query.occurrence,
                 count_query: condition_stat_query.count_sql.clone(),
+                benchmark_query: condition_stat_query.benchmark_sql.clone(),
                 matching_item_count,
+                benchmark_duration_ms,
+                is_ic,
             });
         }
 
@@ -307,4 +347,22 @@ fn extend_select_tags(select_tags: &mut Vec<String>, extra_tags: &[String]) {
             select_tags.push(tag.clone());
         }
     }
+}
+
+/// F0004 rule 1: the four equivalent "no-filter" wire forms — omitted,
+/// empty, whitespace-only, and explicit `()` — collapse to `None`. Any
+/// other value is forwarded to `analyse_expression` unchanged so the
+/// existing 400 contract for malformed input is preserved.
+fn normalize_filter_input(raw: Option<&str>) -> Option<&str> {
+    match raw.map(str::trim) {
+        None | Some("") | Some("()") => None,
+        Some(s) => Some(s),
+    }
+}
+
+/// F0004 rule 2: build the sentinel "match-all" AST without introducing a
+/// new enum variant. `build_query_filter` recognises an empty `Logical`
+/// and emits `TRUE`.
+fn empty_match_all_ast() -> Box<FilterExpressionAST> {
+    Box::new(FilterExpressionAST::Logical { operator: LogicalOperator::AND, leaves: vec![] })
 }

@@ -150,6 +150,14 @@ impl TagDelegate {
         tag_names: &[String],
         customer_code: &str,
     ) -> anyhow::Result<Vec<TagElement>> {
+        // F0004: with no filter and no order_tags, callers pass an empty
+        // list. The IN-clause builder below would otherwise emit
+        // `WHERE name IN ` (no values), which is a PostgreSQL syntax
+        // error.
+        if tag_names.is_empty() {
+            return Ok(vec![]);
+        }
+
         let mut params = HashMap::new();
 
         // Build a dynamic IN(:p_name_0, :p_name_1, ...)

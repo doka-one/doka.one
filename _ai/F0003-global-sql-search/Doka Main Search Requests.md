@@ -12,7 +12,7 @@
 ```sql
 --- Solution 2
 
--- (active == true and ( my_email like %inc.com or title LIKE 'ba%' ))
+-- DFS: (active == true AND ( my_email LIKE "%inc.com" OR title LIKE "ba%" ))
 
 SELECT i.id,
        name,
@@ -233,7 +233,7 @@ WHERE unaccent_lower((value_string)::text) LIKE unaccent_lower('ba%');
 
 ## CASE 1
 
-CASE 1 `(active == true AND postal_code = 30500)`
+CASE 1 `(active == true AND postal_code == 30500)`
 
 Count queries:
 
@@ -284,7 +284,7 @@ offset 0 limit 10;
 
 ## CASE 2
 
-CASE 2 `(active == true AND lastname LIKE 'ao%')`
+CASE 2 `(active == true AND lastname LIKE "ao%")`
 
 Count query:
 
@@ -330,7 +330,7 @@ offset 0 limit 10;
 
 ## CASE 3
 
-CASE 3 `(active == true AND lastname LIKE 'a%')`
+CASE 3 `(active == true AND lastname LIKE "a%")`
 
 Count query:
 
@@ -380,7 +380,7 @@ offset 10 limit 10;
 
 ## CASE 4
 
-CASE 4 `lastname LIKE 'ab%'`
+CASE 4 `lastname LIKE "ab%"`
 
 Main query:
 
@@ -415,7 +415,7 @@ offset 0 limit 20;
 
 ## CASE 5
 
-CASE 5 `lastname LIKE 'h%' and postal_code = 30099`
+CASE 5 `lastname LIKE "h%" AND postal_code == 30099`
 
 Main query:
 
@@ -451,7 +451,7 @@ offset 0 limit 50;
 
 ## CASE 6
 
-CASE 6 `lastname LIKE 'ab%' OR  (postal_code = 30099 AND lastname LIKE 'h%')`
+CASE 6 `lastname LIKE "ab%" OR  (postal_code == 30099 AND lastname LIKE "h%")`
 
 Main query:
 
@@ -554,10 +554,9 @@ OFFSET 400 LIMIT 500;
 ## CASE 8
 
 CASE 8
-`lastname LIKE 'ab%' AND  (postal_code = 30099 OR lastname LIKE '%h%') : : 0.038 s`
+`lastname LIKE "ab%" AND  (postal_code == 30099 OR lastname LIKE "%h%") : 0.038 s`
 
-Note : il n'est intéressant de distribuer la condition 1 : (lastname LIKE 'ab%' AND postal_code = 30099) OR (lastname
-LIKE 'ab%' AND lastname LIKE '%h%') : 0.366 s`
+Note : il n'est intéressant de distribuer la condition 1 : `(lastname LIKE "ab%" AND postal_code == 30099) OR (lastname LIKE "ab%" AND lastname LIKE "%h%") : 0.366 s`
 
 Count queries:
 
@@ -627,9 +626,3 @@ where (ot_lastname_ab.value is not null)
 ORDER BY COALESCE(ot_lastname_ab.value, ot_lastname_h.value) DESC
 offset 400 limit 10;
 ```
-
-## Bulk Data Generator
-
-The bulk data setup and generators were extracted to:
-
-- [Routines for Bulk Data.md](/home/denis/Projects/wks-doka-one/doka.one/document-server/Routines%20for%20Bulk%20Data.md)

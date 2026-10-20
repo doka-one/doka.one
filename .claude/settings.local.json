@@ -5,7 +5,15 @@
       "Bash(ls \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\\\\test_9\" \"C:\\\\Users\\\\gcres\\\\doka_install_test\\\\doka-configs\" 2>&1)",
       "Bash(cargo build *)",
       "Bash(cargo test *)",
-      "Bash(ls ../wiki/ 2>&1)"
+      "Bash(ls ../wiki/ 2>&1)",
+      "Bash(cargo check *)",
+      "Bash(cat /home/denis/Dropbox/DOKA-CONFIG/test_03/doka-test/.doka-config.json)",
+      "Bash(find /home/denis/Dropbox/DOKA-CONFIG -name \".doka-config.json\" 2>/dev/null)",
+      "Bash(DOKA_UT_ENV=/home/denis/.doka-config.json cargo test --test F0003-global-sql-search t100_f0003_date_as_string_gte -- --nocapture)",
+      "Bash(DOKA_UT_ENV=/home/denis/.doka-config.json DOKA_CLUSTER_PROFILE=dev_02 cargo test --test F0003-global-sql-search t100_f0003_date_as_string_gte -- --nocapture)",
+      "Bash(curl -s -o /dev/null -w \"admin %{http_code}\\\\n\" http://localhost:30060/admin/health)",
+      "Bash(curl -s -o /dev/null -w \"document %{http_code}\\\\n\" http://localhost:30070/document/health)",
+      "Bash(DOKA_UT_ENV=/home/denis/.doka-config.json DOKA_CLUSTER_PROFILE=dev_02 cargo test --test F0003-global-sql-search -- --test-threads=1)"
     ]
   }
 }

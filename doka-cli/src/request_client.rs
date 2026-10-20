@@ -16,10 +16,11 @@ use dkdto::api_error::ApiError;
 use dkdto::error_codes::HTTP_CLIENT_ERROR;
 use dkdto::web_types::{
     AddItemReply, AddItemRequest, AddItemTagReply, AddItemTagRequest, AddKeyReply, AddKeyRequest, AddTagReply,
-    AddTagRequest, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply, DeleteFullTextRequest, FullTextReply,
-    FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply, GetTagReply, ListOfFileInfoReply,
-    ListOfUploadInfoReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply, OpenSessionRequest, SessionReply,
-    SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse, WebTypeBuilder,
+    AddTagRequest, ContextMessage, CreateCustomerReply, CreateCustomerRequest, CustomerKeyReply,
+    DeleteFullTextRequest, FullTextReply, FullTextRequest, GetFileInfoReply, GetFileInfoShortReply, GetItemReply,
+    GetTagReply, ListOfFileInfoReply, ListOfUploadInfoReply, LoginReply, LoginRequest, MediaBytes, OpenSessionReply,
+    OpenSessionRequest, SessionReply, SimpleMessage, TikaMeta, TikaParsing, UploadReply, WebResponse,
+    WebTypeBuilder,
 };
 
 /// TODO This file should be in Dkdto, so we could reuse it without the doka-cli module  
@@ -49,6 +50,26 @@ impl TokenType {
     }
 }
 const LAPS: u32 = 2_000;
+
+/// Best-effort decoding of a non-2xx HTTP response body into an `ApiError`.
+/// Tries `ContextMessage` (message + structured context array) first, then
+/// `SimpleMessage`, then raw text, then falls back to the static client-error
+/// message. The `context` field of the returned `ApiError` is preserved so
+/// callers can render rich diagnostics (e.g. point at the offending character
+/// in a filter expression).
+fn extract_api_error(status: u16, body: &str) -> ApiError<'static> {
+    if let Ok(ctx) = serde_json::from_str::<ContextMessage>(body) {
+        return ApiError::owned_with_context(status, ctx.message, ctx.context);
+    }
+    if let Ok(simple) = serde_json::from_str::<SimpleMessage>(body) {
+        return ApiError::owned(status, simple.message);
+    }
+    let trimmed = body.trim();
+    if !trimmed.is_empty() {
+        return ApiError::owned(status, trimmed.to_string());
+    }
+    ApiError::owned(status, HTTP_CLIENT_ERROR.message.to_string())
+}
 
 #[derive(Clone)]
 struct WebServer {
@@ -98,14 +119,10 @@ impl WebServer {
     ) -> anyhow::Result<WebResponse<V>> {
         let wt = match request_builder.send() {
             Ok(v) => {
-                // dbg!(&v);
                 let status_code = v.status();
-                // dbg!(&status_code);
                 let wt = if status_code.as_u16() >= 300 {
-                    Err(ApiError::borrowed(
-                        status_code.as_u16(),
-                        HTTP_CLIENT_ERROR.message.as_ref(), // reuse the static message
-                    ))
+                    let body = v.text().unwrap_or_default();
+                    Err(extract_api_error(status_code.as_u16(), &body))
                 } else {
                     let value: Result<V, reqwest::Error> = v.json(); // TODO
                     let v_value = value.unwrap();
@@ -831,5 +848,56 @@ mod test {
 
         println!("Original URL: {}", original_url);
         println!("Encoded URL: {}", encoded_url);
+    }
+}
+
+/// B0002 — unit tests for [`extract_api_error`]. Kept in a dedicated module so
+/// they do not depend on the runtime test fixtures of `mod test`.
+#[cfg(test)]
+mod error_extraction_tests {
+    use super::extract_api_error;
+
+    #[test]
+    fn context_message_preserves_position_in_context_vec() {
+        let body = r#"{"message":"Unknown filter operator at position 12","context":["12"]}"#;
+        let err = extract_api_error(400, body);
+        assert_eq!(err.http_error_code, 400);
+        assert_eq!(err.message, "Unknown filter operator at position 12");
+        assert_eq!(err.context, vec!["12".to_string()]);
+    }
+
+    #[test]
+    fn context_message_without_context_is_surfaced_plain() {
+        let body = r#"{"message":"Session expired","context":[]}"#;
+        let err = extract_api_error(401, body);
+        assert_eq!(err.message, "Session expired");
+        assert!(err.context.is_empty());
+    }
+
+    #[test]
+    fn simple_message_is_surfaced() {
+        let body = r#"{"message":"Bad request"}"#;
+        let err = extract_api_error(400, body);
+        assert_eq!(err.message, "Bad request");
+        assert!(err.context.is_empty());
+    }
+
+    #[test]
+    fn raw_text_body_is_surfaced() {
+        let err = extract_api_error(502, "Bad Gateway");
+        assert_eq!(err.message, "Bad Gateway");
+        assert_eq!(err.http_error_code, 502);
+    }
+
+    #[test]
+    fn empty_body_falls_back_to_static_message() {
+        let err = extract_api_error(500, "");
+        assert_eq!(err.message, "Http Client Error");
+    }
+
+    #[test]
+    fn whitespace_only_body_falls_back_to_static_message() {
+        let err = extract_api_error(500, "   \n  ");
+        assert_eq!(err.message, "Http Client Error");
     }
 }

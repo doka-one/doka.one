@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 use std::time::SystemTime;
 
 use anyhow::anyhow;
@@ -87,6 +88,20 @@ impl SearchDao {
 
         let item_count: i64 = sql_result.get_int("value").ok_or(anyhow!("Wrong value count"))?;
         Ok(item_count as usize)
+    }
+
+    pub(crate) async fn execute_benchmark_query(
+        &self,
+        trans: &mut SQLTransactionAsync<'_>,
+        sql_query: &str,
+    ) -> anyhow::Result<u64> {
+        let query = SQLQueryBlockAsync { sql_query: sql_query.to_string(), start: 0, length: None, params: HashMap::new() };
+
+        let started_at = Instant::now();
+        let _sql_result: SQLDataSet =
+            query.execute(trans).await.map_err(err_fwd!("Benchmark query failed, [{}]", &query.sql_query))?;
+
+        Ok(started_at.elapsed().as_millis() as u64)
     }
 
     pub(crate) async fn persist_compiled_query(
@@ -287,9 +302,9 @@ WHERE compiled_query_id = :p_compiled_query_id"#,
     ) -> anyhow::Result<()> {
         let sql_query = format!(
             r#"INSERT INTO cs_{}.compiled_query_condition
-                (compiled_query_id, condition_key, attribute_name, operator, value_text, occurrence, count_sql, matching_item_count, is_ic, superfilter_sql, created_gmt, last_modified_gmt)
+                (compiled_query_id, condition_key, attribute_name, operator, value_text, occurrence, matching_item_count, benchmark_duration_ms, is_ic, superfilter_sql, created_gmt, last_modified_gmt)
               VALUES
-                (:p_compiled_query_id, :p_condition_key, :p_attribute_name, :p_operator, :p_value_text, :p_occurrence, :p_count_sql, :p_matching_item_count, :p_is_ic, :p_superfilter_sql, :p_created_gmt, :p_last_modified_gmt)"#,
+                (:p_compiled_query_id, :p_condition_key, :p_attribute_name, :p_operator, :p_value_text, :p_occurrence, :p_matching_item_count, :p_benchmark_duration_ms, :p_is_ic, :p_superfilter_sql, :p_created_gmt, :p_last_modified_gmt)"#,
             customer_code
         );
 
@@ -303,12 +318,15 @@ WHERE compiled_query_id = :p_compiled_query_id"#,
             params.insert("p_operator".to_string(), CellValue::from_raw_string(condition_stat.operator.clone()));
             params.insert("p_value_text".to_string(), CellValue::from_raw_string(condition_stat.value.clone()));
             params.insert("p_occurrence".to_string(), CellValue::from_raw_int_32(condition_stat.occurrence as i32));
-            params.insert("p_count_sql".to_string(), CellValue::from_raw_string(condition_stat.count_query.clone()));
             params.insert(
                 "p_matching_item_count".to_string(),
                 CellValue::from_raw_int(condition_stat.matching_item_count as i64),
             );
-            params.insert("p_is_ic".to_string(), CellValue::Bool(None));
+            params.insert(
+                "p_benchmark_duration_ms".to_string(),
+                CellValue::Int(condition_stat.benchmark_duration_ms.map(|value| value as i64)),
+            );
+            params.insert("p_is_ic".to_string(), CellValue::Bool(Some(condition_stat.is_ic)));
             params.insert("p_superfilter_sql".to_string(), CellValue::String(None));
             params.insert("p_created_gmt".to_string(), CellValue::from_raw_systemtime(now));
             params.insert("p_last_modified_gmt".to_string(), CellValue::from_raw_systemtime(now));
